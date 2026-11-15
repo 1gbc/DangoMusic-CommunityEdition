@@ -300,7 +300,7 @@ internal class TracksPage(private val screen: MusicScreen) {
         val p = state.opened
         if (state.page == Page.PLAYLIST && p != null) {
             val cv = LayoutBounds(x, y, 96f, 96f)
-            ui.drawCover(cv, CoverCache.playlistRounded(p, 0.1f), 12f)
+            ui.drawCover(cv, CoverCache.playlistRoundedLarge(p, 0.1f), 12f)
             x = cv.right + 18f
             headerH = 112f
         }
@@ -325,7 +325,7 @@ internal class TracksPage(private val screen: MusicScreen) {
         }
         ui.text(sub, x, y + 34f, 11f, Theme.TEXT_SECONDARY, Theme.FONT_SEMIBOLD)
         // 歌单还在加载：知道总数就按比例走（平滑地追上去），不知道就来回滑，表示没卡住
-        // 已经先显示了一部分时，进度条挪到"播放全部"右边，不和按钮重叠
+        // 已经先显示了一部分时（下面已经有"播放全部"和"心动模式"按钮），进度条放到"已加载 x / y 首"这行字的右边
         val partial = tracks != null && partiallyLoaded()
         if ((tracks == null || partial) && state.page != Page.SEARCH && state.page != Page.QUEUE) {
             val pr = loadingProgress()
@@ -336,9 +336,11 @@ internal class TracksPage(private val screen: MusicScreen) {
             }
             val target = pr?.takeIf { it[1] > 0 }?.let { (it[0].toFloat() / it[1]).coerceIn(0f, 1f) }
             val shownFraction = target?.let { loadBar.tick(it) }
-            val barX = if (partial) x + ui.width(I18n.text("Play all"), 12f, Theme.FONT_SEMIBOLD) + 44f + 14f else x
-            val barY = if (partial) y + (if (headerH > 100f) 64f else 52f) + 7f else y + 54f
-            ui.progressBar(LayoutBounds(barX, barY, 180f, 4f), shownFraction)
+            val barX = if (partial) x + ui.width(sub, 11f, Theme.FONT_SEMIBOLD) + 12f else x
+            val barY = if (partial) y + 38f else y + 54f
+            // 窗口窄时别伸到右上角的"列表 / 封面墙"切换下面
+            val barW = minOf(if (partial) 140f else 180f, page.right - segW - 12f - barX)
+            if (barW >= 40f) ui.progressBar(LayoutBounds(barX, barY, barW, 4f), shownFraction)
         }
 
         // 播放全部
@@ -346,7 +348,8 @@ internal class TracksPage(private val screen: MusicScreen) {
             val label = I18n.text("Play all")
             val pb = LayoutBounds(x, y + (if (headerH > 100f) 64f else 52f) - 6f, ui.width(label, 12f, Theme.FONT_SEMIBOLD) + 44f, 30f)
             ctx.drawShape(pb, ShapeStyle(if (ui.hover(pb)) RED.copy(a = 0.85f) else RED, 15f))
-            ui.icon("▶", pb.x + 17f, pb.y + 15f, 11f, Theme.TEXT_PRIMARY)
+            // 图标用矢量（字体里的 ▶ ♡ 小字号下位置不准，会显得歪）
+            PlayerIcons.draw(ctx, PlayerIcons.play, pb.x + 18f, pb.y + pb.height / 2f, 13f, Theme.TEXT_PRIMARY)
             ui.text(label, pb.x + 30f, pb.y + 9f, 12f, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
             ui.hits += pb to {
                 val continuation = radio()
@@ -357,8 +360,11 @@ internal class TracksPage(private val screen: MusicScreen) {
             }
             if (liked != null) {
                 val heartLabel = I18n.text(if (Library.heartLoading) "Loading Heart mode…" else "Heart mode")
-                val heart = LayoutBounds(pb.right + 8f, pb.y, ui.width(heartLabel, 12f) + 42f, pb.height)
-                ui.pill(heart, RED, heartLabel, "♡") { Library.playHeartMode(liked) }
+                val heart = LayoutBounds(pb.right + 8f, pb.y, ui.width(heartLabel, 12f, Theme.FONT_SEMIBOLD) + 46f, pb.height)
+                ctx.drawShape(heart, ShapeStyle(if (ui.hover(heart)) RED.copy(a = 0.85f) else RED, heart.height / 2f))
+                PlayerIcons.draw(ctx, PlayerIcons.heartOutline, heart.x + 19f, heart.y + heart.height / 2f, 15f, Theme.TEXT_PRIMARY)
+                ui.text(heartLabel, heart.x + 32f, heart.y + 9f, 12f, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
+                ui.hits += heart to { Library.playHeartMode(liked) }
             }
             if (headerH < 100f) headerH = 92f
         }
@@ -621,7 +627,10 @@ internal class TracksPage(private val screen: MusicScreen) {
             val a = (1f - min(ad, 4f) * 0.2f).coerceAtLeast(0.15f) * edgeFade(item.b)
             if (a < 0.01f) continue
             ui.ctx.pushOpacity(a)
-            ui.drawCover(item.b, CoverCache.trackRounded(tracks[item.i], 0.08f), 12f)
+            // 中间几张很大，用高清版；两边远处的缩得很小，小图就够
+            val cover = if (ad < 2.5f) CoverCache.trackRoundedLarge(tracks[item.i], 0.08f)
+                else CoverCache.trackRounded(tracks[item.i], 0.08f)
+            ui.drawCover(item.b, cover, 12f)
             if (ad > 0.5f) ui.card(item.b, Color(0f, 0f, 0f, min(0.45f, ad * 0.18f)), 2f)
             ui.ctx.popOpacity()
         }

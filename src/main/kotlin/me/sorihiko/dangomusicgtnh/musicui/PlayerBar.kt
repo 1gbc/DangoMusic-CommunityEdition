@@ -84,7 +84,10 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         if (!lyricsOpen) drawPanel(bar)
         val snap = PlaybackView.snapshot()
         val t = snap.track
-        val ry = if (UiStyle.continuous) bar.y + 34f else bar.y + bar.height / 2f + 3f
+        // 连续圆角：播放栏的排版是 Alivn-chao 单独设计的（底部进度条），保持原样。
+        // 经典：左边歌曲信息、右边音量和音质垂直居中；中间一列是控制按钮 + 下面的进度条（见 CONTROL_Y / PROGRESS_Y）
+        val continuous = UiStyle.continuous
+        val ry = if (continuous) bar.y + 34f else bar.y + bar.height / 2f
 
         // 左：封面 + 歌名 / 歌手
         val cs = 48f
@@ -210,7 +213,7 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         }
 
         // 中：上一首 / 播放 / 下一首 / 队列。点击区域固定，动画只改画出来的样子
-        val cy = ry
+        val cy = if (continuous) ry else bar.y + CONTROL_Y
         val playB = LayoutBounds(cx - 24f, cy - 24f, 48f, 48f)
         val prevB = LayoutBounds(cx - 62f - 16f, cy - 16f, 32f, 32f)
         val nextB = LayoutBounds(cx + 62f - 16f, cy - 16f, 32f, 32f)
@@ -262,7 +265,9 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
             }
         }
 
-        drawProgress(bar, snap, lyricsOpen)
+        if (continuous) drawContinuousProgress(bar, snap, lyricsOpen)
+        else drawProgress(bar, snap, lyricsOpen, (modeButton.x + stopB.right) / 2f,
+            if (showCover) coverBox.right + 14f else bar.x + 20f)
         if (System.nanoTime() < playbackNoticeUntil) {
             val font = Theme.FONT_SEMIBOLD
             val text = ui.trim(playbackNotice, (bar.width - 28f).coerceAtLeast(0f), 11f, font)
@@ -594,37 +599,33 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
     }
 
 
-    private fun drawProgress(bar: LayoutBounds, snap: PlaybackView.Snapshot, lyricsOpen: Boolean) {
+    /**
+     * 连续圆角风格的进度条：Alivn-chao 的设计，和 PR #20 合并时完全一样（播放栏底部一条细轨道，
+     * 左上方是已播放时间、右上方是总时长）。这里只是从原来两种风格共用的函数里把连续圆角那一支原样拆出来，
+     * 改连续圆角的样式请找他。
+     */
+    private fun drawContinuousProgress(bar: LayoutBounds, snap: PlaybackView.Snapshot, lyricsOpen: Boolean) {
         val duration = snap.durationMs
         if (seekTrack != null && seekTrack != snap.track?.key) seekTrack = null
         val seeking = seekTrack != null
-        val bottom = UiStyle.continuous
-        val y = if (bottom) bar.bottom - 9.5f else bar.y + 6f
-        val panel = bar.takeUnless { lyricsOpen || bottom }
-        val inset = when {
-            bottom -> PROGRESS_INSET.coerceAtMost(bar.width / 4f)
-            panel != null -> progressInset(bar)
-            else -> 0f
-        }
+        val y = bar.bottom - 9.5f
+        val inset = PROGRESS_INSET.coerceAtMost(bar.width / 4f)
         progRect = LayoutBounds(bar.x + inset, y - 3f, bar.width - inset * 2f, 6f)
-        progressHit = if (bottom) progRect.expand(0f, 6f) else LayoutBounds(bar.x, y - 9f, bar.width, 18f)
+        progressHit = progRect.expand(0f, 6f)
         val hover = progressHit.contains(ui.mx, ui.my) && !menuContains(ui.mx, ui.my)
         val show = duration > 0L && (seeking || hover || System.nanoTime() < showTimeUntil)
         val knob = progKnob.tick(if (show) 1f else 0f).coerceIn(0f, 1f)
-        val height = (if (bottom) 3f else 4f) + 2f * knob
-        val lane = if (bottom) LayoutBounds(progRect.x, y - height / 2f, progRect.width, height)
-            else LayoutBounds(bar.x, y - height / 2f, bar.width, height)
-        val laneRadius = if (bottom) height / 2f else 0f
-        ui.ctx.drawShape(lane, ShapeStyle(Color(1f, 1f, 1f, if (bottom) 0.08f else 0.34f),
-            laneRadius, clipBounds = panel, clipRadius = BAR_GLASS.radius))
+        val height = 3f + 2f * knob
+        val lane = LayoutBounds(progRect.x, y - height / 2f, progRect.width, height)
+        val laneRadius = height / 2f
+        ui.ctx.drawShape(lane, ShapeStyle(Color(1f, 1f, 1f, 0.08f),
+            laneRadius, clipBounds = null, clipRadius = BAR_GLASS.radius))
         val position = if (seeking) (seekFraction.toDouble() * duration).toLong() else snap.positionMs.coerceIn(0L, duration.coerceAtLeast(0L))
-        if (bottom) {
-            val elapsed = fmtTime(position)
-            val total = fmtTime(duration)
-            val font = Theme.FONT_SEMIBOLD
-            ui.text(elapsed, progRect.x, y - 15.5f, 9.5f, Theme.TEXT_PRIMARY.copy(a = 0.9f), font)
-            ui.text(total, progRect.right - ui.width(total, 9.5f, font), y - 15.5f, 9.5f, Theme.TEXT_TERTIARY, font)
-        }
+        val elapsed = fmtTime(position)
+        val total = fmtTime(duration)
+        val font = Theme.FONT_SEMIBOLD
+        ui.text(elapsed, progRect.x, y - 15.5f, 9.5f, Theme.TEXT_PRIMARY.copy(a = 0.9f), font)
+        ui.text(total, progRect.right - ui.width(total, 9.5f, font), y - 15.5f, 9.5f, Theme.TEXT_TERTIARY, font)
         if (duration <= 0L) return
 
         val fraction = if (seeking) seekFraction else (position.toDouble() / duration).toFloat()
@@ -637,34 +638,79 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         }
         if (fraction > 0f && fill > 0f) {
             val style = ShapeStyle(progressColors.firstOrNull() ?: RED, minOf(laneRadius, fill / 2f), fillEndColor = progressColors.getOrNull(1),
-                clipBounds = panel, clipRadius = BAR_GLASS.radius)
+                clipBounds = null, clipRadius = BAR_GLASS.radius)
             ui.ctx.drawShape(LayoutBounds(lane.x, lane.y, fill, height), style)
         }
         if (knob <= 0.01f) return
         val radius = 6f * knob
         ui.ctx.drawShape(LayoutBounds(progressKnobX - radius, y - radius, radius * 2f, radius * 2f),
-            ShapeStyle(if (bottom) progressColors.firstOrNull() ?: RED else Theme.TEXT_PRIMARY, radius,
-                clipBounds = panel ?: bar, clipRadius = if (panel != null) BAR_GLASS.radius else 0f))
-        if (bottom) return
-        val label = "${fmtTime(position)} / ${fmtTime(duration)}"
-        val font = Theme.FONT_SEMIBOLD
-        val labelWidth = ui.width(label, 10f, font)
-        val tooltipWidth = labelWidth + 18f
-        val tooltipX = (progressKnobX - tooltipWidth / 2f).coerceIn(bar.x, (bar.right - tooltipWidth).coerceAtLeast(bar.x))
-        val tooltip = LayoutBounds(tooltipX, y - 31f, tooltipWidth, 22f)
-        ui.ctx.pushOpacity(knob)
-        try {
-            ui.card(tooltip, Color(0.05f, 0.06f, 0.08f, 0.93f), 11f)
-            ui.text(label, tooltip.x + 9f, tooltip.y + 6f, 10f, Theme.TEXT_PRIMARY, font)
-        } finally {
-            ui.ctx.popOpacity()
-        }
+            ShapeStyle(progressColors.firstOrNull() ?: RED, radius, clipBounds = bar, clipRadius = 0f))
     }
 
-    private fun progressInset(bar: LayoutBounds): Float {
-        val radius = minOf(BAR_GLASS.radius, bar.width / 2f, bar.height / 2f)
-        val dy = (radius - 6f).coerceAtLeast(0f)
-        return radius - kotlin.math.sqrt(radius * radius - dy * dy)
+    /**
+     * 经典风格的进度条：在控制按钮正下方，左右两头是已播放时间和总时长（经典风格的普通页面和大歌词页都一样）。
+     * 以按钮组中心 [center] 为中心，宽度约为播放栏的 40%，但不伸到左边封面（[leftBound]）和右边音量、音质下面。
+     * 平时是一条细轨道，鼠标移上去或拖动时轨道变粗、出现圆钮；按下任意位置就跳到那里预览，松手才真正跳转。
+     */
+    private fun drawProgress(bar: LayoutBounds, snap: PlaybackView.Snapshot, lyricsOpen: Boolean, center: Float, leftBound: Float) {
+        val duration = snap.durationMs
+        if (seekTrack != null && seekTrack != snap.track?.key) seekTrack = null
+        val seeking = seekTrack != null
+        val y = bar.y + PROGRESS_Y
+        val font = Theme.FONT_SEMIBOLD
+        val timeSize = 10f
+        val position = if (seeking) (seekFraction.toDouble() * duration).toLong() else snap.positionMs.coerceIn(0L, duration.coerceAtLeast(0L))
+        val hasTime = duration > 0L
+        val elapsed = if (hasTime) fmtTime(position) else "--:--"
+        val total = if (hasTime) fmtTime(duration) else "--:--"
+        // 时间标签的宽度按 "00:00" 和总时长里较宽的那个留，数字变化时进度条不左右抖
+        val labelW = max(ui.width("00:00", timeSize, font), ui.width(total, timeSize, font))
+        val gap = 9f
+        val rightBound = bar.right - PROGRESS_RIGHT_RESERVE
+        val halfRoom = minOf(center - leftBound, rightBound - center).coerceAtLeast(0f)
+        val rowW = minOf((bar.width * 0.40f).coerceIn(240f, 520f), halfRoom * 2f)
+        val trackW = rowW - 2f * (labelW + gap)
+        if (trackW < 40f) {
+            // 窗口太窄放不下：不画进度条，也不留点击区域；正在拖的话取消，免得松手时按空区域算成跳回开头
+            progRect = LayoutBounds()
+            progressHit = LayoutBounds()
+            seekTrack = null
+            return
+        }
+        val trackX = center - trackW / 2f
+        progRect = LayoutBounds(trackX, y - 3f, trackW, 6f)
+        progressHit = LayoutBounds(trackX - 6f, y - 9f, trackW + 12f, 18f)
+        val hover = progressHit.contains(ui.mx, ui.my) && !menuContains(ui.mx, ui.my)
+        val active = hasTime && (seeking || hover || System.nanoTime() < showTimeUntil)
+        val knob = progKnob.tick(if (active) 1f else 0f).coerceIn(0f, 1f)
+
+        val textTop = y - timeSize / 2f
+        ui.text(elapsed, trackX - gap - ui.width(elapsed, timeSize, font), textTop, timeSize,
+            if (seeking) Theme.TEXT_PRIMARY else Theme.TEXT_SECONDARY, font)
+        ui.text(total, trackX + trackW + gap, textTop, timeSize, Theme.TEXT_SECONDARY, font)
+
+        val height = 4f + 2f * knob
+        val lane = LayoutBounds(trackX, y - height / 2f, trackW, height)
+        ui.ctx.drawShape(lane, ShapeStyle(Color(1f, 1f, 1f, 0.16f + 0.06f * knob), height / 2f))
+        if (!hasTime) return
+
+        val fraction = if (seeking) seekFraction else (position.toDouble() / duration).toFloat().coerceIn(0f, 1f)
+        val knobX = trackX + trackW * fraction
+        // 大歌词页用封面的颜色做渐变，其它页面用主题红
+        val image = if (lyricsOpen) snap.track?.let(CoverCache::trackImage) else null
+        if (image !== progressCover) {
+            progressCover = image
+            progressColors = image?.let(CoverArt::paletteOf).orEmpty().map(Color::fromARGB)
+        }
+        val fill = knobX - trackX
+        if (fill > 0.5f) {
+            ui.ctx.drawShape(LayoutBounds(trackX, lane.y, max(fill, height), height),
+                ShapeStyle(progressColors.firstOrNull() ?: RED, height / 2f, fillEndColor = progressColors.getOrNull(1)))
+        }
+        if (knob <= 0.01f) return
+        val radius = 6f * knob
+        ui.ctx.drawShape(LayoutBounds(knobX - radius, y - radius, radius * 2f, radius * 2f),
+            ShapeStyle(Theme.TEXT_PRIMARY, radius, shadow = ShadowStyle(Color(0f, 0f, 0f, 0.25f * knob), 4f, Vec2(0f, 1f))))
     }
 
     /** 从按下的位置开始预览，拖动时更新，松手后只跳转一次。 */
@@ -726,8 +772,13 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
 
 /** 播放栏的玻璃：用侧栏那一套，圆角放大、阴影比侧栏淡一点 */
 private val BAR_GLASS = Theme.GLASS_SIDEBAR.copy(radius = 28f, shadow = ShadowStyle(Color(0f, 0f, 0f, 0.10f), 14f, Vec2(0f, -3f)))
-/** 进度条离播放栏左右两边的距离 */
+/** 封面离播放栏左边最多多远（窗口宽时封面停在这里，窄时往左收）；也是连续圆角底部进度条离左右两边的距离 */
 private const val PROGRESS_INSET = 72f
+/** 经典风格中间一列：控制按钮的中心线、进度条的中心线（离播放栏上沿，播放栏高 88） */
+private const val CONTROL_Y = 35f
+private const val PROGRESS_Y = 70f
+/** 进度条右边不伸进去的宽度：音量百分比、喇叭和音质按钮 */
+private const val PROGRESS_RIGHT_RESERVE = 150f
 private const val MODE_BUTTON_OFFSET = 116f
 
 private val downloadPercent = Regex("([0-9]{1,3})%")
