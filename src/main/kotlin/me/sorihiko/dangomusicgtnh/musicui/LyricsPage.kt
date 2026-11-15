@@ -256,7 +256,7 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
             ui.ctx.drawShape(groove, ShapeStyle(Color.TRANSPARENT, groove.width / 2f, 1f, white.copy(a = 0.06f)))
         }
         val cover = disc.expand(-diameter * 0.165f, -diameter * 0.165f)
-        ui.drawCover(cover, song?.let { CoverCache.trackRounded(it, 0.5f) }, cover.width / 2f)
+        ui.drawCover(cover, song?.let { CoverCache.trackRoundedLarge(it, 0.5f) }, cover.width / 2f)
         if (song == null) ui.icon("♫", cx, cy, diameter * 0.19f, white.copy(a = 0.55f))
 
     }
