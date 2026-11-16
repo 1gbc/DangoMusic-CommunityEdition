@@ -41,6 +41,7 @@ object CoverCache {
     private const val MAX_LARGE_SOURCES = 32
     private const val LARGE_PREFIX = "L|"
     private const val APPLE_BACKDROP_SUFFIX = "#r-apple-lyrics-backdrop"
+    private const val APPLE_ARTWORK_SUFFIX = "#r-apple-lyrics-artwork"
     /** 最近这么久（毫秒）里画过的封面算"正在用"，超出上限也不删 */
     private const val IN_USE_MS = 500L
     /** 每次 upload() 最多上传几张 */
@@ -91,7 +92,8 @@ object CoverCache {
         // 一次最多传几张，一下子滚出很多封面时不会卡一下
         for (i in 0 until UPLOADS_PER_CALL) {
             val (key, img) = ready.poll() ?: break
-            val tex = DangoClient.gfx.textures.upload("dango_cover_c", img, linear = key.endsWith(APPLE_BACKDROP_SUFFIX))
+            val linear = key.endsWith(APPLE_BACKDROP_SUFFIX) || key.endsWith(APPLE_ARTWORK_SUFFIX)
+            val tex = DangoClient.gfx.textures.upload("dango_cover_c", img, linear = linear)
             textures.put(key, tex)?.let { DangoClient.gfx.textures.delete(it) }
             lastUsed[key] = now
             if (ROUND_SUFFIX !in key) sources[key] = img
@@ -230,6 +232,25 @@ object CoverCache {
                     // 做不出来就继续用小图；下次纹理被删时会再试
                 }
             }
+        }
+        return null
+    }
+
+    /** Upload full square art so both resolutions use the same on-screen antialiased mask. */
+    fun appleLyricsArtwork(track: NeteaseTrack): Texture? {
+        val sourceKey = "t:${track.key}"
+        val largeKey = LARGE_PREFIX + sourceKey
+        for (key in listOf(largeKey, sourceKey)) {
+            val textureKey = key + APPLE_ARTWORK_SUFFIX
+            textures[textureKey]?.let {
+                lastUsed[textureKey] = now
+                return it
+            }
+            val img = if (key == largeKey) largeSource(key, track.coverUrl) else {
+                get(key, track.coverUrl)
+                sources[key]
+            }
+            if (img != null && roundQueued.add(textureKey)) ready.add(textureKey to img)
         }
         return null
     }

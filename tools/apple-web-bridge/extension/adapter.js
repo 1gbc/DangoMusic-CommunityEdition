@@ -295,6 +295,7 @@ async function appleAdapter(command) {
     if(signIn){signIn.click();return {loginRoute:'website'};}
     if(player.isAuthorized!==true&&typeof player.authorize==='function')Promise.resolve(player.authorize()).catch(()=>{});
   } else if(command?.name==='load') {
+    const trace=command.trace===true?performance.now():null;
     completion.id='';
     globalThis.__dangoAppleMediaError='';
     const v=command.value||{};if(!idOk(v.id)||typeof player.setQueue!=='function')throw Error('Song loading unavailable');
@@ -315,16 +316,24 @@ async function appleAdapter(command) {
     let stage='queue';
     try {
     globalThis.__dangoAppleLoadStage='queue';
+    const queueStarted=trace===null?0:performance.now();
     await player.setQueue(descriptor);
+    const queued=trace===null?0:performance.now();
     if(globalThis.__dangoAppleGeneration!==generation)return {cancelled:true};
     globalThis.__dangoAppleStation=station;
     completion.id='';
     stage='play';globalThis.__dangoAppleLoadStage='play';await player.play();
+    if(globalThis.__dangoAppleGeneration!==generation)return {cancelled:true};
     globalThis.__dangoAppleLoadStage='done';
-    } catch(e) {globalThis.__dangoAppleLoadStage='error';return failure(e,stage);}
+    if(trace!==null)return {timing:{'queue-ms':Math.round(queued-queueStarted),'play-ms':Math.round(performance.now()-queued)}};
+    } catch(e) {
+      if(globalThis.__dangoAppleGeneration!==generation)return {cancelled:true};
+      globalThis.__dangoAppleLoadStage='error';return failure(e,stage);
+    }
   }
   const methods={play:'play',pause:'pause',stop:'stop',next:'skipToNextItem',previous:'skipToPreviousItem',seek:'seekToTime'};
   if(command && !['query','load','login'].includes(command.name)){
+    const trace=command.trace===true?performance.now():null;
     if(['stop','pause'].includes(command.name))globalThis.__dangoAppleGeneration=(globalThis.__dangoAppleGeneration||0)+1;
     if(command.name==='volume') {
       if(!Number.isFinite(command.value)||command.value<0||command.value>1)throw Error('Invalid volume');
@@ -344,6 +353,7 @@ async function appleAdapter(command) {
       } finally {clearTimeout(timer);}
       if(command.name==='stop')globalThis.__dangoAppleStation=false;
     }
+    if(trace!==null)return {timing:{'sdk-ms':Math.round(performance.now()-trace)}};
   }
   const readiness=await sessionReadiness();
   const item=player.nowPlayingItem, a=item?.attributes||{};

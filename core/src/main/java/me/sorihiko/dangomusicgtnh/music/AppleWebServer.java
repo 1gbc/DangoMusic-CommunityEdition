@@ -21,6 +21,22 @@ public final class AppleWebServer implements AutoCloseable {
     private String authState="restoring";
     private final Map<Long,CompletableFuture<JsonObject>> requests=new HashMap<>();
     private final ArrayDeque<JsonObject> commands=new ArrayDeque<>();
+    private static final boolean TRACE_TIMING=Boolean.getBoolean("dangomusic.apple.timing");
+    private Double pendingVolume;
+    private long pendingVolumeAt,loadQueuedAt;
+    private long observedCommand;
+    private static long millisSince(long nanos){return TimeUnit.NANOSECONDS.toMillis(System.nanoTime()-nanos);}
+    private static void trace(String operation,String phase,long ms){
+        if(TRACE_TIMING)System.out.printf("[DangoMusic Apple timing] %s %s %d ms%n",operation,phase,ms);
+    }
+    private void enqueue(JsonObject command,long at){
+        if(TRACE_TIMING){
+            command.addProperty("queuedNanos",at);
+            command.addProperty("trace",true);
+        }
+        commands.add(command);
+    }
+    private String expectedCatalogSong="";
     private volatile String error="";
     public AppleWebServer() throws IOException {
         server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),4);
@@ -45,12 +61,16 @@ public final class AppleWebServer implements AutoCloseable {
                 String operation=command.getAsJsonObject("value").get("op").getAsString();
                 if("favoriteAdd".equals(operation)||"favoriteRemove".equals(operation))continue;
             }
+            if ("volume".equals(command.get("name").getAsString()) && pendingVolume==null) {
+                pendingVolume=command.get("value").getAsDouble();
+                pendingVolumeAt=command.has("queuedNanos")?command.get("queuedNanos").getAsLong():System.nanoTime();
+            }
             it.remove();
             CompletableFuture<JsonObject> request=requests.remove(id);
             if(request!=null)request.completeExceptionally(new IOException("Apple Music request cancelled"));
         }
     }
-    public synchronized void reconnect(){cancelRequests();session=null;owner=null;state=null;commands.clear();authorized=false;authState="restoring";stopped=false;pairing=random();born=System.nanoTime();lastAck=sequence;error="";}
+    public synchronized void reconnect(){cancelRequests();session=null;owner=null;state=null;commands.clear();pendingVolume=null;expectedCatalogSong="";loadQueuedAt=0;authorized=false;authState="restoring";stopped=false;pairing=random();born=System.nanoTime();lastAck=sequence;error="";}
     public JsonObject request(String op,String value,int offset)throws Exception{
         if(!Arrays.asList("search","charts","songs","playlists","playlistTracks","recent","recommend","resourceTracks",
             "librarySearch","discover","genres","genreCharts","radio","liveRadio","webDiscover","webRadio","recentlyAdded","libraryAlbums","favoriteSongs",
@@ -67,16 +87,20 @@ public final class AppleWebServer implements AutoCloseable {
         if(id==null||!id.matches("[A-Za-z0-9._:-]{1,100}"))throw new IllegalArgumentException("Invalid song ID");
         if(!connected())return;
         clearPlaybackCommands();stopped=false;state=null;
-        JsonObject c=new JsonObject(),v=new JsonObject();c.addProperty("id",++sequence);c.addProperty("name","load");v.addProperty("id",id);v.addProperty("library",library);c.add("value",v);commands.add(c);
+        expectedCatalogSong=!library&&id.matches("[0-9]{1,20}")?id:"";
+        loadQueuedAt=TRACE_TIMING?System.nanoTime():0L;
+        JsonObject c=new JsonObject(),v=new JsonObject();c.addProperty("id",++sequence);c.addProperty("name","load");v.addProperty("id",id);v.addProperty("library",library);c.add("value",v);enqueue(c,loadQueuedAt);
     }
     public synchronized void command(String name,Double value){
         if(!Arrays.asList("play","pause","stop","next","previous","seek","volume","show","hide","login","shutdown").contains(name))throw new IllegalArgumentException("Unsupported control");
         if((name.equals("seek")||name.equals("volume"))&&(value==null||Double.isNaN(value)||Double.isInfinite(value)||value<0||value>(name.equals("volume")?1:86400)))throw new IllegalArgumentException("Invalid control value");
         if(!connected())return;
-        if(name.equals("stop")){stopped=true;state=null;clearPlaybackCommands();}
+        if(name.equals("volume")){pendingVolume=value;pendingVolumeAt=System.nanoTime();return;}
+        if(name.equals("stop")){stopped=true;state=null;expectedCatalogSong="";loadQueuedAt=0;clearPlaybackCommands();}
+        if(name.equals("next")||name.equals("previous"))expectedCatalogSong="";
         if(commands.size()>=16){error="Apple Music controls are waiting for the browser";return;}
         if(Arrays.asList("play","next","previous").contains(name))stopped=false;
-        JsonObject c=new JsonObject();c.addProperty("id",++sequence);c.addProperty("name",name);if(value!=null)c.addProperty("value",value);commands.add(c);
+        JsonObject c=new JsonObject();c.addProperty("id",++sequence);c.addProperty("name",name);if(value!=null)c.addProperty("value",value);enqueue(c,System.nanoTime());
     }
     private void handle(HttpExchange x) throws IOException {
         try {
@@ -96,7 +120,25 @@ public final class AppleWebServer implements AutoCloseable {
                 String type=x.getRequestHeaders().getFirst("Content-Type");if(type==null||!type.startsWith("application/json")){reply(x,415,"{}");return;}
                 JsonObject report=new JsonParser().parse(new String(bytes.toByteArray(),StandardCharsets.UTF_8)).getAsJsonObject();
                 double a=report.get("ack").getAsDouble();if(a!=Math.floor(a)||a<lastAck||a>sequence){reply(x,400,"{}");return;}
-                lastAck=(long)a;lastSync=System.nanoTime();while(!commands.isEmpty()&&commands.peek().get("id").getAsLong()<=lastAck)commands.remove();
+                lastAck=(long)a;lastSync=System.nanoTime();
+                while(!commands.isEmpty()&&commands.peek().get("id").getAsLong()<=lastAck){
+                    JsonObject acknowledged=commands.remove();
+                    if(acknowledged.has("queuedNanos")&&acknowledged.get("id").getAsLong()==lastAck)
+                        trace(text(acknowledged,"name",24),"bridge-ack",millisSince(acknowledged.get("queuedNanos").getAsLong()));
+                }
+                if(TRACE_TIMING&&report.has("timing")&&report.get("timing").isJsonObject()){
+                    JsonObject timing=report.getAsJsonObject("timing");
+                    String operation=text(timing,"operation",24);
+                    if(Arrays.asList("volume","next","previous","load","seek").contains(operation)){
+                        for(String phase:Arrays.asList("webview-ms","sdk-ms","queue-ms","play-ms")){
+                            if(!timing.has(phase)||!timing.get(phase).isJsonPrimitive())continue;
+                            try{
+                                long ms=timing.get(phase).getAsLong();
+                                if(ms>=0&&ms<=120000)trace(operation,phase,ms);
+                            }catch(NumberFormatException ignored){}
+                        }
+                    }
+                }
                 if(report.has("commandResult")&&report.get("commandResult").isJsonObject()){
                     JsonObject result=report.getAsJsonObject("commandResult");long id=result.get("id").getAsLong();
                     CompletableFuture<JsonObject> f=requests.get(id);
@@ -119,12 +161,18 @@ public final class AppleWebServer implements AutoCloseable {
                         cleaned.add("items",items);cleaned.addProperty("hasMore",result.has("hasMore")&&result.get("hasMore").getAsBoolean());cleaned.addProperty("error",text(result,"error",300));f.complete(cleaned);
                     }
                 }
-                boolean changing=false;for(JsonObject c:commands)if(!Arrays.asList("query","show","hide","login").contains(c.get("name").getAsString()))changing=true;
+                boolean changing=false;for(JsonObject c:commands)if(!Arrays.asList("query","show","hide","login","volume").contains(c.get("name").getAsString()))changing=true;
                 if(report.has("state")&&report.get("state").isJsonObject()){
                     JsonObject incoming=report.getAsJsonObject("state");authorized=incoming.has("authorized")&&incoming.get("authorized").getAsBoolean();
                     String status=text(incoming,"authState",24);authState=Arrays.asList("ready","login","restoring","unavailable").contains(status)?status:(authorized?"ready":"restoring");
-                    if(!stopped&&!changing){
+                    boolean expected=expectedCatalogSong.isEmpty()||expectedCatalogSong.equals(text(incoming,"id",100));
+                    if(!stopped&&!changing&&expected){
                         state=sanitize(incoming);
+                        expectedCatalogSong="";
+                        if(loadQueuedAt!=0&&state.get("available").getAsBoolean()&&state.get("playing").getAsBoolean()&&!text(state,"id",100).isEmpty()){
+                            trace("load","playing-reported",millisSince(loadQueuedAt));
+                            loadQueuedAt=0;
+                        }
                         if(incoming.has("stationQueue")&&incoming.get("stationQueue").isJsonArray()){
                             JsonArray queue=new JsonArray();
                             for(JsonElement item:incoming.getAsJsonArray("stationQueue")){
@@ -140,7 +188,20 @@ public final class AppleWebServer implements AutoCloseable {
                 }
                 error=text(report,"commandError",300);
                 if(error.isEmpty()&&state!=null)error=text(state,"error",300);
-                JsonObject r=new JsonObject();r.add("command",commands.isEmpty()?JsonNull.INSTANCE:commands.peek());reply(x,200,r.toString());
+                if(commands.isEmpty()&&pendingVolume!=null){
+                    JsonObject volume=new JsonObject();
+                    volume.addProperty("id",++sequence);
+                    volume.addProperty("name","volume");
+                    volume.addProperty("value",pendingVolume);
+                    pendingVolume=null;
+                    enqueue(volume,pendingVolumeAt);
+                }
+                JsonObject outgoing=commands.peek();
+                if(outgoing!=null&&outgoing.has("queuedNanos")&&outgoing.get("id").getAsLong()!=observedCommand){
+                    observedCommand=outgoing.get("id").getAsLong();
+                    trace(text(outgoing,"name",24),"bridge-dispatch",millisSince(outgoing.get("queuedNanos").getAsLong()));
+                }
+                JsonObject r=new JsonObject();r.add("command",outgoing==null?JsonNull.INSTANCE:outgoing);reply(x,200,r.toString());
             }
         }catch(Exception e){try{reply(x,400,"{}");}catch(IOException ignored){}}
         finally{x.close();}

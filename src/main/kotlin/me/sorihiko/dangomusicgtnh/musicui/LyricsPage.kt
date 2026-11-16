@@ -157,9 +157,10 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
         }
         track = song
         val coverRadius = 0.08f // Same cover mask as the existing large-cover grid.
-        val cover = song?.let { CoverCache.trackRoundedLarge(it, coverRadius) }
+        val cover = song?.let(CoverCache::appleLyricsArtwork)
         val radius = frame.artwork.width * coverRadius
-        ui.drawCover(frame.artwork, cover, radius)
+        if (cover != null) ui.ctx.drawRoundedImage(frame.artwork, cover, radius)
+        else ui.card(frame.artwork, Theme.TRACK, radius)
         val rim = 0.75f * frame.scale
         ui.ctx.drawShape(frame.artwork.expand(-rim, -rim), ShapeStyle(
             radius = (radius - rim).coerceAtLeast(0f), borderWidth = rim,
