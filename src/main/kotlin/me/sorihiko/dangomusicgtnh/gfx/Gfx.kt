@@ -89,13 +89,15 @@ interface Texture
 
 interface Textures {
     /** 把图片传成贴图（必须在渲染线程调用） */
-    fun upload(name: String, image: BufferedImage): Texture
+    fun upload(name: String, image: BufferedImage, linear: Boolean = false): Texture
     fun delete(texture: Texture)
 }
 
 // ---------------------------------------------------------------- 液态玻璃画布
 
 interface GuiCanvas : RenderContext {
+    fun drawFlowingBackdrop(bounds: LayoutBounds, image: Texture, phase: Float)
+
     /**
      * 开始画一帧：保存渲染状态、设好混合。
      * [captureBackdrop] = 先截一张当前画面给液态玻璃做背景（不截时玻璃退化成半透明面板）。

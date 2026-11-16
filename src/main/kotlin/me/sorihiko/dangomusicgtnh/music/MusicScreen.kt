@@ -66,6 +66,7 @@ class MusicScreen(
     private val lyricsPage = LyricsPage(ui, module, songComments)
     private val appleLyricsMenu = AppleLyricsMenu(ui)
     private var appleLyricsFrame: AppleLyricsLayout? = null
+    private var showAppleLyrics = true
     private var appleLyricsTrack: NeteaseTrack? = null
     private var lyricsOpen = false
     private val appleLyricsOpen get() = lyricsOpen && MusicSources.selected == MusicSource.APPLE
@@ -543,7 +544,7 @@ class MusicScreen(
 
     private fun drawWindow(alpha: Float) {
         if (appleLyricsOpen) {
-            val layout = AppleLyricsLayout(LayoutBounds(0f, 0f, ui.lw, ui.lh))
+            val layout = AppleLyricsLayout(LayoutBounds(0f, 0f, ui.lw, ui.lh), showAppleLyrics)
             winRect = layout.viewport
             barRect = LayoutBounds()
             val playback = PlaybackView.snapshot()
@@ -551,7 +552,10 @@ class MusicScreen(
             appleLyricsTrack = playback.track
             ui.mt.useNotoSansSc = true
             try {
-                lyricsPage.drawApple(layout, playback, ::closeLyrics)
+                lyricsPage.drawApple(layout, playback, ::closeLyrics) {
+                    showAppleLyrics = !showAppleLyrics
+                    if (showAppleLyrics) lyricsPage.resumeAppleLyrics()
+                }
                 bar.drawAppleLyrics(layout, playback, appleLyricsMenu::toggle)
             } finally {
                 ui.mt.useNotoSansSc = false

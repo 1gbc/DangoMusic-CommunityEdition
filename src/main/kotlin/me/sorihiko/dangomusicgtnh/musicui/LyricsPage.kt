@@ -116,7 +116,16 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
         if (alpha < 0.99f) while (ui.hits.size > before) ui.hits.removeAt(ui.hits.lastIndex)
     }
 
-    fun drawApple(frame: AppleLyricsLayout, playback: PlaybackView.Snapshot, close: () -> Unit) {
+    private var resumeAppleFollow = false
+    private val appleFlowStartedAt = System.nanoTime()
+
+
+    fun resumeAppleLyrics() {
+        manualPosition = null
+        resumeAppleFollow = true
+    }
+
+    fun drawApple(frame: AppleLyricsLayout, playback: PlaybackView.Snapshot, close: () -> Unit, toggleLyrics: () -> Unit) {
         if (frame.scale <= 0f) return
         pageArea = frame.viewport
         lyricArea = frame.lyrics
@@ -125,14 +134,22 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
         val song = playback.track?.takeIf { it.source == MusicSource.APPLE }
         val backdrop = song?.let(CoverCache::trackBackdrop)
         if (backdrop != null) {
-            ui.ctx.drawImage(frame.viewport, backdrop)
-            ui.card(frame.viewport, Color(0f, 0f, 0f, 0.38f), 0f)
+            val period = 14_000_000_000L
+            val elapsed = (System.nanoTime() - appleFlowStartedAt) % period
+            val phase = (elapsed.toDouble() / period * Math.PI * 2.0).toFloat()
+            ui.ctx.drawFlowingBackdrop(frame.viewport, backdrop, phase)
         } else {
             ui.card(frame.viewport, Color.fromHex("#382122"), 0f)
         }
-        val closeHit = frame.bounds(7f, 0f, 44f, 42f)
-        ui.icon("×", frame.x(29f), frame.y(21f), 24f * frame.scale, white.copy(a = 0.72f))
+        val closeHit = frame.close
+        PlayerIcons.draw(ui.ctx, AppleLyricsIcons.close, closeHit.x + closeHit.width / 2f,
+            closeHit.y + closeHit.height / 2f, 24f * frame.scale, white.copy(a = 0.72f))
         ui.hits += closeHit to close
+        val toggleHit = frame.lyricsToggle
+        PlayerIcons.draw(ui.ctx, AppleLyricsIcons.lyrics, toggleHit.x + toggleHit.width / 2f,
+            toggleHit.y + toggleHit.height / 2f, 26f * frame.scale,
+            white.copy(a = if (ui.hover(toggleHit)) 1f else 0.72f))
+        ui.hits += toggleHit to toggleLyrics
 
         if (song?.key != track?.key) {
             manualPosition = null
@@ -142,12 +159,13 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
         val coverRadius = 0.08f // Same cover mask as the existing large-cover grid.
         val cover = song?.let { CoverCache.trackRoundedLarge(it, coverRadius) }
         val radius = frame.artwork.width * coverRadius
-        val edge = 6f * frame.scale
-        ui.ctx.recaptureBackdrop()
-        ui.ctx.drawGlass(frame.artwork.expand(edge, edge), Theme.GLASS_SIDEBAR.copy(
-            radius = radius + edge, bevel = edge, refraction = edge
-        ))
         ui.drawCover(frame.artwork, cover, radius)
+        val rim = 0.75f * frame.scale
+        ui.ctx.drawShape(frame.artwork.expand(-rim, -rim), ShapeStyle(
+            radius = (radius - rim).coerceAtLeast(0f), borderWidth = rim,
+            borderColor = white.copy(a = 0.20f), clipBounds = frame.artwork, clipRadius = radius
+        ))
+        if (!frame.showLyrics) return
         val lyricModule = module.lyrics()
         val lyrics = song?.let { lyricModule?.playerLyrics(it) }
         val size = module.lyricsPageSize.value * frame.scale
@@ -168,7 +186,8 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
         val position = playback.positionMs + (song?.let(::lyricOffset) ?: 0L)
         val active = lyrics?.indexAt(position) ?: -1
         val target = manualPosition?.coerceAtMost(rows.last().center) ?: (rows.getOrNull(active)?.center ?: 0f)
-        scrollPosition = ui.approach(scrollPosition, target, 95f)
+        scrollPosition = if (resumeAppleFollow) target else ui.approach(scrollPosition, target, 95f)
+        resumeAppleFollow = false
         drawLyrics(active, size, null)
     }
 

@@ -4,6 +4,7 @@ uniform float u_Opacity;
 uniform vec4 u_Bounds;
 uniform float u_Radius;
 uniform float u_Continuous;
+uniform float u_FlowPhase;
 varying vec2 uv;
 varying vec2 v_Position;
 
@@ -39,7 +40,23 @@ float sdRoundBox(vec2 p, vec2 b, float r) {
     return (norm - extent) * scale + inside;
 }
 void main() {
-    vec4 color = texture2D(u_Texture, uv);
+    vec2 sampleUv = uv;
+    if (u_FlowPhase >= 0.0) {
+        float phase = u_FlowPhase;
+        vec2 drift = vec2(
+            sin(uv.y * 6.8 + phase) * 0.21 + cos(uv.x * 4.6 - 2.0 * phase) * 0.07,
+            cos(uv.x * 6.0 - phase) * 0.20 + sin(uv.y * 5.2 + 2.0 * phase) * 0.07
+        );
+        sampleUv = uv * 0.90 + vec2(0.05) + drift;
+        // Mirror the edges so drifting colours never expose a fixed strip.
+        sampleUv = vec2(1.0) - abs(vec2(1.0) - mod(sampleUv, 2.0));
+    }
+    vec4 color = texture2D(u_Texture, sampleUv);
+    if (u_FlowPhase >= 0.0) {
+        // Subtle screen-space dithering removes visible steps in dark gradients.
+        float noise = fract(52.9829189 * fract(dot(floor(gl_FragCoord.xy), vec2(0.06711056, 0.00583715))));
+        color.rgb = clamp(color.rgb * 0.68 + (noise - 0.5) / 255.0, 0.0, 1.0);
+    }
     float mask = 1.0;
     if (u_Radius > 0.0) {
         vec2 halfSize = u_Bounds.zw * 0.5;

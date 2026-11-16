@@ -40,6 +40,7 @@ object CoverCache {
     /** 高清原图保留多少张（一张 1 MB 内存） */
     private const val MAX_LARGE_SOURCES = 32
     private const val LARGE_PREFIX = "L|"
+    private const val APPLE_BACKDROP_SUFFIX = "#r-apple-lyrics-backdrop"
     /** 最近这么久（毫秒）里画过的封面算"正在用"，超出上限也不删 */
     private const val IN_USE_MS = 500L
     /** 每次 upload() 最多上传几张 */
@@ -90,7 +91,7 @@ object CoverCache {
         // 一次最多传几张，一下子滚出很多封面时不会卡一下
         for (i in 0 until UPLOADS_PER_CALL) {
             val (key, img) = ready.poll() ?: break
-            val tex = DangoClient.gfx.textures.upload("dango_cover_c", img)
+            val tex = DangoClient.gfx.textures.upload("dango_cover_c", img, linear = key.endsWith(APPLE_BACKDROP_SUFFIX))
             textures.put(key, tex)?.let { DangoClient.gfx.textures.delete(it) }
             lastUsed[key] = now
             if (ROUND_SUFFIX !in key) sources[key] = img
@@ -236,7 +237,7 @@ object CoverCache {
     /** Cover colours for the Apple lyrics backdrop. Reuse the existing texture cache. */
     fun trackBackdrop(track: NeteaseTrack): Texture? {
         val sourceKey = "t:${track.key}"
-        val key = sourceKey + ROUND_SUFFIX + "apple-lyrics-backdrop"
+        val key = LARGE_PREFIX + sourceKey + APPLE_BACKDROP_SUFFIX
         textures[key]?.let {
             lastUsed[key] = now
             return it
@@ -253,7 +254,7 @@ object CoverCache {
                 } finally {
                     sample.dispose()
                 }
-                val blurred = BufferedImage(128, 128, BufferedImage.TYPE_INT_ARGB)
+                val blurred = BufferedImage(512, 512, BufferedImage.TYPE_INT_ARGB)
                 val graphics = blurred.createGraphics()
                 try {
                     graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC)

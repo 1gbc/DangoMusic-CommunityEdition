@@ -86,7 +86,14 @@ internal class AppleLyricsMenu(private val ui: Ui) {
     private fun drawMenu(frame: AppleLyricsLayout, song: NeteaseTrack) {
         val scale = frame.scale
         val panel = frame.bounds(984f, 908f, 185f, 64f)
-        drawPanel(panel, 6f * scale, scale)
+        ui.ctx.pushOpacity(0.74f)
+        ui.ctx.drawGlass(panel, Theme.GLASS_SIDEBAR.copy(radius = 6f * scale,
+            tint = Color(0.06f, 0.04f, 0.05f, 0.22f), maxLuma = 0.58f, saturation = 1.12f,
+            frost = 0.52f, bevel = 3f * scale, refraction = 2f * scale, highlight = 0.18f,
+            shadow = me.sorihiko.dangomusicgtnh.ui.ShadowStyle()))
+        ui.ctx.popOpacity()
+        ui.ctx.drawShape(panel, ShapeStyle(radius = 6f * scale, borderWidth = 0.75f * scale,
+            borderColor = Color(1f, 1f, 1f, 0.19f)))
         val credits = panel.copy(height = 32f * scale)
         val copy = credits.copy(y = credits.bottom)
         row(credits, I18n.text("View Credits"), INFO, scale) {
@@ -125,7 +132,8 @@ internal class AppleLyricsMenu(private val ui: Ui) {
         val x = panel.x + 28f * scale
         val close = frame.bounds(1474f, 491f, 44f, 44f)
         ui.text(I18n.text("View Credits"), x, panel.y + 24f * scale, 22f * scale, Theme.TEXT_PRIMARY, font)
-        ui.icon("×", close.x + close.width / 2f, close.y + close.height / 2f, 18f * scale, Theme.TEXT_PRIMARY)
+        PlayerIcons.draw(ui.ctx, AppleLyricsIcons.close, close.x + close.width / 2f,
+            close.y + close.height / 2f, 18f * scale, Theme.TEXT_PRIMARY)
         ui.hits += close to { dismiss() }
         ui.hits += panel to {}
         ui.text(ui.trim(song.name, 540f * scale, 17f * scale, font), x, panel.y + 72f * scale, 17f * scale, Theme.TEXT_PRIMARY, font)

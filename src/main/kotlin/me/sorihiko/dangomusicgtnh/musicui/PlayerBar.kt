@@ -748,9 +748,8 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
             frame.x(938f), frame.y(904f), primary, 17f * scale)
         if (ready && track != null) ui.hits += frame.bounds(924f, 890f, 28f, 28f) to { Library.toggleAppleFavorite(track) }
         ui.card(frame.bounds(968f, 890f, 28f, 28f), primary.copy(a = 0.10f), 14f * scale)
-        for (x in listOf(976f, 981f, 986f)) {
-            ui.card(frame.bounds(x, 902.5f, 3f, 3f), primary, 1.5f * scale)
-        }
+        PlayerIcons.draw(ctx, AppleLyricsIcons.more, frame.x(982f), frame.y(904f),
+            17f * scale, primary)
 
         if (track != null) ui.hits += frame.moreButton to openMore
 
@@ -771,12 +770,8 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         PlayerIcons.mode(ctx, MusicPlayer.Mode.SHUFFLE, frame.x(568f), centerY, 21f * scale,
             if (mode == MusicPlayer.Mode.SHUFFLE) primary else secondary)
         PlayerIcons.draw(ctx, APPLE_PREVIOUS, frame.x(629f), centerY, 42f * scale, secondary)
-        if (snap.playing) {
-            ui.card(frame.bounds(685f, 988f, 8f, 30f), primary, 2f * scale)
-            ui.card(frame.bounds(699f, 988f, 8f, 30f), primary, 2f * scale)
-        } else {
-            PlayerIcons.draw(ctx, PlayerIcons.play, frame.x(694f), centerY, 42f * scale, primary)
-        }
+        val transportIcon = if (snap.playing) AppleLyricsIcons.pause else AppleLyricsIcons.play
+        PlayerIcons.draw(ctx, transportIcon, frame.x(696f), centerY, 42f * scale, primary)
         PlayerIcons.draw(ctx, APPLE_NEXT, frame.x(762f), centerY, 42f * scale, secondary)
         val repeating = mode == MusicPlayer.Mode.REPEAT_ONE
         PlayerIcons.mode(ctx, if (repeating) mode else MusicPlayer.Mode.SEQUENTIAL,
