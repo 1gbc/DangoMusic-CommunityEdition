@@ -4,6 +4,9 @@
 
 ## 未发布
 
+- 灵动岛新增「灵动岛动画」开关，默认关闭。开启后，两种界面风格均显示音浪和快捷键调音量的反馈。
+- 移除音量弹窗的一键最大音量，仍可用滑条调到 100%，保留一键静音。
+
 ## 0.2.1-dev.1 · [PR #21](https://github.com/1gbc/DangoMusic-GTNH/pull/21)
 
 - fix(ui): classic progress bar under the controls, sharper large covers, heart mode icon

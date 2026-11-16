@@ -93,6 +93,8 @@ Pos X	水平位置
 Horizontal position (or drag it with chat open)	水平位置，也可打开聊天栏后拖动
 Pos Y	垂直位置
 Vertical position (or drag it with chat open)	垂直位置，也可打开聊天栏后拖动
+Island animations	灵动岛动画
+Show the playback waveform and volume hotkey feedback	显示播放音浪和快捷键调音量时的动画
 Liquid glass	液态玻璃
 Liquid glass background; off is a solid black pill	关闭后使用纯黑背景
 Music	音乐

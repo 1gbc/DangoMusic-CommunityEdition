@@ -352,8 +352,8 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
             val y = volRect.bottom - fill
             if (fill > 0f) ui.card(LayoutBounds(volRect.x, y, volRect.width, max(5f, fill)), RED, 2.5f)
             ui.ctx.drawShape(LayoutBounds(cx - 7f, y - 7f, 14f, 14f), ShapeStyle(Theme.TEXT_PRIMARY, 7f, shadow = ShadowStyle(Color(0f, 0f, 0f, 0.25f), 4f, Vec2(0f, -1f))))
-            drawVolumeEndpoint(cx, content.bottom - 17f, 0f, interactive, clip)
-            drawVolumeEndpoint(cx, content.y + 30f, 1f, interactive, clip)
+            drawMuteButton(cx, content.bottom - 17f, interactive, clip)
+            PlayerIcons.speaker(ui.ctx, cx, content.y + 30f, Theme.TEXT_SECONDARY, 0.68f)
             if (interactive) ui.hits += volRect.expand(16f, 8f).intersect(clip) to {
                 volumeDragging = true
                 setVolumeAt(ui.mx, ui.my)
@@ -412,8 +412,8 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
             ui.text(I18n.text("Volume"),content.x+14f,content.y+13f,12f,Theme.TEXT_PRIMARY,Theme.FONT_MEDIUM)
             ui.text(percent,content.right-14f-ui.width(percent,11f),content.y+14f,11f,Theme.TEXT_SECONDARY)
             val cy=content.y+57f
-            drawVolumeEndpoint(content.x + 20f, cy, 0f, interactive, clip)
-            drawVolumeEndpoint(content.right - 21f, cy, 1f, interactive, clip)
+            drawMuteButton(content.x + 20f, cy, interactive, clip)
+            PlayerIcons.speaker(ui.ctx, content.right - 21f, cy, Theme.TEXT_SECONDARY, 0.68f)
             volRect=LayoutBounds(content.x+42f,cy-2f,content.width-84f,4f)
             ui.card(volRect,Color(1f,1f,1f,0.18f),2f)
             val fill=volRect.width*volume
@@ -748,13 +748,13 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
     private fun fractionAt(x: Int): Float =
         if (progRect.width <= 0f) 0f else ((x - progRect.x) / progRect.width).coerceIn(0f, 1f)
 
-    private fun drawVolumeEndpoint(x: Float, y: Float, volume: Float, interactive: Boolean, clip: LayoutBounds) {
+    private fun drawMuteButton(x: Float, y: Float, interactive: Boolean, clip: LayoutBounds) {
         val bounds = LayoutBounds(x - 12f, y - 11f, 24f, 22f)
         val hovered = interactive && ui.hover(bounds)
         if (hovered) ui.card(bounds, PopupLook.hover, 7f)
         PlayerIcons.speaker(ui.ctx, x, y, if (hovered) Theme.TEXT_PRIMARY else Theme.TEXT_SECONDARY,
-            0.68f, if (volume == 0f) 0 else 2, volume == 0f)
-        if (interactive) ui.hits += bounds.intersect(clip) to { applyVolume(volume) }
+            0.68f, waves = 0, muted = true)
+        if (interactive) ui.hits += bounds.intersect(clip) to { applyVolume(0f) }
     }
 
     private fun setVolumeAt(x: Int, y: Int) {

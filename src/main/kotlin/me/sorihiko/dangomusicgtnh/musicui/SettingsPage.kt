@@ -421,7 +421,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         val interfaceGroups = listOf(
             Group("Interface", "Look and language", module, false, looks, collapsible = false, fullWidth = true),
             Group("Dynamic Island", "Overlay", islandModule, true, island.take(listOf(
-                "islandLayout", "glass", "scale", "posX", "posY",
+                "islandLayout", "islandAnimations", "glass", "scale", "posX", "posY",
             )) + island.take()),
         )
         val hotkeys = listOf(Group("Hotkeys", "Click, then press a key · Backspace clears",
