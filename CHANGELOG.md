@@ -4,6 +4,10 @@
 
 ## 未发布
 
+## 0.3.1-dev.1 · [PR #22](https://github.com/1gbc/DangoMusic-GTNH/pull/22)
+
+- fix(ui): fade transient player notices after five seconds
+
 - 播放器菜单底部的登录提醒、媒体库错误、缓存和群组通知，以及播放错误弹窗，统一在显示满 5 秒后用 350 毫秒淡出。
 - 临时提示会随页面切换保留原计时，淡出时列表无需重新排版。过期的自动跳歌提示不会在重开菜单后重新显示。
 
