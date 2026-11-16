@@ -113,8 +113,9 @@ async function appleAdapter(command) {
         if(!row)return {error:'Apple Music song details are unavailable'};
         const a=row.attributes||{};
         const catalog=row.relationships?.catalog?.data?.[0]?.attributes||{};
+        const url=catalog.url||a.url;
         return {artist:text(catalog.artistName||a.artistName),composer:text(catalog.composerName||a.composerName),
-          url:text(catalog.url||a.url)};
+          url:typeof url==='string'&&url.length<=700?url:''};
       }catch(e){return failure(e,op);}
     }
     if(op==='webDiscover'||op==='webRadio') {

@@ -46,6 +46,7 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
     private var hasTranslation = false
     private var hasRomanization = false
     private var manualPosition: Float? = null
+    private var appleFollowAfter = 0L
     private var scrollPosition = 0f
 
     fun dismissMenu(): Boolean {
@@ -74,6 +75,8 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
         popupArea = null
         menu = null
         manualPosition = null
+        appleFollowAfter = 0L
+        resumeAppleFollow = false
     }
 
     fun scroll(wheel: Int, x: Int, y: Int) {
@@ -86,6 +89,9 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
             val end = rows.lastOrNull()?.center ?: return
             val position = manualPosition ?: scrollPosition
             manualPosition = (position + if (wheel > 0) -80f else 80f).coerceIn(0f, end)
+            if (track?.source == MusicSource.APPLE) {
+                appleFollowAfter = System.nanoTime() + APPLE_LYRIC_IDLE_NANOS
+            }
         } else if (wheel < 0 && MusicPlayer.current?.source == MusicSource.NETEASE) {
             openComments()
         }
@@ -122,6 +128,7 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
 
     fun resumeAppleLyrics() {
         manualPosition = null
+        appleFollowAfter = 0L
         resumeAppleFollow = true
     }
 
@@ -153,6 +160,7 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
 
         if (song?.key != track?.key) {
             manualPosition = null
+            appleFollowAfter = 0L
             scrollPosition = 0f
         }
         track = song
@@ -186,6 +194,10 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
         }
         val position = playback.positionMs + (song?.let(::lyricOffset) ?: 0L)
         val active = lyrics?.indexAt(position) ?: -1
+        if (appleFollowAfter != 0L && System.nanoTime() - appleFollowAfter >= 0L) {
+            manualPosition = null
+            appleFollowAfter = 0L
+        }
         val target = manualPosition?.coerceAtMost(rows.last().center) ?: (rows.getOrNull(active)?.center ?: 0f)
         scrollPosition = if (resumeAppleFollow) target else ui.approach(scrollPosition, target, 95f)
         resumeAppleFollow = false
@@ -412,3 +424,5 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
         }
     }
 }
+
+private const val APPLE_LYRIC_IDLE_NANOS = 5_000_000_000L

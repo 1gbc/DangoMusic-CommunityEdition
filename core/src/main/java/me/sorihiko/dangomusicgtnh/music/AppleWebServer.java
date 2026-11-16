@@ -19,7 +19,15 @@ public final class AppleWebServer implements AutoCloseable {
     private JsonObject state;
     private boolean authorized;
     private String authState="restoring";
-    private final Map<Long,CompletableFuture<JsonObject>> requests=new HashMap<>();
+    private static final class PendingQuery {
+        final String operation;
+        final CompletableFuture<JsonObject> future;
+        PendingQuery(String operation,CompletableFuture<JsonObject> future){
+            this.operation=operation;
+            this.future=future;
+        }
+    }
+    private final Map<Long,PendingQuery> requests=new HashMap<>();
     private final ArrayDeque<JsonObject> commands=new ArrayDeque<>();
     private static final boolean TRACE_TIMING=Boolean.getBoolean("dangomusic.apple.timing");
     private Double pendingVolume;
@@ -51,7 +59,7 @@ public final class AppleWebServer implements AutoCloseable {
     public String error(){return error;}
     public synchronized boolean authorized(){return connected()&&authorized;}
     public synchronized String authState(){return connected()?authState:"disconnected";}
-    private void cancelRequests(){for(CompletableFuture<JsonObject> f:requests.values())f.completeExceptionally(new IOException("Apple Music request cancelled"));requests.clear();}
+    private void cancelRequests(){for(PendingQuery query:requests.values())query.future.completeExceptionally(new IOException("Apple Music request cancelled"));requests.clear();}
     private void clearPlaybackCommands(){
         // A favorite write belongs to the account even if the user changes songs.
         for(Iterator<JsonObject> it=commands.iterator();it.hasNext();){
@@ -66,8 +74,8 @@ public final class AppleWebServer implements AutoCloseable {
                 pendingVolumeAt=command.has("queuedNanos")?command.get("queuedNanos").getAsLong():System.nanoTime();
             }
             it.remove();
-            CompletableFuture<JsonObject> request=requests.remove(id);
-            if(request!=null)request.completeExceptionally(new IOException("Apple Music request cancelled"));
+            PendingQuery request=requests.remove(id);
+            if(request!=null)request.future.completeExceptionally(new IOException("Apple Music request cancelled"));
         }
     }
     public synchronized void reconnect(){cancelRequests();session=null;owner=null;state=null;commands.clear();pendingVolume=null;expectedCatalogSong="";loadQueuedAt=0;authorized=false;authState="restoring";stopped=false;pairing=random();born=System.nanoTime();lastAck=sequence;error="";}
@@ -79,7 +87,7 @@ public final class AppleWebServer implements AutoCloseable {
         synchronized(this){
             if(!connected())throw new IOException("Apple player disconnected");
             if(commands.size()>=16)throw new IOException("Apple controls busy");
-            JsonObject c=new JsonObject(),v=new JsonObject();id=++sequence;c.addProperty("id",id);c.addProperty("name","query");v.addProperty("op",op);v.addProperty(op.equals("search")||op.equals("librarySearch")?"term":"id",value);v.addProperty("offset",offset);c.add("value",v);commands.add(c);requests.put(id,future);
+            JsonObject c=new JsonObject(),v=new JsonObject();id=++sequence;c.addProperty("id",id);c.addProperty("name","query");v.addProperty("op",op);v.addProperty(op.equals("search")||op.equals("librarySearch")?"term":"id",value);v.addProperty("offset",offset);c.add("value",v);commands.add(c);requests.put(id,new PendingQuery(op,future));
         }
         try{return future.get(20,TimeUnit.SECONDS);}finally{synchronized(this){requests.remove(id);}}
     }
@@ -141,8 +149,13 @@ public final class AppleWebServer implements AutoCloseable {
                 }
                 if(report.has("commandResult")&&report.get("commandResult").isJsonObject()){
                     JsonObject result=report.getAsJsonObject("commandResult");long id=result.get("id").getAsLong();
-                    CompletableFuture<JsonObject> f=requests.get(id);
-                    if(f!=null&&id==lastAck){JsonObject cleaned=new JsonObject();JsonArray items=new JsonArray();
+                    PendingQuery query=requests.get(id);
+                    if(query!=null&&id==lastAck){JsonObject cleaned=new JsonObject();JsonArray items=new JsonArray();
+                        if("songDetails".equals(query.operation)){
+                            cleaned.addProperty("url",appleLink(result,"url"));
+                            cleaned.addProperty("artist",text(result,"artist",300));
+                            cleaned.addProperty("composer",text(result,"composer",300));
+                        }
                         if(result.has("items")&&result.get("items").isJsonArray())for(JsonElement item:result.getAsJsonArray("items")){if(items.size()>=40)break;if(!item.isJsonObject())continue;JsonObject raw=item.getAsJsonObject(),row=sanitize(raw);row.addProperty("playId",text(raw,"playId",100));row.addProperty("genre",text(raw,"genre",100));for(String k:Arrays.asList("library","compilation","favoriteList"))row.addProperty(k,raw.has(k)&&raw.get(k).getAsBoolean());
                             if(raw.has("featuredCover"))row.addProperty("featuredCover",artwork(raw,"featuredCover"));
                             if(raw.has("releaseDate"))row.addProperty("releaseDate",text(raw,"releaseDate",10));
@@ -152,13 +165,13 @@ public final class AppleWebServer implements AutoCloseable {
                                 if(index<0||index>=30)continue;
                                 row.addProperty("sectionIndex",index);
                                 for(String key:Arrays.asList("layout","heading"))row.addProperty(key,text(raw,key,300));
-                                row.addProperty("link",appleLink(raw));
+                                row.addProperty("link",appleLink(raw,"link"));
                             }
                             items.add(row);}
                         if(result.has("nextOffset")){int next=result.get("nextOffset").getAsInt();if(next>=0&&next<=10025)cleaned.addProperty("nextOffset",next);}
                         if(result.has("favorite")&&result.get("favorite").isJsonPrimitive()&&result.getAsJsonPrimitive("favorite").isBoolean())
                             cleaned.add("favorite",result.get("favorite"));
-                        cleaned.add("items",items);cleaned.addProperty("hasMore",result.has("hasMore")&&result.get("hasMore").getAsBoolean());cleaned.addProperty("error",text(result,"error",300));f.complete(cleaned);
+                        cleaned.add("items",items);cleaned.addProperty("hasMore",result.has("hasMore")&&result.get("hasMore").getAsBoolean());cleaned.addProperty("error",text(result,"error",300));query.future.complete(cleaned);
                     }
                 }
                 boolean changing=false;for(JsonObject c:commands)if(!Arrays.asList("query","show","hide","login","volume").contains(c.get("name").getAsString()))changing=true;
@@ -220,9 +233,11 @@ public final class AppleWebServer implements AutoCloseable {
         }catch(IllegalArgumentException ignored){}
         return "";
     }
-    private static String appleLink(JsonObject source){
+    private static String appleLink(JsonObject source,String field){
         try {
-            URI url=URI.create(text(source,"link",700));
+            String link=text(source,field,701);
+            if(link.length()>700)return "";
+            URI url=URI.create(link);
             if("https".equals(url.getScheme())&&"music.apple.com".equals(url.getHost())&&url.getUserInfo()==null&&
                 (url.getPort()==-1||url.getPort()==443)&&url.getPath().matches("/[a-z]{2}/.+"))return url.toString();
         }catch(IllegalArgumentException ignored){}
