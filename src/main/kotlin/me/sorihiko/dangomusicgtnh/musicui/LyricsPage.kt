@@ -8,6 +8,7 @@ import me.sorihiko.dangomusicgtnh.music.CoverCache
 import me.sorihiko.dangomusicgtnh.music.MusicPlayer
 import me.sorihiko.dangomusicgtnh.music.MusicSource
 import me.sorihiko.dangomusicgtnh.music.NeteaseTrack
+import me.sorihiko.dangomusicgtnh.music.PlaybackView
 import me.sorihiko.dangomusicgtnh.ui.LayoutBounds
 import me.sorihiko.dangomusicgtnh.ui.ShapeStyle
 import me.sorihiko.dangomusicgtnh.ui.Theme
@@ -113,6 +114,62 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
             } else drawLyricsContent(area, close)
         }
         if (alpha < 0.99f) while (ui.hits.size > before) ui.hits.removeAt(ui.hits.lastIndex)
+    }
+
+    fun drawApple(frame: AppleLyricsLayout, playback: PlaybackView.Snapshot, close: () -> Unit) {
+        if (frame.scale <= 0f) return
+        pageArea = frame.viewport
+        lyricArea = frame.lyrics
+        shortcutArea = LayoutBounds()
+        popupArea = null
+        val song = playback.track?.takeIf { it.source == MusicSource.APPLE }
+        val backdrop = song?.let(CoverCache::trackBackdrop)
+        if (backdrop != null) {
+            ui.ctx.drawImage(frame.viewport, backdrop)
+            ui.card(frame.viewport, Color(0f, 0f, 0f, 0.38f), 0f)
+        } else {
+            ui.card(frame.viewport, Color.fromHex("#382122"), 0f)
+        }
+        val closeHit = frame.bounds(7f, 0f, 44f, 42f)
+        ui.icon("×", frame.x(29f), frame.y(21f), 24f * frame.scale, white.copy(a = 0.72f))
+        ui.hits += closeHit to close
+
+        if (song?.key != track?.key) {
+            manualPosition = null
+            scrollPosition = 0f
+        }
+        track = song
+        val coverRadius = 0.08f // Same cover mask as the existing large-cover grid.
+        val cover = song?.let { CoverCache.trackRoundedLarge(it, coverRadius) }
+        val radius = frame.artwork.width * coverRadius
+        val edge = 6f * frame.scale
+        ui.ctx.recaptureBackdrop()
+        ui.ctx.drawGlass(frame.artwork.expand(edge, edge), Theme.GLASS_SIDEBAR.copy(
+            radius = radius + edge, bevel = edge, refraction = edge
+        ))
+        ui.drawCover(frame.artwork, cover, radius)
+        val lyricModule = module.lyrics()
+        val lyrics = song?.let { lyricModule?.playerLyrics(it) }
+        val size = module.lyricsPageSize.value * frame.scale
+        layout(lyrics?.lines.orEmpty(), lyricArea.width, size)
+        if (rows.isEmpty()) {
+            val loading = song != null && lyricModule?.isLoadingLyrics(song) == true
+            val title = I18n.text(if (loading) "Loading lyrics..." else "No lyrics available")
+            val detail = I18n.text("There aren't any lyrics available for this song.")
+            val fontSize = 13f * frame.scale
+            val center = lyricArea.x + lyricArea.width / 2f
+            val font = Theme.FONT_SEMIBOLD
+            ui.text(title, center - ui.width(title, fontSize, font) / 2f, frame.y(630f), fontSize, white, font)
+            if (!loading) {
+                ui.text(detail, center - ui.width(detail, fontSize) / 2f, frame.y(669f), fontSize, white.copy(a = 0.8f))
+            }
+            return
+        }
+        val position = playback.positionMs + (song?.let(::lyricOffset) ?: 0L)
+        val active = lyrics?.indexAt(position) ?: -1
+        val target = manualPosition?.coerceAtMost(rows.last().center) ?: (rows.getOrNull(active)?.center ?: 0f)
+        scrollPosition = ui.approach(scrollPosition, target, 95f)
+        drawLyrics(active, size, null)
     }
 
     private fun drawLyricsContent(area: LayoutBounds, close: () -> Unit) {

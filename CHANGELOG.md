@@ -4,6 +4,10 @@
 
 ## 未发布
 
+- Apple Music 大歌词页采用参考图的双栏布局，小窗口等比缩放。左侧封面使用现有圆角和玻璃材质，右侧继续逐行滚动。
+- 页面使用 Inter 和 Noto Sans SC，保留字体许可。封面下方显示歌曲信息、收藏、进度及剩余时间、播放控制和独立音量条。
+- 三点菜单提供 View Credits 和 Copy Link。署名显示曲目元数据可提供的表演者与作曲者，复制操作使用 Apple Music 的曲目链接。单曲循环开启时显示带 1 的图标。
+
 ## 0.3.1-dev.1 · [PR #22](https://github.com/1gbc/DangoMusic-GTNH/pull/22)
 
 - fix(ui): fade transient player notices after five seconds

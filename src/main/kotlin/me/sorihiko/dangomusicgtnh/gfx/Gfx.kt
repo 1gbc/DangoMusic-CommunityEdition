@@ -71,6 +71,8 @@ object CjkStyle {
     const val LYRIC = 3
     /** 驾驶舱歌词（玩家给驾驶舱选的字体，没有的字退回粗体） */
     const val SIDE = 4
+    const val NOTO_SC = 5
+    const val NOTO_SC_BOLD = 6
 }
 
 /** 一段要画的平滑字体文字。centered = (x, y) 是可见部分的中心；否则 y 是基线 */

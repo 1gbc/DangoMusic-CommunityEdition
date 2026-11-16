@@ -54,7 +54,7 @@ public final class AppleWebServer implements AutoCloseable {
     public JsonObject request(String op,String value,int offset)throws Exception{
         if(!Arrays.asList("search","charts","songs","playlists","playlistTracks","recent","recommend","resourceTracks",
             "librarySearch","discover","genres","genreCharts","radio","liveRadio","webDiscover","webRadio","recentlyAdded","libraryAlbums","favoriteSongs",
-            "favoriteState","favoriteAdd","favoriteRemove","heavyRotation").contains(op)||value==null||value.length()>200||offset<0||offset>10000)throw new IllegalArgumentException("Invalid browse request");
+            "favoriteState","favoriteAdd","favoriteRemove","heavyRotation","songDetails").contains(op)||value==null||value.length()>200||offset<0||offset>10000)throw new IllegalArgumentException("Invalid browse request");
         CompletableFuture<JsonObject> future=new CompletableFuture<>();long id;
         synchronized(this){
             if(!connected())throw new IOException("Apple player disconnected");

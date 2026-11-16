@@ -233,6 +233,40 @@ object CoverCache {
         return null
     }
 
+    /** Cover colours for the Apple lyrics backdrop. Reuse the existing texture cache. */
+    fun trackBackdrop(track: NeteaseTrack): Texture? {
+        val sourceKey = "t:${track.key}"
+        val key = sourceKey + ROUND_SUFFIX + "apple-lyrics-backdrop"
+        textures[key]?.let {
+            lastUsed[key] = now
+            return it
+        }
+        get(sourceKey, track.coverUrl)
+        val source = sources[sourceKey] ?: return null
+        if (roundQueued.add(key)) {
+            worker.execute {
+                val colours = BufferedImage(4, 4, BufferedImage.TYPE_INT_RGB)
+                val sample = colours.createGraphics()
+                try {
+                    sample.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
+                    sample.drawImage(source, 0, 0, colours.width, colours.height, null)
+                } finally {
+                    sample.dispose()
+                }
+                val blurred = BufferedImage(128, 128, BufferedImage.TYPE_INT_ARGB)
+                val graphics = blurred.createGraphics()
+                try {
+                    graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC)
+                    graphics.drawImage(colours, 0, 0, blurred.width, blurred.height, null)
+                } finally {
+                    graphics.dispose()
+                }
+                ready.add(key to blurred)
+            }
+        }
+        return null
+    }
+
     /** 大尺寸显示的歌曲封面：高清版好了用高清版，否则先用小图 */
     fun trackRoundedLarge(t: NeteaseTrack, ratio: Float) =
         roundedLarge("t:${t.key}", t.coverUrl, ratio) ?: trackRounded(t, ratio)

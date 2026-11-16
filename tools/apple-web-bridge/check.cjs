@@ -302,3 +302,27 @@ test('page adapter reads the actual player clock and validates controls without 
   context.MusicKit=null;
   assert.equal((await context.appleAdapter(null)).available,false);
 });
+
+test('song details use the current storefront and accept library song IDs',async()=>{
+  const vm=require('node:vm');const paths=[];
+  const song={artistName:'Artist',composerName:'Composer',url:'https://music.apple.com/cn/song/123'};
+  const player={storefrontId:'cn',api:{music:async(path,params)=>{
+    paths.push(path);
+    if(path.includes('/library/')){
+      assert.equal(params.include,'catalog');
+      return {data:{data:[{attributes:{artistName:'Library display name'},relationships:{catalog:{data:[{attributes:song}]}}}]}};
+    }
+    return {data:{data:[{attributes:song}]}};
+  }}};
+  const context=vm.createContext({location:{origin:'https://music.apple.com'},MusicKit:{getInstance:()=>player},URL,setTimeout,clearTimeout});
+  vm.runInContext(fs.readFileSync(__dirname+'/extension/adapter.js','utf8'),context);
+  const details=id=>context.appleAdapter({name:'query',value:{op:'songDetails',id}});
+  for(const id of ['123','library:i.abc']){
+    const result=await details(id);
+    assert.equal(result.artist,'Artist');
+    assert.equal(result.composer,'Composer');
+    assert.equal(result.url,song.url);
+  }
+  await assert.rejects(details('library:i../tracks'),/Invalid song identifier/);
+  assert.deepEqual(paths,['/v1/catalog/cn/songs/123','/v1/me/library/songs/i.abc']);
+});

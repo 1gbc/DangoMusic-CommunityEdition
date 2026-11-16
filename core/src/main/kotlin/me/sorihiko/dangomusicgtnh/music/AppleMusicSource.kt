@@ -138,6 +138,21 @@ object AppleMusicSource : MusicSourceApi {
     override fun charts() = listOf(chartEntry())
     fun clear() { ids.clear();cardRefs.clear();sections.clear();groupedTracks.clear();homeWarning="" }
     override val libraryWarning get() = "Apple Music: sign in once, then search and play in the game"
+    data class SongDetails(val artist: String, val composer: String, val link: String)
+
+    fun songDetails(track: NeteaseTrack): SongDetails {
+        require(track.source == MusicSource.APPLE)
+        val result = AppleWebPlayer.request("songDetails", track.mediaId, 0)
+        val error = str(result, "error")
+        if (error.isNotEmpty()) throw SourceAccessException(error)
+        val uri = runCatching { java.net.URI(str(result, "url")) }.getOrNull()
+        val link = uri?.takeIf {
+            it.scheme == "https" && it.host == "music.apple.com" && it.userInfo == null &&
+                (it.port == -1 || it.port == 443) && !it.path.isNullOrBlank()
+        }?.toASCIIString().orEmpty()
+        return SongDetails(str(result, "artist"), str(result, "composer"), link)
+    }
+
     override fun songUrl(track: NeteaseTrack): NeteaseApi.SongUrl? = null
     override fun lyrics(track: NeteaseTrack): Lyrics? = AppleLyrics.load(track)
     private fun rows(op: String, value: String = "", pages: Int = 20): List<JsonObject> {

@@ -24,8 +24,16 @@ class MixedText {
 
         private fun isLatin(c: Char) = c.code in 32..126
         fun bold(font: String) = font == Theme.FONT_SEMIBOLD || font == Theme.FONT_DISPLAY
-        private fun style(bold: Boolean) = if (bold) CjkStyle.BOLD else CjkStyle.PLAIN
     }
+
+    var useNotoSansSc = false
+
+    private fun style(bold: Boolean) =
+        if (useNotoSansSc) {
+            if (bold) CjkStyle.NOTO_SC_BOLD else CjkStyle.NOTO_SC
+        } else {
+            if (bold) CjkStyle.BOLD else CjkStyle.PLAIN
+        }
 
     private val gfx get() = DangoClient.gfx
 
