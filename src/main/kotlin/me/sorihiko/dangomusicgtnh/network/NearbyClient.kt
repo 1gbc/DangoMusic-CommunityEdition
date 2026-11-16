@@ -510,7 +510,7 @@ object NearbyClient {
                         }
                     }
                     data.groupUi?.invites?.firstOrNull { it.groupId + "|" + it.from !in previousInvites }?.let {
-                        Library.showTemporaryStatus(I18n.format("Group invite from %s", it.from), 5_000)
+                        Library.showStatus(I18n.format("Group invite from %s", it.from))
                     }
                 }
                 NearbyProtocol.S2C.LYRICS -> {

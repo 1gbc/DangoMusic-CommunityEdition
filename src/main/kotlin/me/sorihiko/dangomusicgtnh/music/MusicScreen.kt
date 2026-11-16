@@ -269,7 +269,7 @@ class MusicScreen(
 
     internal fun openAppleWebsite(url: String) {
         runCatching { java.awt.Desktop.getDesktop().browse(java.net.URI(url)) }
-            .onFailure { Library.showTemporaryStatus(I18n.text("Could not open the browser"), 3500) }
+            .onFailure { Library.showStatus(I18n.text("Could not open the browser")) }
     }
 
     internal fun toggleSettings() {
@@ -580,6 +580,13 @@ class MusicScreen(
         // 播放栏画在最上面，点击也要先轮到它（点到的是第一个命中的区域）
         val before = ui.hits.size
         bar.draw(barRect, lyricsOpen)
+        val notice = Library.notice
+        val opacity = notice.opacity()
+        if (opacity > 0f && !(UiStyle.continuous && notice.text == AppleMusicSource.libraryWarning)) {
+            val font = Theme.FONT_SEMIBOLD
+            val text = ui.trim(I18n.message(notice.text), barRect.width, 10f, font)
+            ui.text(text, barRect.x, barRect.y - 20f, 10f, RED.copy(a = opacity), font)
+        }
         val barHits = ui.hits.subList(before, ui.hits.size).toList()
         repeat(barHits.size) { ui.hits.removeAt(ui.hits.size - 1) }
         // 播放栏的空白处也要挡住点击，不然会点到底下那首歌
@@ -588,12 +595,7 @@ class MusicScreen(
     }
 
     private fun drawContent(area: LayoutBounds) {
-        // 底部小字只在有提示（读取失败等）时显示
-        val status = Library.status
-        val foot = if (UiStyle.continuous && status == AppleMusicSource.libraryWarning) "" else I18n.message(status)
-        // 提示文字放在播放栏上面，不被它挡住
-        if (foot.isNotEmpty()) ui.text(ui.trim(foot, area.width, 10f, Theme.FONT_SEMIBOLD), area.x, area.bottom - ui.bottomInset - 13f, 10f, RED, Theme.FONT_SEMIBOLD)
-        val body = LayoutBounds(area.x, area.y, area.width, area.height - (if (foot.isNotEmpty()) 18f else 4f))
+        val body = area.copy(height = area.height - 4f)
         // 滚轮区域：哪一页画了，哪一页才有
         grid.area = LayoutBounds()
         discover.hide()

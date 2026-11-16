@@ -59,15 +59,8 @@ internal object Library {
         private set
     @Volatile var playlistsLoading = false
         private set
-    // 文本和期限一起发布，避免后台加载结果被旧提示的到期逻辑清掉。
-    private class Status(val text: String, val expiresAt: Long = 0L)
-    @Volatile private var statusState = Status("")
-    var status: String
-        get() {
-            val value = statusState
-            return if (value.expiresAt != 0L && System.nanoTime() - value.expiresAt >= 0L) "" else value.text
-        }
-        private set(value) { statusState = Status(value) }
+    @Volatile var notice = TimedNotice("")
+        private set
     @Volatile var recommend: List<NeteasePlaylist>? = null
         private set
     @Volatile var recommendLoading = false
@@ -115,7 +108,7 @@ internal object Library {
                 if (editorial != null) appleEditorial[section] = editorial
                 else if (section == AppleMusicSource.Section.DISCOVER) loadTracks(AppleMusicSource.chartEntry().id)
                 result.onSuccess { applePages[section] = it }
-                    .onFailure { status = publicError(it as? Exception ?: IllegalStateException()) }
+                    .onFailure { showStatus(publicError(it as? Exception ?: IllegalStateException())) }
             }
         }
     }
@@ -129,7 +122,7 @@ internal object Library {
             publish(request) {
                 catalogGenresLoading = false
                 result.onSuccess { catalogGenres = it }
-                    .onFailure { status = publicError(it as? Exception ?: IllegalStateException()) }
+                    .onFailure { showStatus(publicError(it as? Exception ?: IllegalStateException())) }
             }
         }
     }
@@ -167,7 +160,7 @@ internal object Library {
                     else -> ""
                 }
                 appleFavorite = AppleFavorite(track.key, selected ?: previous, false, error)
-                if (desired != null && error.isNotEmpty()) showTemporaryStatus(I18n.text(error), 3500)
+                if (desired != null && error.isNotEmpty()) showStatus(I18n.text(error))
                 if (desired != null && selected == desired) {
                     val id = AppleMusicSource.favoritesEntry().id
                     tracksCache.remove(id)
@@ -202,9 +195,13 @@ internal object Library {
             publish(request) {
                 playlists = result
                 playlistsLoading = false
-                status = if (error.isNotEmpty()) error else if (request.api.libraryWarning.isNotEmpty()) request.api.libraryWarning
-                    else if (request.api.source != MusicSource.NETEASE) ""
-                    else if (result.isEmpty()) "没有读到歌单（检查网络或登录）" else ""
+                val message = when {
+                    error.isNotEmpty() -> error
+                    request.api.libraryWarning.isNotEmpty() -> request.api.libraryWarning
+                    request.api.source == MusicSource.NETEASE && result.isEmpty() -> "没有读到歌单（检查网络或登录）"
+                    else -> ""
+                }
+                if (message.isNotEmpty()) showStatus(message)
             }
         }
     }
@@ -218,7 +215,7 @@ internal object Library {
             val result = try {
                 if (personalAppleHome) AppleMusicSource.recommend(includePersonalSections = true) else request.api.recommend()
             } catch (e: Exception) { error = publicError(e); emptyList() }
-            publish(request) { recommend = if (error.isEmpty()) result else null; recommendLoading = false; if (error.isNotEmpty()) status = error }
+            publish(request) { recommend = if (error.isEmpty()) result else null; recommendLoading = false; if (error.isNotEmpty()) showStatus(error) }
         }
     }
     @Synchronized fun loadCharts() {
@@ -228,7 +225,7 @@ internal object Library {
         worker.execute {
             var error = ""
             val result = try { request.api.charts() } catch (e: Exception) { error = publicError(e); emptyList() }
-            publish(request) { charts = if (error.isEmpty()) result else null; chartsLoading = false; if (error.isNotEmpty()) status = error }
+            publish(request) { charts = if (error.isEmpty()) result else null; chartsLoading = false; if (error.isNotEmpty()) showStatus(error) }
         }
     }
     @Synchronized fun loadTracks(playlistId: Long) {
@@ -246,7 +243,7 @@ internal object Library {
                 // 失败时保留已经显示的那部分
                 if (result != null) replaceTracks(playlistId, result) else if (!tracksCache.containsKey(playlistId)) tracksCache[playlistId] = emptyList()
                 tracksLoading.remove(playlistId)
-                if (error.isNotEmpty()) { tracksFailed.add(playlistId); status = error }
+                if (error.isNotEmpty()) { tracksFailed.add(playlistId); showStatus(error) }
             }
         }
     }
@@ -307,7 +304,7 @@ internal object Library {
         applePages.clear(); appleEditorial.clear(); appleLoading.clear(); catalogGenres = null; catalogGenresLoading = false
         appleFavorite = null
         charts = null; chartsLoading = false
-        searchResults = null; searching = false; searchError = ""; status = ""
+        searchResults = null; searching = false; searchError = ""; showStatus("")
         reloadPlaylists()
         loadRecommend()
         if (ScreenState.page == Page.CHARTS) loadCharts()
@@ -315,10 +312,9 @@ internal object Library {
         if (ScreenState.page == Page.SEARCH && source == MusicSource.APPLE) loadCatalogGenres()
     }
 
-    fun showStatus(message: String) { status = message }
-
-    fun showTemporaryStatus(message: String, durationMs: Long) {
-        statusState = Status(message, System.nanoTime() + durationMs.coerceIn(0L, 60_000L) * 1_000_000L)
+    fun showStatus(message: String, startedAt: Long = System.nanoTime()) {
+        val next = TimedNotice(message, startedAt)
+        if (message.isEmpty() || next.opacity() > 0f) notice = next
     }
 
     // 网易云红心：列表在后台拉，点了在后台改
@@ -341,7 +337,7 @@ internal object Library {
     @Synchronized fun playHeartMode(playlist: NeteasePlaylist) {
         if (heartLoading || !canPlayHeartMode(playlist)) return
         if (!NeteaseApi.loggedIn) {
-            showTemporaryStatus(I18n.text("Sign in to NetEase to use Heart mode"), 4_000)
+            showStatus(I18n.text("Sign in to NetEase to use Heart mode"))
             return
         }
         val serial = ++heartRequest
@@ -357,8 +353,8 @@ internal object Library {
                 if (sourceGeneration != generation || !NeteaseApi.loggedIn ||
                     MusicPlayer.queue !== originalQueue || MusicPlayer.current !== current) return@synchronized
                 when {
-                    mix == null -> showTemporaryStatus(I18n.text("Could not load Heart mode. Please retry."), 4_000)
-                    mix.isEmpty() -> showTemporaryStatus(I18n.text("Like a song to start Heart mode"), 4_000)
+                    mix == null -> showStatus(I18n.text("Could not load Heart mode. Please retry."))
+                    mix.isEmpty() -> showStatus(I18n.text("Like a song to start Heart mode"))
                     else -> MusicPlayer.startHeartMode(mix, originalQueue, current)
                 }
             }
@@ -379,7 +375,7 @@ internal object Library {
         worker.execute {
             val ok = try { NeteaseApi.setLiked(track.id, like) } catch (_: Exception) { false }
             liking = false
-            if (!ok) status = if (like) "Could not add to Liked songs. Please retry." else "Could not remove from Liked songs. Please retry."
+            if (!ok) showStatus(if (like) "Could not add to Liked songs. Please retry." else "Could not remove from Liked songs. Please retry.")
         }
     }
     // ---------------------------------------------------------------- 歌手（各音源的歌手页）

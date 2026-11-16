@@ -28,11 +28,14 @@ import kotlin.math.roundToInt
 internal class PlayerBar(private val screen: MusicScreen, private val module: NeteaseMusicModule) {
     private val ui = screen.ui
 
-    private var lastPlaybackNotice = ""
-    private var playbackNotice = ""
-    private var playbackNoticeUntil = 0L
+    private companion object {
+        // Reopening the menu does not restart playback notices.
+        var lastPlaybackNotice = ""
+        var playbackNotice = TimedNotice("")
+        var lastSkipNotice = 0L
+    }
+
     private var progressHit = LayoutBounds()
-    private var lastSkipNotice = 0L
     private var progRect = LayoutBounds()
     private var volRect = LayoutBounds()
     private var volumeOpen = false
@@ -136,10 +139,8 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         val skipAt = if (snap.remote) 0L else MusicPlayer.skipNotice
         if (lastSkipNotice != skipAt) {
             lastSkipNotice = skipAt
-            val remaining = 5_000_000_000L - (System.nanoTime() - skipAt)
-            // 重开界面不重放过期事件，也不延长仍在显示的提示。
-            if (skipAt != 0L && remaining > 0L) Library.showTemporaryStatus(
-                I18n.text("This song could not be played. Skipped to the next song."), remaining / 1_000_000L)
+            if (skipAt != 0L) Library.showStatus(
+                I18n.text("This song could not be played. Skipped to the next song."), skipAt)
         }
         val notice = when {
             snap.loading -> ""
@@ -149,8 +150,7 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         if (notice != lastPlaybackNotice) {
             lastPlaybackNotice = notice
             if (notice.isNotBlank()) {
-                playbackNotice = I18n.message(notice)
-                playbackNoticeUntil = System.nanoTime() + 3_500_000_000L
+                playbackNotice = TimedNotice(I18n.message(notice))
             }
         }
         if (t != null && !snap.remote && t.source != MusicSource.APPLE) {
@@ -268,13 +268,14 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         if (continuous) drawContinuousProgress(bar, snap, lyricsOpen)
         else drawProgress(bar, snap, lyricsOpen, (modeButton.x + stopB.right) / 2f,
             if (showCover) coverBox.right + 14f else bar.x + 20f)
-        if (System.nanoTime() < playbackNoticeUntil) {
+        val noticeOpacity = playbackNotice.opacity()
+        if (noticeOpacity > 0f) {
             val font = Theme.FONT_SEMIBOLD
-            val text = ui.trim(playbackNotice, (bar.width - 28f).coerceAtLeast(0f), 11f, font)
+            val text = ui.trim(playbackNotice.text, (bar.width - 28f).coerceAtLeast(0f), 11f, font)
             val w = ui.width(text, 11f, font) + 20f
             val toast = LayoutBounds(bar.x + (bar.width - w) / 2f, bar.y - 58f, w, 24f)
-            ui.card(toast, Color(0.05f, 0.06f, 0.08f, 0.95f), 12f)
-            ui.text(text, toast.x + 10f, toast.y + 7f, 11f, Theme.TEXT_PRIMARY, font)
+            ui.card(toast, Color(0.05f, 0.06f, 0.08f, 0.95f * noticeOpacity), 12f)
+            ui.text(text, toast.x + 10f, toast.y + 7f, 11f, Theme.TEXT_PRIMARY.copy(a = noticeOpacity), font)
         }
 
         drawVolume(bar, ry)
