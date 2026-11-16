@@ -331,6 +331,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                 "ktvLyricColors" to "ktvMode", "ktvInstrumental" to "ktvMode", "ktvBaseColor" to "ktvMode",
                 "ktvBaseShadow" to "ktvMode", "ktvSungShadow" to "ktvMode",
                 "danceAuto" to "dance", "danceTap" to "dance", "danceSpin" to "dance", "danceAmount" to "dance", "danceOffset" to "dance",
+                "danceSpinSpeed" to "danceSpin",
                 "translationAnimation" to "translation", "translationWiggle" to "translation", "translationColor" to "translation",
                 "sideRefraction" to "sideGlass",
                 "sideInertiaStrength" to "sideInertia",
@@ -339,6 +340,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                 "spread" to degrees,
                 "glowRadius" to ::percent,
                 "danceOffset" to { v: Any -> "${(v as IntValue).value} ms" },
+                "danceSpinSpeed" to { v: Any -> "%.2f×".format((v as FloatValue).value) },
                 "sideTilt" to degrees, "sidePitch" to degrees, "sideItalic" to degrees,
                 "sideOffsetX" to signed, "sideOffsetY" to signed,
             ),
@@ -351,6 +353,8 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                 "textColor" to { colors.value == 0 },
                 "translationColor" to { colors.value == 0 },
                 "rainbowSpeed" to { colors.value == 3 },
+                // 转圈速度跟着"转圈"走（deps），总开关关了也要收起
+                "danceSpinSpeed" to bool(lm, "dance")::get,
                 "ktvSungColor" to { lm.ktvMode.get() && lm.ktvLyricColors.value == 0 },
                 "sideGlowStrength" to { lm.sideGlow.get() || lm.sideTextGlow.get() },
             ),
@@ -383,7 +387,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             Group("KTV mode", "Line-by-line highlight", lm, false, ly.take(listOf(
                 "ktvMode", "ktvInstrumental", "ktvLyricColors", "ktvBaseColor", "ktvSungColor", "ktvBaseShadow", "ktvSungShadow",
             )), show = world),
-            Group("Dance", "Mobs on the beat", lm, false, ly.take(listOf("dance", "danceAuto", "danceTap", "danceSpin", "danceAmount", "danceOffset"))),
+            Group("Dance", "Mobs on the beat", lm, false, ly.take(listOf("dance", "danceAuto", "danceTap", "danceSpin", "danceSpinSpeed", "danceAmount", "danceOffset"))),
         )
         ly.take().let { if (it.isNotEmpty()) lyrics += Group("Other", "More", lm, false, it) }
 

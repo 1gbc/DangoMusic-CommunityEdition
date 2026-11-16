@@ -4,6 +4,9 @@
 
 ## 未发布
 
+- 生物跟着节奏弹改为每拍一个连续的周期：拍子上压到最扁，约三分之一拍处拉到最长，再平滑落回，下一拍又压到最扁。以前后半拍完全静止，两次弹之间像停顿了一下。踩点时刻不变，「踩点偏移」和自己点 BPM 照常可用。
+- 「设置 → 歌词 → 跳舞」新增「转圈速度」（0.25×–4×，1× 为四拍一圈），打开「转圈」后显示。
+
 ## 0.3.1-dev.1 · [PR #22](https://github.com/1gbc/DangoMusic-GTNH/pull/22)
 
 - fix(ui): fade transient player notices after five seconds
