@@ -223,7 +223,7 @@ internal class TracksPage(private val screen: MusicScreen) {
         }
         if (list.isEmpty() && ScreenState.page == Page.PLAYLIST &&
             ScreenState.opened?.id == CloudDrives.id(MusicSources.selected) &&
-            !partiallyLoaded() && Library.status.isEmpty()) {
+            !partiallyLoaded() && Library.notice.opacity() <= 0f) {
             ui.text(I18n.text("No cloud songs to display"), area.x + 12f, area.y + 20f, 12f, Theme.TEXT_TERTIARY)
             return
         }

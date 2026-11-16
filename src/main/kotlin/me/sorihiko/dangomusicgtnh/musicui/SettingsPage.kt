@@ -1295,9 +1295,9 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                 Thread({
                     try {
                         NeteaseDiskCache.clear()
-                        Library.showTemporaryStatus(I18n.text("NetEase cache cleared"), 3000)
+                        Library.showStatus(I18n.text("NetEase cache cleared"))
                     } catch (_: Exception) {
-                        Library.showTemporaryStatus(I18n.text("Could not clear the NetEase cache"), 3000)
+                        Library.showStatus(I18n.text("Could not clear the NetEase cache"))
                     } finally {
                         clearingCache = false
                     }
@@ -1318,7 +1318,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             }
             ProcessBuilder(app, directory.toAbsolutePath().toString()).start()
         } catch (_: Exception) {
-            Library.showTemporaryStatus(I18n.text("Cache folder: ") + directory.toAbsolutePath(), 5000)
+            Library.showStatus(I18n.text("Cache folder: ") + directory.toAbsolutePath())
         }
     }
 
