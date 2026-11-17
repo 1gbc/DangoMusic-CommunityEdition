@@ -44,7 +44,69 @@ public final class AppleWebServer implements AutoCloseable {
         }
         commands.add(command);
     }
-    private String expectedCatalogSong="";
+    private static final long CATALOG_MATCH_TIMEOUT_MS=7000;
+    private static final class PendingLoad {
+        final long id,queuedAt=System.nanoTime();
+        final String catalogId,previousId;
+        String resolvedId="";
+        long mismatchSince;
+        PendingLoad(long id,String catalogId,String previousId){
+            this.id=id;
+            this.catalogId=catalogId;
+            this.previousId=previousId;
+        }
+    }
+    private PendingLoad pendingLoad;
+    private String lastTrackId="";
+    private volatile String loadFailure="";
+    private void clearLoad(){
+        pendingLoad=null;
+        loadQueuedAt=0;
+        loadFailure="";
+    }
+    private void failLoad(String message){
+        pendingLoad=null;
+        loadQueuedAt=0;
+        state=null;
+        stopped=true;
+        loadFailure=message;
+    }
+    private void updateLoadResult(JsonObject report){
+        PendingLoad load=pendingLoad;
+        if(load==null)return;
+        if(elapsed(load.queuedAt)>=65000){
+            failLoad("Apple Music load timed out; try playing the song again");
+            return;
+        }
+        if(!report.has("loadResult")||!report.get("loadResult").isJsonObject()){
+            String failure=text(report,"commandError",300);
+            if(load.id==lastAck&&(failure.startsWith("Apple Music queue failed")||failure.startsWith("Apple Music play failed")||
+                failure.contains("[MEDIA_TIMEOUT]")))failLoad(failure);
+            return;
+        }
+        JsonObject result=report.getAsJsonObject("loadResult");
+        if(!Long.toString(load.id).equals(text(result,"id",24))||load.id>lastAck)return;
+        String failure=text(result,"error",300);
+        if(!failure.isEmpty()){
+            failLoad(failure);
+            return;
+        }
+        load.resolvedId=text(result,"resolvedId",100);
+        if(load.mismatchSince==0)load.mismatchSince=System.nanoTime();
+    }
+    private boolean acceptLoadState(JsonObject incoming){
+        PendingLoad load=pendingLoad;
+        if(load==null)return true;
+        String id=text(incoming,"id",100);
+        boolean available=!id.isEmpty()&&!text(incoming,"title",300).isEmpty()&&
+            incoming.has("available")&&incoming.get("available").getAsBoolean();
+        if(available&&(load.catalogId.isEmpty()||load.catalogId.equals(id)||
+            (id.equals(load.resolvedId)&&!id.equals(load.previousId))))return true;
+        if(load.mismatchSince==0&&available)load.mismatchSince=System.nanoTime();
+        if(load.mismatchSince==0||elapsed(load.mismatchSince)<CATALOG_MATCH_TIMEOUT_MS)return false;
+        failLoad("Apple Music did not confirm the requested song; try playing it again");
+        return false;
+    }
     private volatile String error="";
     public AppleWebServer() throws IOException {
         server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),4);
@@ -56,7 +118,7 @@ public final class AppleWebServer implements AutoCloseable {
     public synchronized String pairingLink(){return origin()+"/#"+pairing;}
     public synchronized boolean connected(){return session!=null&&elapsed(lastSync)<10000;}
     public synchronized JsonObject snapshot(){return connected()&&!stopped&&state!=null?new JsonParser().parse(state.toString()).getAsJsonObject():null;}
-    public String error(){return error;}
+    public String error(){String failure=loadFailure;return failure.isEmpty()?error:failure;}
     public synchronized boolean authorized(){return connected()&&authorized;}
     public synchronized String authState(){return connected()?authState:"disconnected";}
     private void cancelRequests(){for(PendingQuery query:requests.values())query.future.completeExceptionally(new IOException("Apple Music request cancelled"));requests.clear();}
@@ -78,7 +140,7 @@ public final class AppleWebServer implements AutoCloseable {
             if(request!=null)request.future.completeExceptionally(new IOException("Apple Music request cancelled"));
         }
     }
-    public synchronized void reconnect(){cancelRequests();session=null;owner=null;state=null;commands.clear();pendingVolume=null;expectedCatalogSong="";loadQueuedAt=0;authorized=false;authState="restoring";stopped=false;pairing=random();born=System.nanoTime();lastAck=sequence;error="";}
+    public synchronized void reconnect(){cancelRequests();session=null;owner=null;state=null;commands.clear();pendingVolume=null;clearLoad();lastTrackId="";authorized=false;authState="restoring";stopped=false;pairing=random();born=System.nanoTime();lastAck=sequence;error="";}
     public JsonObject request(String op,String value,int offset)throws Exception{
         if(!Arrays.asList("search","charts","songs","playlists","playlistTracks","recent","recommend","resourceTracks",
             "librarySearch","discover","genres","genreCharts","radio","liveRadio","webDiscover","webRadio","recentlyAdded","libraryAlbums","favoriteSongs",
@@ -89,23 +151,29 @@ public final class AppleWebServer implements AutoCloseable {
             if(commands.size()>=16)throw new IOException("Apple controls busy");
             JsonObject c=new JsonObject(),v=new JsonObject();id=++sequence;c.addProperty("id",id);c.addProperty("name","query");v.addProperty("op",op);v.addProperty(op.equals("search")||op.equals("librarySearch")?"term":"id",value);v.addProperty("offset",offset);c.add("value",v);commands.add(c);requests.put(id,new PendingQuery(op,future));
         }
-        try{return future.get(20,TimeUnit.SECONDS);}finally{synchronized(this){requests.remove(id);}}
+        try{return future.get("songDetails".equals(op)?8:20,TimeUnit.SECONDS);}
+        finally{synchronized(this){
+            requests.remove(id);
+            if("songDetails".equals(op))commands.removeIf(command->command.get("id").getAsLong()==id);
+        }}
     }
     public synchronized void playSong(String id,boolean library){
         if(id==null||!id.matches("[A-Za-z0-9._:-]{1,100}"))throw new IllegalArgumentException("Invalid song ID");
         if(!connected())return;
-        clearPlaybackCommands();stopped=false;state=null;
-        expectedCatalogSong=!library&&id.matches("[0-9]{1,20}")?id:"";
+        clearPlaybackCommands();stopped=false;state=null;error="";
+        clearLoad();
+        pendingLoad=new PendingLoad(++sequence,!library&&id.matches("[0-9]{1,20}")?id:"",lastTrackId);
         loadQueuedAt=TRACE_TIMING?System.nanoTime():0L;
-        JsonObject c=new JsonObject(),v=new JsonObject();c.addProperty("id",++sequence);c.addProperty("name","load");v.addProperty("id",id);v.addProperty("library",library);c.add("value",v);enqueue(c,loadQueuedAt);
+        JsonObject c=new JsonObject(),v=new JsonObject();c.addProperty("id",sequence);c.addProperty("name","load");v.addProperty("id",id);v.addProperty("library",library);c.add("value",v);enqueue(c,loadQueuedAt);
     }
     public synchronized void command(String name,Double value){
         if(!Arrays.asList("play","pause","stop","next","previous","seek","volume","show","hide","login","shutdown").contains(name))throw new IllegalArgumentException("Unsupported control");
         if((name.equals("seek")||name.equals("volume"))&&(value==null||Double.isNaN(value)||Double.isInfinite(value)||value<0||value>(name.equals("volume")?1:86400)))throw new IllegalArgumentException("Invalid control value");
         if(!connected())return;
         if(name.equals("volume")){pendingVolume=value;pendingVolumeAt=System.nanoTime();return;}
-        if(name.equals("stop")){stopped=true;state=null;expectedCatalogSong="";loadQueuedAt=0;clearPlaybackCommands();}
-        if(name.equals("next")||name.equals("previous"))expectedCatalogSong="";
+        if(name.equals("stop")){stopped=true;state=null;clearLoad();clearPlaybackCommands();}
+        if(name.equals("next")||name.equals("previous"))clearLoad();
+        if(name.equals("play"))loadFailure="";
         if(commands.size()>=16){error="Apple Music controls are waiting for the browser";return;}
         if(Arrays.asList("play","next","previous").contains(name))stopped=false;
         JsonObject c=new JsonObject();c.addProperty("id",++sequence);c.addProperty("name",name);if(value!=null)c.addProperty("value",value);enqueue(c,System.nanoTime());
@@ -174,14 +242,20 @@ public final class AppleWebServer implements AutoCloseable {
                         cleaned.add("items",items);cleaned.addProperty("hasMore",result.has("hasMore")&&result.get("hasMore").getAsBoolean());cleaned.addProperty("error",text(result,"error",300));query.future.complete(cleaned);
                     }
                 }
+                updateLoadResult(report);
                 boolean changing=false;for(JsonObject c:commands)if(!Arrays.asList("query","show","hide","login","volume").contains(c.get("name").getAsString()))changing=true;
                 if(report.has("state")&&report.get("state").isJsonObject()){
                     JsonObject incoming=report.getAsJsonObject("state");authorized=incoming.has("authorized")&&incoming.get("authorized").getAsBoolean();
                     String status=text(incoming,"authState",24);authState=Arrays.asList("ready","login","restoring","unavailable").contains(status)?status:(authorized?"ready":"restoring");
-                    boolean expected=expectedCatalogSong.isEmpty()||expectedCatalogSong.equals(text(incoming,"id",100));
-                    if(!stopped&&!changing&&expected){
+                    if(!stopped&&!changing&&acceptLoadState(incoming)){
+                        String reportedId=text(incoming,"id",100);
+                        String requestedId=pendingLoad!=null?pendingLoad.catalogId:
+                            state!=null&&reportedId.equals(text(state,"id",100))?text(state,"requestedCatalogId",100):"";
                         state=sanitize(incoming);
-                        expectedCatalogSong="";
+                        if(!requestedId.isEmpty()&&!requestedId.equals(reportedId))
+                            state.addProperty("requestedCatalogId",requestedId);
+                        pendingLoad=null;
+                        if(state.get("available").getAsBoolean()&&!reportedId.isEmpty())lastTrackId=reportedId;
                         if(loadQueuedAt!=0&&state.get("available").getAsBoolean()&&state.get("playing").getAsBoolean()&&!text(state,"id",100).isEmpty()){
                             trace("load","playing-reported",millisSince(loadQueuedAt));
                             loadQueuedAt=0;

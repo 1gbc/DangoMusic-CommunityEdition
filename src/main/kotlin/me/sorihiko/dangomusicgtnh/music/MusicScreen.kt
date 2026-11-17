@@ -69,8 +69,16 @@ class MusicScreen(
     private var showAppleLyrics = true
     private var appleLyricsTrack: NeteaseTrack? = null
     private var lyricsOpen = false
-    private val appleLyricsOpen get() = lyricsOpen && MusicSources.selected == MusicSource.APPLE
-    internal val canOpenLyrics get() = MusicSources.selected == MusicSource.NETEASE || MusicSources.selected == MusicSource.APPLE
+    private val lyricsSource: MusicSource?
+        get() {
+            val playback = PlaybackView.snapshot()
+            return if (playback.remote) null else playback.track?.source ?: MusicSources.selected
+        }
+    private val appleLyricsOpen get() = lyricsOpen && lyricsSource == MusicSource.APPLE
+    internal val canOpenLyrics get() = when (lyricsSource) {
+        MusicSource.NETEASE, MusicSource.APPLE -> true
+        else -> false
+    }
 
     /** 平台层根据搜索、筛选和设置输入框的焦点开关系统输入法。 */
     val textInputActive: Boolean
@@ -317,7 +325,7 @@ class MusicScreen(
     }
 
     internal fun openSongComments() {
-        if (!module.songCommentsEnabled.get()) return
+        if (!module.songCommentsEnabled.get() || lyricsSource != MusicSource.NETEASE) return
         if (!lyricsOpen) toggleLyrics()
         if (lyricsOpen) lyricsPage.openComments()
     }

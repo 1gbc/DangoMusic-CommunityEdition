@@ -51,7 +51,8 @@ internal sealed class PlayerWindow : Form
 {
     private readonly WebView2 web = new() { Dock=DockStyle.Fill };
     private readonly Label status = new() { AutoSize=true,Text="首次使用请登录 Apple Music；完整播放和隐藏窗口效果需要验证。" };
-    private readonly System.Windows.Forms.Timer timer = new() { Interval=120 };
+    private const int ActivePollMs=120, IdlePollMs=500;
+    private readonly System.Windows.Forms.Timer timer = new() { Interval=IdlePollMs };
     private readonly HttpClient http=new() { Timeout=TimeSpan.FromSeconds(3) };
     private readonly Uri link;
     private readonly string profile;
@@ -65,14 +66,15 @@ internal sealed class PlayerWindow : Form
     private bool loginRequested,wasAuthorized;
     private bool exitRequested;
     private DateTime pageLoadedAt=DateTime.UtcNow;
-    private JsonNode? commandResult;
+    private JsonNode? commandResult,loadResult;
     private CoreWebView2Environment? environment;
     private readonly HashSet<Form> loginPopups = new();
     private string lastPlaybackFailure="";
     private bool regionChecked;
     private Task<JsonNode>? pendingLoad;
     private string pendingSongId="";
-    private long pendingLoadStart;
+    private long pendingLoadStart,pendingLoadId;
+    private long lastCommandAt=long.MinValue/2;
     private JsonObject? loadTiming;
     private JsonObject? controlTiming;
     private string lastLoadingStage="";
@@ -219,10 +221,14 @@ internal sealed class PlayerWindow : Form
             if(pendingLoad?.IsCompleted==true) {
                 try{completedLoad=await pendingLoad;}catch{completedLoad=new JsonObject{["error"]="Apple Music 媒体加载超时 [MEDIA_TIMEOUT]"};}
                 pendingLoad=null;
-                commandError=completedLoad["error"]?.GetValue<string>()??"";
+                string failure=completedLoad["error"]?.GetValue<string>()??"";
+                if(completedLoad["cancelled"]?.GetValue<bool>()==true)failure="Apple Music load cancelled";
+                loadResult=new JsonObject{
+                    ["id"]=pendingLoadId,["error"]=failure,["resolvedId"]=completedLoad["resolvedId"]?.DeepClone()
+                };
             }
             var state=await Evaluate(null);
-            if(completedLoad!=null)RecordDiagnostic("load",commandError,state);
+            if(completedLoad!=null)RecordDiagnostic("load",loadResult?["error"]?.GetValue<string>()??"",state);
             bool authorized=state["authorized"]?.GetValue<bool>()==true;
             if(authorized&&!regionChecked) {
                 var account=await Evaluate(new JsonObject{["name"]="region"});
@@ -261,11 +267,15 @@ internal sealed class PlayerWindow : Form
                 // but don't let the previous song's telemetry replace the game's loading state.
                 state=new JsonObject{["available"]=false,["authorized"]=authorized,["authState"]=authState,["error"]=state["error"]?.DeepClone()};
             }
-            var result=await Post("/sync",session,new JsonObject { ["ack"]=ack,["state"]=state,["commandError"]=commandError,["commandResult"]=commandResult?.DeepClone(),["timing"]=timing });
+            bool playing=state["playing"]?.GetValue<bool>()==true;
+            var result=await Post("/sync",session,new JsonObject { ["ack"]=ack,["state"]=state,["commandError"]=commandError,["commandResult"]=commandResult?.DeepClone(),["loadResult"]=loadResult?.DeepClone(),["timing"]=timing });
             commandResult=null;
+            loadResult=null;
             commandError="";lastOk=DateTime.UtcNow;
             if(result["command"] is JsonNode command && command["id"]!.GetValue<long>()>ack)
             {
+                lastCommandAt=Environment.TickCount64;
+                timer.Interval=ActivePollMs;
                 string name=command["name"]!.GetValue<string>();
                 if(name=="shutdown") {
                     try{await Evaluate(new JsonObject{["name"]="pause"});}catch{}
@@ -274,6 +284,7 @@ internal sealed class PlayerWindow : Form
                 else if(name=="load") {
                     if(pendingLoad!=null)_=pendingLoad.ContinueWith(t=>{_ = t.Exception;},TaskContinuationOptions.OnlyOnFaulted);
                     pendingLoadStart=System.Diagnostics.Stopwatch.GetTimestamp();
+                    pendingLoadId=command["id"]!.GetValue<long>();
                     loadTiming=null;
                     pendingLoad=EvaluateLoad(command,pendingLoadStart);
                     pendingSongId=command["value"]?["id"]?.GetValue<string>()??"";
@@ -308,6 +319,8 @@ internal sealed class PlayerWindow : Form
                 if(name!="volume"||commandError.Length!=0)
                     RecordDiagnostic(name=="query"?"query:"+command["value"]?["op"]?.GetValue<string>():name,commandError,state);
             }
+            timer.Interval=playing||pendingLoad!=null||Environment.TickCount64-lastCommandAt<1000
+                ?ActivePollMs:IdlePollMs;
             status.Text=!string.IsNullOrEmpty(commandError)?commandError:authorized?"已恢复登录，可关闭或隐藏此窗口，回到游戏操作。":authState=="restoring"?"正在恢复登录和检查媒体库权限，请稍候…":authState=="unavailable"?"官方网页已打开，但媒体库接口尚未就绪。":"请在官方窗口完成授权；登录网页和媒体库权限会分别检查。";
         }
         catch

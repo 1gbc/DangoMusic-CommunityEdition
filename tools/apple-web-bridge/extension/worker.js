@@ -36,12 +36,13 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
     if(!config||config.tabId!==sender.tab.id)return {};
     try{
       const state=await run(config.tabId);
-      const response=await post(config,'/sync',config.key,{ack:config.ack,state,commandError:config.commandError||'',commandResult:config.commandResult||null});
+      const response=await post(config,'/sync',config.key,{ack:config.ack,state,commandError:config.commandError||'',commandResult:config.commandResult||null,loadResult:config.loadResult||null});
       config.commandResult=null;
+      config.loadResult=null;
       config.commandError='';
       if(response.command&&response.command.id>config.ack){
-        try{const outcome=await run(config.tabId,response.command);if(response.command.name==='query')config.commandResult={...outcome,id:response.command.id};else if(outcome.error)config.commandError=outcome.error;}
-        catch{const error='Official player rejected control: '+response.command.name;if(response.command.name==='query')config.commandResult={id:response.command.id,error};else config.commandError=error;}
+        try{const outcome=await run(config.tabId,response.command);if(response.command.name==='query')config.commandResult={...outcome,id:response.command.id};else if(response.command.name==='load')config.loadResult={id:response.command.id,resolvedId:outcome.resolvedId,error:outcome.error||(outcome.cancelled?'Apple Music load cancelled':'')};else if(outcome.error)config.commandError=outcome.error;}
+        catch{const error='Official player rejected control: '+response.command.name;if(response.command.name==='query')config.commandResult={id:response.command.id,error};else if(response.command.name==='load')config.loadResult={id:response.command.id,error};else config.commandError=error;}
         config.ack=response.command.id;
       }
       config.lastOk=Date.now();config.error=state.error||config.commandError||'';

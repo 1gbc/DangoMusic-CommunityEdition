@@ -16,8 +16,13 @@ import me.sorihiko.dangomusicgtnh.music.MusicSources
 import me.sorihiko.dangomusicgtnh.music.SourceAccessException
 import me.sorihiko.dangomusicgtnh.music.SourceArtist
 
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 
 internal enum class Page { HOME, CHARTS, PLAYLIST, SEARCH, APPLE_BROWSE, QUEUE, SETTINGS, ARTIST, GROUP }
 
@@ -55,6 +60,10 @@ internal object ScreenState {
 /** Requests carry their source and generation so late responses cannot overwrite another source. */
 internal object Library {
     private val worker = Executors.newFixedThreadPool(2) { r -> Thread(r, "Dango-MusicUI").apply { isDaemon = true } }
+    private val appleDetailsWorker = ThreadPoolExecutor(
+        1, 1, 0L, TimeUnit.MILLISECONDS, ArrayBlockingQueue(1),
+    ) { task -> Thread(task, "Dango-AppleDetails").apply { isDaemon = true } }
+    private val appleDetailsPending = mutableMapOf<String, CompletableFuture<AppleMusicSource.SongDetails>>()
     @Volatile var playlists: List<NeteasePlaylist> = emptyList()
         private set
     @Volatile var playlistsLoading = false
@@ -312,8 +321,20 @@ internal object Library {
         if (ScreenState.page == Page.SEARCH && source == MusicSource.APPLE) loadCatalogGenres()
     }
 
-    fun appleSongDetails(track: NeteaseTrack): java.util.concurrent.CompletableFuture<AppleMusicSource.SongDetails> =
-        java.util.concurrent.CompletableFuture.supplyAsync({ AppleMusicSource.songDetails(track) }, worker)
+    fun appleSongDetails(track: NeteaseTrack): CompletableFuture<AppleMusicSource.SongDetails> =
+        synchronized(appleDetailsPending) {
+            appleDetailsPending[track.key]?.let { return@synchronized it }
+            val request = try {
+                CompletableFuture.supplyAsync({ AppleMusicSource.songDetails(track) }, appleDetailsWorker)
+            } catch (e: RejectedExecutionException) {
+                return@synchronized CompletableFuture<AppleMusicSource.SongDetails>().apply { completeExceptionally(e) }
+            }
+            appleDetailsPending[track.key] = request
+            request.whenComplete { _, _ ->
+                synchronized(appleDetailsPending) { appleDetailsPending.remove(track.key, request) }
+            }
+            request
+        }
 
     fun showStatus(message: String, startedAt: Long = System.nanoTime()) {
         val next = TimedNotice(message, startedAt)

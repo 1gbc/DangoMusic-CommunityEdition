@@ -163,12 +163,14 @@ object AppleWebPlayer {
         fun str(k: String) = s?.get(k)?.asString.orEmpty()
         val current = MusicPlayer.current
         val reportedId = str("id")
+        val requestedCatalogId = str("requestedCatalogId")
         if (s?.get("ended")?.asBoolean == true) {
             if (stationActive && connected) return
             // Older companions can report an end without an item ID. A pending load
             // is a barrier in either case, including when repeating the same song.
             if (!endedOnce && loadStartedAt == 0L && current?.source == MusicSource.APPLE &&
-                (reportedId.isEmpty() || current.matchesAppleId(reportedId))) {
+                (reportedId.isEmpty() || current.matchesAppleId(reportedId) ||
+                     (requestedCatalogId.isNotEmpty() && current.matchesAppleId(requestedCatalogId)))) {
                 endedOnce = true
                 MusicPlayer.finishAppleTrack()
             }
@@ -187,7 +189,9 @@ object AppleWebPlayer {
         }
         val id = reportedId.ifEmpty { str("title") + ":" + str("artist") }
         loadStartedAt = 0L
-        val track = current?.takeIf { it.matchesAppleId(id) }
+        // An explicitly confirmed storefront replacement stays at its original queue position.
+        val track = current?.takeIf { it.matchesAppleId(id) ||
+            (requestedCatalogId.isNotEmpty() && it.matchesAppleId(requestedCatalogId)) }
             ?: MusicPlayer.queue.firstOrNull { it.matchesAppleId(id) }
             ?: NeteaseTrack(MusicSources.stableId(MusicSource.APPLE, id), str("title"), listOf(str("artist")),
                 s.get("durationMs").asLong, str("cover"), MusicSource.APPLE, id).apply { albumName = str("album") }

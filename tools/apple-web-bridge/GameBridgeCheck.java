@@ -15,6 +15,14 @@ public class GameBridgeCheck {
         if(expected!=200){c.disconnect();return new JsonObject();}
         JsonObject result=new JsonParser().parse(new java.io.InputStreamReader(c.getInputStream(),StandardCharsets.UTF_8)).getAsJsonObject();c.disconnect();return result;
     }
+    static void expireCatalogMatch(AppleWebServer server) throws Exception {
+        java.lang.reflect.Field pending=AppleWebServer.class.getDeclaredField("pendingLoad");
+        pending.setAccessible(true);
+        Object load=pending.get(server);
+        java.lang.reflect.Field since=load.getClass().getDeclaredField("mismatchSince");
+        since.setAccessible(true);
+        since.setLong(load,System.nanoTime()-java.util.concurrent.TimeUnit.SECONDS.toNanos(8));
+    }
     public static void main(String[] args) throws Exception {
         System.setProperty("sun.net.http.allowRestrictedHeaders","true");
         AppleWebServer s=new AppleWebServer();
@@ -82,6 +90,35 @@ public class GameBridgeCheck {
             post(s,"/sync",key,"{\"ack\":"+ack+",\"state\":"+updated+"}",200);
             check(s.snapshot()!=null&&s.snapshot().get("id").getAsString().equals("456"),
                 "The current track publishes telemetry while a volume update is awaiting acknowledgement");
+            long ackBeforeRedirect=control.get("id").getAsLong();
+            s.playSong("789",false);
+            JsonObject load=post(s,"/sync",key,"{\"ack\":"+ackBeforeRedirect+"}",200).getAsJsonObject("command");
+            ack=load.get("id").getAsLong();
+            String replacement=state.replace("123","790");
+            String redirect="{\"ack\":"+ack+",\"state\":"+replacement+",\"loadResult\":{\"id\":"+ack+",\"resolvedId\":\"790\"}}";
+            post(s,"/sync",key,"{\"ack\":"+ack+",\"state\":"+replacement+"}",200);
+            check(s.snapshot()==null,"Unconfirmed replacement stays guarded");
+            post(s,"/sync",key,redirect,200);
+            check(s.snapshot()!=null&&s.snapshot().get("id").getAsString().equals("790"),"Confirmed replacement is accepted immediately");
+            post(s,"/sync",key,"{\"ack\":"+ack+",\"state\":"+replacement+"}",200);
+            check(s.snapshot().get("requestedCatalogId").getAsString().equals("789"),
+                "The replacement retains the requested queue identity on later telemetry");
+
+            long priorLoad=ack;
+            s.playSong("900",false);
+            ack=post(s,"/sync",key,"{\"ack\":"+ack+"}",200).getAsJsonObject("command").get("id").getAsLong();
+            post(s,"/sync",key,"{\"ack\":"+ack+",\"state\":"+replacement+",\"loadResult\":{\"id\":"+priorLoad+",\"error\":\"old error\"}}",200);
+            check(s.snapshot()==null&&s.error().isEmpty(),"Earlier load errors do not affect the current load");
+            post(s,"/sync",key,"{\"ack\":"+ack+",\"state\":"+replacement+",\"loadResult\":{\"id\":"+ack+",\"error\":\"queue failed\"}}",200);
+            post(s,"/sync",key,"{\"ack\":"+ack+",\"state\":"+replacement+"}",200);
+            check(s.snapshot()==null&&s.error().equals("queue failed"),"A failed load rejects old telemetry and exposes its error");
+
+            s.playSong("901",false);
+            ack=post(s,"/sync",key,"{\"ack\":"+ack+"}",200).getAsJsonObject("command").get("id").getAsLong();
+            post(s,"/sync",key,"{\"ack\":"+ack+",\"state\":"+replacement+",\"loadResult\":{\"id\":"+ack+",\"resolvedId\":\"790\"}}",200);
+            expireCatalogMatch(s);
+            post(s,"/sync",key,"{\"ack\":"+ack+",\"state\":"+replacement+"}",200);
+            check(s.snapshot()==null&&!s.error().isEmpty(),"The previous song cannot be accepted as a replacement");
             s.reconnect();post(s,"/sync",key,"{\"ack\":0}",403);
             System.out.println("Game bridge protocol checks passed");
         } finally {s.close();}

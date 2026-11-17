@@ -19,6 +19,7 @@ import java.awt.image.BufferedImage
 import java.awt.image.DataBufferByte
 import java.io.File
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicReferenceArray
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.max
@@ -26,10 +27,10 @@ import kotlin.math.max
 /**
  * 中日韩文字 / 符号字体：用系统自带字体（微软雅黑 → 日文 / 韩文字体 → Segoe UI Symbol），
  * 遇到没见过的字才现场画出来，塞进 1024×1024 的贴图页里（满了开新页），之后直接复用。
- * mod 不需要打包任何字体文件。
+ * 中日韩字形使用本机字体，拉丁菜单字体由模组提供。
  * 安卓启动器（ZL2、Pojav 等）里的 Java 找不到手机的系统字体，这时直接去系统字体目录里加载中文字体文件。
  *
- * 只能在渲染线程调用。
+ * 字体列表可以在后台预加载。字形缓存和贴图仅在渲染线程使用。
  */
 object CjkFont {
 
@@ -70,7 +71,7 @@ object CjkFont {
     )
 
     private val frc = FontRenderContext(null, true, true)
-    private val fontLists = arrayOfNulls<List<Font>>(STYLES)
+    private val fontLists = AtomicReferenceArray<List<Font>>(STYLES)
 
     private val glyphs = HashMap<Int, Glyph?>()
     private val pages = ArrayList<Int>()
@@ -79,7 +80,7 @@ object CjkFont {
     private var py = PAD
     private var rowH = 0
 
-    private val available: Set<String> by lazy {
+    private val available: Set<String> by lazy(LazyThreadSafetyMode.PUBLICATION) {
         try {
             GraphicsEnvironment.getLocalGraphicsEnvironment()
                 .getAvailableFontFamilyNames(Locale.ENGLISH).map { it.lowercase() }.toHashSet()
@@ -88,8 +89,21 @@ object CjkFont {
         }
     }
 
+    internal fun preloadSystemFonts() {
+        Thread({
+            fonts(CjkStyle.NOTO_SC)
+            fonts(CjkStyle.NOTO_SC_BOLD)
+        }, "Dango-CjkFonts").apply { isDaemon = true; start() }
+    }
+
     private fun fonts(style: Int): List<Font> {
-        fontLists[style]?.let { return it }
+        fontLists.get(style)?.let { return it }
+        val resolved = resolveFonts(style)
+        fontLists.compareAndSet(style, null, resolved)
+        return fontLists.get(style) ?: resolved
+    }
+
+    private fun resolveFonts(style: Int): List<Font> {
         if (style == CjkStyle.NOTO_SC || style == CjkStyle.NOTO_SC_BOLD) {
             val bold = style == CjkStyle.NOTO_SC_BOLD
             val awtStyle = if (bold) Font.BOLD else Font.PLAIN
@@ -97,13 +111,10 @@ object CjkFont {
                 .filter { it.lowercase(Locale.ROOT) in available }
                 .map { Font(it, awtStyle, 1).deriveFont(baseOf(style)) }
             return (preferred + fonts(if (bold) BOLD else PLAIN)).distinct()
-                .also { fontLists[style] = it }
         }
         if (style == LYRIC || style == SIDE) {
             val custom = customFonts[style]?.let { listOf(it.deriveFont(Font.PLAIN, baseOf(style))) } ?: emptyList()
-            val list = custom + fonts(if (style == SIDE) BOLD else PLAIN)
-            fontLists[style] = list
-            return list
+            return custom + fonts(if (style == SIDE) BOLD else PLAIN)
         }
         val base = baseOf(style)
         val awtStyle = if (style == PLAIN) Font.PLAIN else Font.BOLD
@@ -115,7 +126,6 @@ object CjkFont {
         if (list.none { it.canDisplay('中') }) list += fileFonts.map { it.deriveFont(awtStyle, base) }
         // Java 的逻辑字体在 Windows 上会映射到系统的中文字体，作为最后的兜底
         list += Font(Font.DIALOG, awtStyle, 1).deriveFont(base)
-        fontLists[style] = list
         return list
     }
 
@@ -132,7 +142,7 @@ object CjkFont {
     )
 
     /** 找不到任何能显示中文的系统字体时，直接从字体目录加载字体文件（只找一次） */
-    private val fileFonts: List<Font> by lazy {
+    private val fileFonts: List<Font> by lazy(LazyThreadSafetyMode.PUBLICATION) {
         val files = ArrayList<File>()
         fun scan(dir: File, depth: Int) {
             val list = try { dir.listFiles() } catch (_: Exception) { null } ?: return
@@ -187,7 +197,7 @@ object CjkFont {
         if (k == customKeys[style] && customFonts[style] === font) return
         customKeys[style] = k
         customFonts[style] = font
-        fontLists[style] = null
+        fontLists.set(style, null)
         glyphs.keys.removeAll { it % STYLES == style }
     }
 

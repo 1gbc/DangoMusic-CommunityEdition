@@ -1,7 +1,7 @@
 // This function is serialized by chrome.scripting; keep it self-contained.
 async function appleAdapter(command) {
   if(location.origin!=='https://music.apple.com')throw Error('Not the official Apple Music page');
-  let player;
+  let player, resolvedId;
   try{player=globalThis.MusicKit?.getInstance();}catch{}
   if(!player)return {available:false,error:'Official page exposes no compatible player. Adapter needs verification.'};
   async function sessionReadiness() {
@@ -326,7 +326,8 @@ async function appleAdapter(command) {
     stage='play';globalThis.__dangoAppleLoadStage='play';await player.play();
     if(globalThis.__dangoAppleGeneration!==generation)return {cancelled:true};
     globalThis.__dangoAppleLoadStage='done';
-    if(trace!==null)return {timing:{'queue-ms':Math.round(queued-queueStarted),'play-ms':Math.round(performance.now()-queued)}};
+    resolvedId=text(player.nowPlayingItem?.id);
+    if(trace!==null)return {resolvedId,timing:{'queue-ms':Math.round(queued-queueStarted),'play-ms':Math.round(performance.now()-queued)}};
     } catch(e) {
       if(globalThis.__dangoAppleGeneration!==generation)return {cancelled:true};
       globalThis.__dangoAppleLoadStage='error';return failure(e,stage);
@@ -374,7 +375,7 @@ async function appleAdapter(command) {
       }):[];
   const capabilities=Object.keys(methods).filter(k=>typeof player[methods[k]]==='function');
   if(typeof player.volume==='number')capabilities.push('volume');
-  return {available:true,previewOnly:player.previewOnly===true,loadingStage:globalThis.__dangoAppleLoadStage||'',error:globalThis.__dangoAppleMediaError||readiness.error||'',authorized:readiness.authorized,authState:readiness.authState,ended:!playing&&(!!endedId||isEnded(player.playbackState)),title:text(a.name||item?.title),artist:text(a.artistName||item?.artistName),album:text(a.albumName),id:text(endedId||item?.id),cover,stationQueue,
+  return {resolvedId,available:true,previewOnly:player.previewOnly===true,loadingStage:globalThis.__dangoAppleLoadStage||'',error:globalThis.__dangoAppleMediaError||readiness.error||'',authorized:readiness.authorized,authState:readiness.authState,ended:!playing&&(!!endedId||isEnded(player.playbackState)),title:text(a.name||item?.title),artist:text(a.artistName||item?.artistName),album:text(a.albumName),id:text(endedId||item?.id),cover,stationQueue,
     playing,positionMs:Number.isFinite(player.currentPlaybackTime)?player.currentPlaybackTime*1000:0,
     durationMs:player.currentPlaybackDuration>0&&Number.isFinite(player.currentPlaybackDuration)?player.currentPlaybackDuration*1000:a.durationInMillis||0,capabilities};
 }

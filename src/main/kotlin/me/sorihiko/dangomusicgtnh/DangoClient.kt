@@ -1,5 +1,6 @@
 package me.sorihiko.dangomusicgtnh
 
+import me.sorihiko.dangomusicgtnh.font.CjkFont
 import me.sorihiko.dangomusicgtnh.gfx.Gfx
 import me.sorihiko.dangomusicgtnh.i18n.I18n
 import me.sorihiko.dangomusicgtnh.module.impls.music.DynamicIslandModule
@@ -22,6 +23,7 @@ object DangoClient {
     @JvmStatic
     fun start(platform: Platform, gfx: Gfx) {
         this.gfx = gfx
+        CjkFont.preloadSystemFonts()
         I18n.language = I18n.CHINESE
         val musicModule = NeteaseMusicModule()
         DangoMusic.start(

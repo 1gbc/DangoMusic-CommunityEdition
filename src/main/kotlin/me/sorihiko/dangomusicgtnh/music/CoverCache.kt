@@ -267,14 +267,7 @@ object CoverCache {
         val source = sources[sourceKey] ?: return null
         if (roundQueued.add(key)) {
             worker.execute {
-                val colours = BufferedImage(4, 4, BufferedImage.TYPE_INT_RGB)
-                val sample = colours.createGraphics()
-                try {
-                    sample.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
-                    sample.drawImage(source, 0, 0, colours.width, colours.height, null)
-                } finally {
-                    sample.dispose()
-                }
+                val colours = sampleBackdropColours(source)
                 val blurred = BufferedImage(512, 512, BufferedImage.TYPE_INT_ARGB)
                 val graphics = blurred.createGraphics()
                 try {
@@ -287,6 +280,24 @@ object CoverCache {
             }
         }
         return null
+    }
+
+    internal fun sampleBackdropColours(source: BufferedImage): BufferedImage {
+        var sample = source
+        // Shrink in stages so the final texture samples each area of the cover.
+        do {
+            val next = BufferedImage(maxOf(4, (sample.width + 1) / 2), maxOf(4, (sample.height + 1) / 2),
+                BufferedImage.TYPE_INT_RGB)
+            val graphics = next.createGraphics()
+            try {
+                graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
+                graphics.drawImage(sample, 0, 0, next.width, next.height, null)
+            } finally {
+                graphics.dispose()
+            }
+            sample = next
+        } while (sample.width > 4 || sample.height > 4)
+        return sample
     }
 
     /** 大尺寸显示的歌曲封面：高清版好了用高清版，否则先用小图 */
