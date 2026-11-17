@@ -40,8 +40,8 @@ object CoverCache {
     /** 高清原图保留多少张（一张 1 MB 内存） */
     private const val MAX_LARGE_SOURCES = 32
     private const val LARGE_PREFIX = "L|"
-    private const val APPLE_BACKDROP_SUFFIX = "#r-apple-lyrics-backdrop"
-    private const val APPLE_ARTWORK_SUFFIX = "#r-apple-lyrics-artwork"
+    private const val LYRICS_BACKDROP_SUFFIX = "#r-lyrics-backdrop"
+    private const val LYRICS_ARTWORK_SUFFIX = "#r-lyrics-artwork"
     /** 最近这么久（毫秒）里画过的封面算"正在用"，超出上限也不删 */
     private const val IN_USE_MS = 500L
     /** 每次 upload() 最多上传几张 */
@@ -73,7 +73,7 @@ object CoverCache {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, BufferedImage>) = size > MAX_SOURCES
     }
     private val roundQueued = HashSet<String>()
-    /** 下载好的高清原图（只用来做圆角版，不直接上传）；删掉时允许以后重新下载 */
+    /** 下载好的高清原图，供圆角封面和歌词页纹理复用；删掉时允许以后重新下载 */
     private val readyLarge = ConcurrentLinkedQueue<Pair<String, BufferedImage>>()
     private val largeSources = object : LinkedHashMap<String, BufferedImage>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, BufferedImage>): Boolean {
@@ -92,7 +92,7 @@ object CoverCache {
         // 一次最多传几张，一下子滚出很多封面时不会卡一下
         for (i in 0 until UPLOADS_PER_CALL) {
             val (key, img) = ready.poll() ?: break
-            val linear = key.endsWith(APPLE_BACKDROP_SUFFIX) || key.endsWith(APPLE_ARTWORK_SUFFIX)
+            val linear = key.endsWith(LYRICS_BACKDROP_SUFFIX) || key.endsWith(LYRICS_ARTWORK_SUFFIX)
             val tex = DangoClient.gfx.textures.upload("dango_cover_c", img, linear = linear)
             textures.put(key, tex)?.let { DangoClient.gfx.textures.delete(it) }
             lastUsed[key] = now
@@ -237,11 +237,11 @@ object CoverCache {
     }
 
     /** Upload full square art so both resolutions use the same on-screen antialiased mask. */
-    fun appleLyricsArtwork(track: NeteaseTrack): Texture? {
+    fun lyricsArtwork(track: NeteaseTrack): Texture? {
         val sourceKey = "t:${track.key}"
         val largeKey = LARGE_PREFIX + sourceKey
         for (key in listOf(largeKey, sourceKey)) {
-            val textureKey = key + APPLE_ARTWORK_SUFFIX
+            val textureKey = key + LYRICS_ARTWORK_SUFFIX
             textures[textureKey]?.let {
                 lastUsed[textureKey] = now
                 return it
@@ -255,10 +255,10 @@ object CoverCache {
         return null
     }
 
-    /** Cover colours for the Apple lyrics backdrop. Reuse the existing texture cache. */
+    /** Cover colours for the shared flowing lyrics backdrop. */
     fun trackBackdrop(track: NeteaseTrack): Texture? {
         val sourceKey = "t:${track.key}"
-        val key = LARGE_PREFIX + sourceKey + APPLE_BACKDROP_SUFFIX
+        val key = LARGE_PREFIX + sourceKey + LYRICS_BACKDROP_SUFFIX
         textures[key]?.let {
             lastUsed[key] = now
             return it

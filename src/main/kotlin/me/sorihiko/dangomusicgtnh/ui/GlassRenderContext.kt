@@ -174,8 +174,8 @@ class GlassRenderContext : GuiCanvas {
         drawTexturedImage(bounds,image,radius)
     }
 
-    override fun drawFlowingBackdrop(bounds: LayoutBounds, image: Texture, phase: Float) {
-        drawTexturedImage(bounds, image, 0f, phase)
+    override fun drawFlowingBackdrop(bounds: LayoutBounds, image: Texture, phase: Float, radius: Float) {
+        drawTexturedImage(bounds, image, radius, phase)
     }
 
     private fun drawTexturedImage(bounds: LayoutBounds, image: Texture, radius: Float, phase: Float = -1f) {

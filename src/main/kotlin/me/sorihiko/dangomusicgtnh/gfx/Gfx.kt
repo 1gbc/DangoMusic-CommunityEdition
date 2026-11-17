@@ -96,7 +96,7 @@ interface Textures {
 // ---------------------------------------------------------------- 液态玻璃画布
 
 interface GuiCanvas : RenderContext {
-    fun drawFlowingBackdrop(bounds: LayoutBounds, image: Texture, phase: Float)
+    fun drawFlowingBackdrop(bounds: LayoutBounds, image: Texture, phase: Float, radius: Float)
 
     /**
      * 开始画一帧：保存渲染状态、设好混合。
