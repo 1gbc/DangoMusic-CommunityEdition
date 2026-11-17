@@ -92,15 +92,11 @@ object CjkFont {
         fontLists[style]?.let { return it }
         if (style == CjkStyle.NOTO_SC || style == CjkStyle.NOTO_SC_BOLD) {
             val bold = style == CjkStyle.NOTO_SC_BOLD
-            val suffix = if (bold) "Bold" else "Regular"
-            val path = "/assets/dangomusicgtnh/fonts/NotoSansSC-$suffix.otf"
-            val noto = runCatching {
-                javaClass.getResourceAsStream(path)?.use { Font.createFont(Font.TRUETYPE_FONT, it) }
-            }.getOrElse {
-                DangoLogger.warn("Could not load bundled Noto Sans SC: {}", it.toString())
-                null
-            }
-            return (listOfNotNull(noto?.deriveFont(baseOf(style))) + fonts(if (bold) BOLD else PLAIN))
+            val awtStyle = if (bold) Font.BOLD else Font.PLAIN
+            val preferred = listOf("Noto Sans SC", "Noto Sans CJK SC", "Source Han Sans SC")
+                .filter { it.lowercase(Locale.ROOT) in available }
+                .map { Font(it, awtStyle, 1).deriveFont(baseOf(style)) }
+            return (preferred + fonts(if (bold) BOLD else PLAIN)).distinct()
                 .also { fontLists[style] = it }
         }
         if (style == LYRIC || style == SIDE) {
