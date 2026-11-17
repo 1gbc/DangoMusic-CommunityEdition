@@ -69,15 +69,6 @@ class NeteaseMusicModule : Module() {
 
     // 播放器窗口的位置和大小：占屏幕的比例（换分辨率 / GUI 缩放也不会跑到屏幕外）；宽为 0 = 默认大小。
     // 拖窗口边缘时改，设置页里不显示
-    @ModuleValue("Window X", "")
-    private val windowX = FloatValue(0f, 1f, 0f, 4)
-    @ModuleValue("Window Y", "")
-    private val windowY = FloatValue(0f, 1f, 0f, 4)
-    @ModuleValue("Window width", "")
-    private val windowW = FloatValue(0f, 1f, 0f, 4)
-    @ModuleValue("Window height", "")
-    private val windowH = FloatValue(0f, 1f, 0f, 4)
-
     @ModuleValue("Lyrics page font size", "")
     internal val lyricsPageSize = IntValue(14, 30, 22)
     @ModuleValue("Lyrics page translation", "")
@@ -87,21 +78,6 @@ class NeteaseMusicModule : Module() {
 
     @ModuleValue("Song comments", "Show the NetEase comments button and allow scrolling to comments")
     internal val songCommentsEnabled = BooleanValue(true)
-
-    /** 玩家拖过的窗口位置大小 [x, y, 宽, 高]（占屏幕比例）；没拖过是 null */
-    fun windowFrame(): FloatArray? =
-        if (windowW.value <= 0f || windowH.value <= 0f) null
-        else floatArrayOf(windowX.value, windowY.value, windowW.value, windowH.value)
-
-    /** 记下窗口位置大小；null = 恢复默认 */
-    fun setWindowFrame(frame: FloatArray?) {
-        if (frame == null) {
-            windowW.setValue(0f)
-            windowH.setValue(0f)
-            return
-        }
-        windowX.setValue(frame[0]); windowY.setValue(frame[1]); windowW.setValue(frame[2]); windowH.setValue(frame[3])
-    }
 
     @ModuleValue("Language", "Choose the player interface language")
     // -1 表示尚未选择界面语言。

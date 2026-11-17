@@ -429,131 +429,9 @@ class MusicScreen(
         }
     }
 
-    // ---------------------------------------------------------------- 窗口位置和大小
-
-    /** 拖动窗口时改的是哪里 */
-    private enum class Grab { MOVE, LEFT, RIGHT, TOP, BOTTOM, TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT }
-
-    /** 这一帧窗口的位置（不含打开动画的位移），拖动时用 */
-    private var winRect = LayoutBounds()
-    private var grab: Grab? = null
-    private var grabStart = LayoutBounds()
-    private var grabX = 0
-    private var grabY = 0
-    /** 拖动过程中的窗口；松开时存进设置 */
-    private var dragWin: LayoutBounds? = null
-    private var lastMoveClick = 0L
-
-    /** 默认大小：几乎铺满屏幕 */
-    private fun defaultWin() = LayoutBounds(26f, 20f, ui.lw - 52f, ui.lh - 40f)
-
-    /** 玩家调过的窗口（按现在的屏幕换算回来，不小于最小尺寸、不超出屏幕） */
-    private fun savedWin(): LayoutBounds {
-        val f = module.windowFrame() ?: return defaultWin()
-        return fitWin(LayoutBounds(f[0] * ui.lw, f[1] * ui.lh, f[2] * ui.lw, f[3] * ui.lh))
-    }
-
-    private fun fitWin(b: LayoutBounds): LayoutBounds {
-        val w = b.width.coerceIn(min(MIN_WIN_W, ui.lw), ui.lw)
-        val h = b.height.coerceIn(min(MIN_WIN_H, ui.lh), ui.lh)
-        return LayoutBounds(b.x.coerceIn(0f, ui.lw - w), b.y.coerceIn(0f, ui.lh - h), w, h)
-    }
-
-    /** 鼠标在窗口的哪条边 / 哪个角上（可以拖着改大小），或者顶部那条能拖着移动的地方；都不是返回 null */
-    private fun grabAt(mx: Int, my: Int): Grab? {
-        val w = winRect
-        if (w.width <= 0f) return null
-        val e = EDGE_GRAB
-        val inX = mx >= w.x - e && mx <= w.right + e
-        val inY = my >= w.y - e && my <= w.bottom + e
-        if (!inX || !inY) return null
-        val left = mx <= w.x + e
-        val right = mx >= w.right - e
-        val top = my <= w.y + e
-        val bottom = my >= w.bottom - e
-        return when {
-            top && left -> Grab.TOP_LEFT
-            top && right -> Grab.TOP_RIGHT
-            bottom && left -> Grab.BOTTOM_LEFT
-            bottom && right -> Grab.BOTTOM_RIGHT
-            left -> Grab.LEFT
-            right -> Grab.RIGHT
-            top -> Grab.TOP
-            bottom -> Grab.BOTTOM
-            // 内容区上方那条空白（侧栏右边、页面标题上面）：拖着移动窗口
-            my <= w.y + MOVE_STRIP && mx >= w.x + 10f + 224f -> Grab.MOVE
-            else -> null
-        }
-    }
-
-    /** 按下鼠标：按在边 / 角 / 顶部空白上就开始拖，返回 true（这次点击不再交给别的东西） */
-    private fun beginWindowDrag(mx: Int, my: Int): Boolean {
-        val g = grabAt(mx, my) ?: return false
-        if (g == Grab.MOVE) {
-            val now = System.currentTimeMillis()
-            // 双击顶部空白：恢复默认大小
-            if (now - lastMoveClick < 350L) {
-                lastMoveClick = 0L
-                module.setWindowFrame(null)
-                return true
-            }
-            lastMoveClick = now
-        }
-        grab = g
-        grabStart = winRect
-        grabX = mx
-        grabY = my
-        dragWin = winRect
-        return true
-    }
-
-    private fun dragWindow(mx: Int, my: Int) {
-        val g = grab ?: return
-        val s = grabStart
-        val dx = (mx - grabX).toFloat()
-        val dy = (my - grabY).toFloat()
-        var x1 = s.x; var y1 = s.y; var x2 = s.right; var y2 = s.bottom
-        if (g == Grab.MOVE) {
-            x1 += dx; x2 += dx; y1 += dy; y2 += dy
-            val w = s.width; val h = s.height
-            val x = x1.coerceIn(0f, ui.lw - w)
-            val y = y1.coerceIn(0f, ui.lh - h)
-            dragWin = LayoutBounds(x, y, w, h)
-            return
-        }
-        val minW = min(MIN_WIN_W, ui.lw)
-        val minH = min(MIN_WIN_H, ui.lh)
-        if (g == Grab.LEFT || g == Grab.TOP_LEFT || g == Grab.BOTTOM_LEFT) x1 = (s.x + dx).coerceIn(0f, x2 - minW)
-        if (g == Grab.RIGHT || g == Grab.TOP_RIGHT || g == Grab.BOTTOM_RIGHT) x2 = (s.right + dx).coerceIn(x1 + minW, ui.lw)
-        if (g == Grab.TOP || g == Grab.TOP_LEFT || g == Grab.TOP_RIGHT) y1 = (s.y + dy).coerceIn(0f, y2 - minH)
-        if (g == Grab.BOTTOM || g == Grab.BOTTOM_LEFT || g == Grab.BOTTOM_RIGHT) y2 = (s.bottom + dy).coerceIn(y1 + minH, ui.lh)
-        dragWin = LayoutBounds(x1, y1, x2 - x1, y2 - y1)
-    }
-
-    /** 松开鼠标：把拖好的窗口存起来（按占屏幕的比例存） */
-    private fun endWindowDrag() {
-        val w = dragWin
-        if (grab != null && w != null && ui.lw > 0f && ui.lh > 0f) {
-            module.setWindowFrame(floatArrayOf(w.x / ui.lw, w.y / ui.lh, w.width / ui.lw, w.height / ui.lh))
-        }
-        grab = null
-        dragWin = null
-    }
-
-    /** 鼠标移到能改大小的边 / 角上时边框微微发亮（顶部那条移动用的空白不画任何东西） */
-    private fun drawWindowHints() {
-        val w = winRect
-        val hover = grab ?: grabAt(ui.mx, ui.my)
-        val k = edgeGlow.tick(if (hover != null && hover != Grab.MOVE) 1f else 0f).coerceIn(0f, 1f)
-        if (k > 0.01f) ui.ctx.drawShape(w, ShapeStyle(Color.TRANSPARENT, Theme.GLASS_WINDOW.radius, 1.5f, Color(1f, 1f, 1f, 0.35f * k)))
-    }
-
-    private val edgeGlow = me.sorihiko.dangomusicgtnh.musicui.Spring(300f, 26f)
-
     private fun drawWindow(alpha: Float) {
         if (appleLyricsOpen) {
             val layout = AppleLyricsLayout(LayoutBounds(0f, 0f, ui.lw, ui.lh), showAppleLyrics)
-            winRect = layout.viewport
             barRect = LayoutBounds()
             val playback = PlaybackView.snapshot()
             appleLyricsFrame = layout
@@ -570,9 +448,7 @@ class MusicScreen(
             }
             return
         }
-        val base = dragWin ?: savedWin()
-        winRect = base
-        val win = LayoutBounds(base.x, base.y + (1f - alpha) * 12f, base.width, base.height)
+        val win = LayoutBounds(26f, 20f + (1f - alpha) * 12f, ui.lw - 52f, ui.lh - 40f)
         ui.ctx.drawGlass(win, Theme.GLASS_WINDOW)
 
         val pad = 10f
@@ -640,7 +516,6 @@ class MusicScreen(
         repeat(barHits.size) { ui.hits.removeAt(ui.hits.size - 1) }
         // 播放栏的空白处也要挡住点击，不然会点到底下那首歌
         ui.hits.addAll(0, barHits + listOf(barRect to {}))
-        drawWindowHints()
     }
 
     private fun drawContent(area: LayoutBounds) {
@@ -782,7 +657,6 @@ class MusicScreen(
             ui.hits.firstOrNull { it.first.contains(mx, my) }?.second?.invoke()
             return
         }
-        if (!appleLyricsOpen && mouseButton == 0 && beginWindowDrag(mx, my)) return
         // 快捷键的“重置”按钮可能滚到了播放栏底下：点在播放栏上时先交给播放栏（以前会把音质按钮的点击吃掉）
         if (!lyricsOpen && mouseButton == 0 && !barRect.expand(0f, 8f).contains(mx, my) && settings.resetKeyAt(mx, my)) return
         if (!lyricsOpen && settings.bindMouse(mouseButton)) return
@@ -830,10 +704,6 @@ class MusicScreen(
             updateLibraryPull()
             return
         }
-        if (grab != null) {
-            dragWindow(ui.mx, ui.my)
-            return
-        }
         if (tracks.sbDragging) {
             tracks.scrollbarDrag((platform.mouseY / ui.scale).toInt())
             return
@@ -851,7 +721,6 @@ class MusicScreen(
 
     fun mouseReleased(mouseButton: Int) {
         if (module.openKey.value < 0) openKeyHeld = false
-        endWindowDrag()
         bar.mouseUp()
         tracks.scrollbarUp()
         settings.stopDrag()
@@ -943,11 +812,3 @@ class MusicScreen(
         if (keyCode == module.openKey.value) openKeyHeld = false
     }
 }
-
-/** 播放器窗口最小多大（逻辑像素）：再小侧栏和播放栏就排不下了 */
-private const val MIN_WIN_W = 880f
-private const val MIN_WIN_H = 480f
-/** 窗口边缘里外多宽算"按在边上"（可以拖着改大小） */
-private const val EDGE_GRAB = 6f
-/** 窗口顶部多高的空白能拖着移动 */
-private const val MOVE_STRIP = 22f
