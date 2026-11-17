@@ -449,13 +449,7 @@ class MusicScreen(
             return
         }
         if (lyricsOpen && !canOpenLyrics) closeLyrics()
-        val openingOffset = (1f - alpha) * 12f
-        val win = if (lyricsOpen) {
-            val edge = 2f
-            LayoutBounds(edge, edge + openingOffset, ui.lw - 2f * edge, ui.lh - 2f * edge - openingOffset)
-        } else {
-            LayoutBounds(26f, 20f + openingOffset, ui.lw - 52f, ui.lh - 40f)
-        }
+        val win = LayoutBounds(26f, 20f + (1f - alpha) * 12f, ui.lw - 52f, ui.lh - 40f)
         ui.ctx.drawGlass(win, Theme.GLASS_WINDOW)
         val pad = 10f
         val sideW = 224f
