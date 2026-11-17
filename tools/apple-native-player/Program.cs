@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json.Nodes;
 using Microsoft.Web.WebView2.Core;
@@ -16,7 +17,13 @@ internal static class Program
             if (ValidLink("https://music.apple.com/#secret")) return 2;
             if (ValidLink("http://localhost:1234/#" + new string('a',64))) return 3;
             if (!ValidLink("http://127.0.0.1:1234/#" + new string('a',64))) return 4;
-            try { return string.IsNullOrEmpty(CoreWebView2Environment.GetAvailableBrowserVersionString()) ? 5 : 0; }
+            try
+            {
+                if (string.IsNullOrEmpty(CoreWebView2Environment.GetAvailableBrowserVersionString())) return 5;
+                ApplicationConfiguration.Initialize();
+                using var window = new PlayerWindow(new Uri("http://127.0.0.1:1234/"), Path.GetTempPath(), Environment.ProcessId);
+                return window.CheckAuthorizationWindowStyles() ? 0 : 10;
+            }
             catch { return 6; }
         }
         int startupStage=10;
@@ -49,6 +56,13 @@ internal static class Program
 
 internal sealed class PlayerWindow : Form
 {
+    private const int WindowExStyle = -20;
+    private const int ToolWindowStyle = 0x00000080;
+    private const int AppWindowStyle = 0x00040000;
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongW", ExactSpelling = true)]
+    private static extern int GetWindowLong(IntPtr window, int index);
+
     private readonly WebView2 web = new() { Dock=DockStyle.Fill };
     private readonly Label status = new() { AutoSize=true,Text="首次使用请登录 Apple Music；完整播放和隐藏窗口效果需要验证。" };
     private const int ActivePollMs=120, IdlePollMs=500;
@@ -78,13 +92,49 @@ internal sealed class PlayerWindow : Form
     private JsonObject? loadTiming;
     private JsonObject? controlTiming;
     private string lastLoadingStage="";
+    private bool showingAuthorization;
+
+    protected override CreateParams CreateParams
+    {
+        get
+        {
+            var parameters = base.CreateParams;
+            if (!showingAuthorization)
+                parameters.ExStyle = (parameters.ExStyle & ~AppWindowStyle) | ToolWindowStyle;
+            return parameters;
+        }
+    }
+
+    protected override bool ShowWithoutActivation => !showingAuthorization;
+
+    private void SetAuthorizationWindow(bool visible)
+    {
+        if (showingAuthorization == visible) return;
+        showingAuthorization = visible;
+        // Update the existing HWND so WebView2 keeps its playback and login state.
+        if (IsHandleCreated) UpdateStyles();
+    }
+
+    internal bool CheckAuthorizationWindowStyles()
+    {
+        IntPtr window = Handle;
+        bool IsToolWindow() => (GetWindowLong(window, WindowExStyle) & (ToolWindowStyle | AppWindowStyle)) == ToolWindowStyle;
+        if (!IsToolWindow()) return false;
+        OfficialAuthSurface(new JsonObject { ["loginRoute"] = "website" });
+        if (Handle != window || (GetWindowLong(window, WindowExStyle) & ToolWindowStyle) != 0) return false;
+        BackgroundHost();
+        return Handle == window && IsToolWindow();
+    }
+
     private void BackgroundHost() {
         // Keep the media controller visible to WebView2 without showing a music UI.
         // Hiding the native control can suspend media initialization in the SDK.
-        ShowInTaskbar=false;Opacity=0;Location=new Point(-32000,-32000);
+        Opacity=0;Location=new Point(-32000,-32000);
+        SetAuthorizationWindow(false);
     }
     private void OfficialAuthSurface(JsonNode outcome) {
         if(outcome["loginRoute"]?.GetValue<string>()!="website"||loginPopups.Count>0)return;
+        SetAuthorizationWindow(true);
         Text="Apple 官方账号授权 · 完成后返回 DangoMusic";
         var area=Screen.PrimaryScreen!.WorkingArea;
         Location=new Point(area.Left+(area.Width-Width)/2,area.Top+(area.Height-Height)/2);
