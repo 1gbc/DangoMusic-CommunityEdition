@@ -4,6 +4,8 @@
 
 ## 未发布
 
+## 0.5.1-dev.1 · 安装包体积优化
+
 - Apple Music 大歌词页改用系统中日韩字体，本机安装了 Noto Sans SC 时优先使用。移除 JAR 内两份 Noto Sans SC 字体，保留原有 Inter 字体。
 
 ## 0.5.0-dev.1 · [PR #23](https://github.com/1gbc/DangoMusic-GTNH/pull/23)
