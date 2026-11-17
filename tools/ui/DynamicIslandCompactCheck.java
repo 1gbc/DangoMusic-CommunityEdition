@@ -32,11 +32,13 @@ public class DynamicIslandCompactCheck {
         var cjkRuns = new ArrayList<CjkRun>();
         float[] renderScale = {1f};
         var shell = new ArrayList<LayoutBounds>();
+        var shapes = new ArrayList<LayoutBounds>();
         var textClips = new ArrayList<LayoutBounds>();
         var radii = new ArrayList<Float>();
         int[] width={1280};
         var canvas = proxy(GuiCanvas.class,(p,m,a)->{
             switch(m.getName()) {
+                case "drawShape": shapes.add((LayoutBounds)a[0]); break;
                 case "drawGlass": shell.add((LayoutBounds)a[0]); radii.add(((GlassStyle)a[1]).getRadius()); break;
                 case "drawText": texts.add((String)a[0]); textXs.add((float)a[1]); textClips.add(clipStack.peek());
                     titleSizes.add(((FontStyle)a[3]).getFontSize() * renderScale[0]); break;
@@ -76,7 +78,7 @@ public class DynamicIslandCompactCheck {
         Field previous=field(DynamicIslandModule.class,"lastNanos");
         Runnable draw=()->{
             try {
-                texts.clear();textXs.clear();textClips.clear();shell.clear();radii.clear();titleSizes.clear();cjkRuns.clear();
+                texts.clear();textXs.clear();textClips.clear();shell.clear();shapes.clear();radii.clear();titleSizes.clear();cjkRuns.clear();
                 previous.setLong(island,System.nanoTime()-16_000_000L);
                 render.invoke(island,new Object[]{null});
                 check(clipStack.isEmpty(),"Islands must restore scissor");
@@ -130,8 +132,26 @@ public class DynamicIslandCompactCheck {
             "The title also matches the lyrics page in a height-limited viewport");
         width[0]=1280;
         layout.setValue(0);
-        for(int i=0;i<75;i++)draw.run();
-        check(shell.get(0).getHeight()>60f && texts.contains("Extra artist"),"An explicitly selected full layout still shows full details");
+        for (boolean continuous : new boolean[]{false, true}) {
+            UiStyle.INSTANCE.setContinuous(continuous);
+            MusicPlayer.INSTANCE.acceptAppleState(track("5", "Blue Moon"),65000,false);
+            for(int i=0;i<100;i++)draw.run();
+            check(Math.abs(shell.get(0).getWidth()-208f)<.05f && Math.abs(shell.get(0).getHeight()-54f)<.05f,
+                "Full island B uses the approved 208 x 54 dimensions");
+            check(texts.contains("Extra artist") && texts.contains("1:05") && texts.contains("-0:55"),
+                "The reduced full layout retains artist, elapsed time and remaining time");
+            check(shapes.stream().anyMatch(b -> b.getWidth()==36f && b.getHeight()==36f),
+                "The full layout shrinks its cover to 36 pixels");
+            check(shapes.stream().anyMatch(b -> b.getHeight()==3f && b.getWidth()>40f),
+                "The progress track still has enough room with optional animations");
+            MusicPlayer.INSTANCE.acceptAppleState(track("6",longTitle),0,true);
+            for(int i=0;i<90;i++)draw.run();
+            check(Math.abs(shell.get(0).getWidth()-270f)<.05f,"Long full titles are capped at 270 pixels");
+            width[0]=70;
+            for(int i=0;i<90;i++)draw.run();
+            check(shell.get(0).getWidth()<=174.01f,"The full island fits a narrow window");
+            width[0]=1280;
+        }
         System.out.println("Compact layout, stable short title, scrolling caps, clipping, narrow window and song change passed");
     }
 }

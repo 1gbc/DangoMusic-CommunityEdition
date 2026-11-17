@@ -62,7 +62,7 @@ class DynamicIslandModule : Module() {
 
     private enum class Kind(val height: Float, val coverSize: Float) {
         IDLE(32f, 0f),
-        FULL(68f, 48f),
+        FULL(54f, 36f),
         MINI(32f, COMPACT_COVER_SIZE),
     }
 
@@ -129,11 +129,11 @@ class DynamicIslandModule : Module() {
             kind == Kind.IDLE -> 44f + idleWidth()
             kind == Kind.MINI -> (COMPACT_TITLE_LEFT + COMPACT_END_PADDING +
                 titleWidth(title, titleSize)).coerceIn(COMPACT_MIN_WIDTH, COMPACT_MAX_WIDTH)
-            UiStyle.continuous && kind == Kind.FULL -> 120f + maxOf(150f,
-                titleWidth(title, titleSize).coerceAtMost(260f),
-                width(snap.track?.artists.orEmpty().joinToString(" / "), 11f).coerceAtMost(220f))
-            else -> kind.coverSize + (if (islandAnimations.get()) 58f else 34f) +
-                max(titleWidth(title, titleSize), 128f)
+            else -> {
+                val artistWidth = if (UiStyle.continuous) width(snap.track?.artists.orEmpty().joinToString(" / "), FULL_ARTIST_SIZE) else 0f
+                val textWidth = maxOf(titleWidth(title, titleSize), artistWidth)
+                (FULL_COVER_LEFT + kind.coverSize + FULL_TITLE_GAP + textWidth + fullEndPadding()).coerceAtLeast(FULL_MIN_WIDTH)
+            }
         }
         return min(preferred, widthLimit(kind, available))
     }
@@ -301,8 +301,7 @@ class DynamicIslandModule : Module() {
             when {
                 shown == Kind.IDLE -> drawIdle(ctx, cb)
                 shown == Kind.MINI -> drawMini(ctx, cb, snap, titleSize, pill.x + pill.width / 2f)
-                continuous && shown == Kind.FULL -> drawDev6Song(ctx, cb, snap, titleSize)
-                else -> drawSong(ctx, cb, snap, titleSize)
+                else -> drawFull(ctx, cb, snap, titleSize, continuous)
             }
             if (animations && shown == Kind.FULL) {
                 val cover = snap.track?.let(CoverCache::trackImage)
@@ -400,66 +399,50 @@ class DynamicIslandModule : Module() {
             .coerceAtLeast(0f)
     }
 
-    private fun drawDev6Song(ctx: GuiCanvas, b: LayoutBounds, snap: PlaybackView.Snapshot, titleSize: Float) {
+    private fun drawFull(ctx: GuiCanvas, b: LayoutBounds, snap: PlaybackView.Snapshot, titleSize: Float, continuous: Boolean) {
         val track = snap.track ?: return
-        val cover = LayoutBounds(b.x + 10f, b.y + 10f, 48f, 48f)
-        drawCover(ctx, cover, CoverCache.track(track))
-        val x = cover.right + 10f
-        val right = songContentRight(b)
+        val coverSize = Kind.FULL.coverSize
+        val cover = LayoutBounds(b.x + FULL_COVER_LEFT, b.y + (b.height - coverSize) / 2f, coverSize, coverSize)
+        val art = if (continuous) CoverCache.track(track) else CoverCache.trackRounded(track) ?: CoverCache.track(track)
+        drawCover(ctx, cover, art)
+        val x = cover.right + FULL_TITLE_GAP
+        val right = b.right - fullEndPadding()
         val textWidth = right - x
-        val source = trim(islandSourceLabel(snap), minOf(110f, textWidth * 0.55f), 9f)
-        val sourceWidth = width(source, 9f)
-        drawTrackTitle(ctx, track.name, x, right - 4f, b.y + 12f, titleSize, Theme.TEXT_PRIMARY)
-        text(ctx, trim(track.artists.joinToString(" / "), (textWidth - sourceWidth - 6f).coerceAtLeast(0f), 11f),
-            x, b.y + 31f, 11f, Theme.TEXT_SECONDARY)
-        if (source.isNotEmpty()) text(ctx, source, right - sourceWidth, b.y + 33f, 9f, Theme.TEXT_TERTIARY)
+        drawTrackTitle(ctx, track.name, x, right, b.y + 8f, titleSize, Theme.TEXT_PRIMARY)
+
+        val artists = track.artists.joinToString(" / ")
+        if (continuous) {
+            val source = trim(islandSourceLabel(snap), minOf(110f, textWidth * 0.55f), FULL_TIME_SIZE)
+            val sourceWidth = width(source, FULL_TIME_SIZE)
+            val artistWidth = if (source.isEmpty()) textWidth else (textWidth - sourceWidth - 6f).coerceAtLeast(0f)
+            text(ctx, trim(artists, artistWidth, FULL_ARTIST_SIZE), x, b.y + 21f, FULL_ARTIST_SIZE, Theme.TEXT_SECONDARY)
+            if (source.isNotEmpty()) text(ctx, source, right - sourceWidth, b.y + 22f, FULL_TIME_SIZE, Theme.TEXT_TERTIARY)
+        } else {
+            val album = track.albumName.trim()
+            val details = if (artists.isBlank() || album.isBlank()) {
+                trim(artists.ifBlank { album }, textWidth, FULL_ARTIST_SIZE)
+            } else {
+                val separator = " · "
+                val available = textWidth - width(separator, FULL_ARTIST_SIZE)
+                val albumWidth = min(width(album, FULL_ARTIST_SIZE), available / 2f)
+                val artistLabel = trim(artists, available - albumWidth, FULL_ARTIST_SIZE)
+                artistLabel + separator + trim(album, available - width(artistLabel, FULL_ARTIST_SIZE), FULL_ARTIST_SIZE)
+            }
+            text(ctx, details, x, b.y + 21f, FULL_ARTIST_SIZE, Theme.TEXT_SECONDARY)
+        }
 
         val duration = snap.durationMs.coerceAtLeast(0L)
         val position = snap.positionMs.coerceIn(0L, duration)
         val elapsed = fmtTime(position)
         val remaining = if (duration > 0L) "-${fmtTime(duration - position)}" else "--:--"
-        val timeX = right - width(remaining, 9f)
-        text(ctx, elapsed, x, b.y + 49f, 9f, Theme.TEXT_SECONDARY)
-        text(ctx, remaining, timeX, b.y + 49f, 9f, Theme.TEXT_SECONDARY)
-        val barX = x + width(elapsed, 9f) + 7f
-        drawSongProgress(ctx, barX, b.y + 52f, timeX - 7f - barX, position, duration)
+        val timeX = right - width(remaining, FULL_TIME_SIZE)
+        text(ctx, elapsed, x, b.y + 36f, FULL_TIME_SIZE, Theme.TEXT_SECONDARY)
+        text(ctx, remaining, timeX, b.y + 36f, FULL_TIME_SIZE, Theme.TEXT_SECONDARY)
+        val barX = x + width(elapsed, FULL_TIME_SIZE) + 7f
+        drawSongProgress(ctx, barX, b.y + 40f, timeX - 7f - barX, position, duration)
     }
 
-    private fun drawSong(ctx: GuiCanvas, b: LayoutBounds, snap: PlaybackView.Snapshot, titleSize: Float) {
-        val track = snap.track ?: return
-        val cover = LayoutBounds(b.x + 10f, b.y + 10f, Kind.FULL.coverSize, Kind.FULL.coverSize)
-        drawCover(ctx, cover, CoverCache.trackRounded(track) ?: CoverCache.track(track))
-        val x = cover.right + 10f
-        val right = songContentRight(b)
-        val textWidth = right - x
-        drawTrackTitle(ctx, track.name, x, right, b.y + 12f, titleSize, Theme.TEXT_PRIMARY)
-
-        val artists = track.artists.joinToString(" / ")
-        val album = track.albumName.trim()
-        val details = if (artists.isBlank() || album.isBlank()) {
-            trim(artists.ifBlank { album }, textWidth, 11f)
-        } else {
-            val separator = " · "
-            val available = textWidth - width(separator, 11f)
-            val albumWidth = min(width(album, 11f), available / 2f)
-            val artistLabel = trim(artists, available - albumWidth, 11f)
-            artistLabel + separator + trim(album, available - width(artistLabel, 11f), 11f)
-        }
-        text(ctx, details, x, b.y + 31f, 11f, Theme.TEXT_SECONDARY)
-
-        val duration = snap.durationMs.coerceAtLeast(0L)
-        val position = snap.positionMs.coerceIn(0L, duration)
-        val elapsed = fmtTime(snap.positionMs.coerceAtLeast(0L))
-        val remaining = if (duration > 0L) "-${fmtTime(duration - position)}" else "--:--"
-        val remainingWidth = width(remaining, 9f)
-        text(ctx, elapsed, x, b.y + 49f, 9f, Theme.TEXT_SECONDARY)
-        text(ctx, remaining, right - remainingWidth, b.y + 49f, 9f, Theme.TEXT_SECONDARY)
-        val barX = x + width(elapsed, 9f) + 7f
-        drawSongProgress(ctx, barX, b.y + 52f, right - barX - remainingWidth - 7f, position, duration)
-    }
-
-    private fun songContentRight(bounds: LayoutBounds): Float =
-        bounds.right - if (islandAnimations.get()) 38f else 14f
+    private fun fullEndPadding(): Float = if (islandAnimations.get()) 38f else 14f
 
     private fun drawSongProgress(ctx: GuiCanvas, x: Float, y: Float, width: Float, position: Long, duration: Long) {
         if (width <= 0f) return
@@ -517,7 +500,12 @@ class DynamicIslandModule : Module() {
     private companion object {
         const val COMPACT_MIN_WIDTH = 164f
         const val COMPACT_MAX_WIDTH = 256f
-        const val FULL_MAX_WIDTH = 380f
+        const val FULL_MIN_WIDTH = 208f
+        const val FULL_MAX_WIDTH = 270f
+        const val FULL_COVER_LEFT = 10f
+        const val FULL_TITLE_GAP = 10f
+        const val FULL_ARTIST_SIZE = 9f
+        const val FULL_TIME_SIZE = 8f
         const val COMPACT_COVER_LEFT = 10f
         const val COMPACT_COVER_SIZE = 22f
         const val COMPACT_COVER_GAP = 15f
