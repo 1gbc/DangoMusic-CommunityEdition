@@ -47,17 +47,18 @@ public final class AppleWebServer implements AutoCloseable {
     private static final long CATALOG_MATCH_TIMEOUT_MS=7000;
     private static final class PendingLoad {
         final long id,queuedAt=System.nanoTime();
-        final String catalogId,previousId;
+        final String catalogId,previousId,previousRequestedId;
         String resolvedId="";
         long mismatchSince;
-        PendingLoad(long id,String catalogId,String previousId){
+        PendingLoad(long id,String catalogId,String previousId,String previousRequestedId){
             this.id=id;
             this.catalogId=catalogId;
             this.previousId=previousId;
+            this.previousRequestedId=previousRequestedId;
         }
     }
     private PendingLoad pendingLoad;
-    private String lastTrackId="";
+    private String lastTrackId="",lastRequestedId="";
     private volatile String loadFailure="";
     private void clearLoad(){
         pendingLoad=null;
@@ -100,8 +101,9 @@ public final class AppleWebServer implements AutoCloseable {
         String id=text(incoming,"id",100);
         boolean available=!id.isEmpty()&&!text(incoming,"title",300).isEmpty()&&
             incoming.has("available")&&incoming.get("available").getAsBoolean();
-        if(available&&(load.catalogId.isEmpty()||load.catalogId.equals(id)||
-            (id.equals(load.resolvedId)&&!id.equals(load.previousId))))return true;
+        boolean confirmedReplacement=id.equals(load.resolvedId)&&
+            (!id.equals(load.previousId)||load.catalogId.equals(load.previousRequestedId));
+        if(available&&(load.catalogId.isEmpty()||load.catalogId.equals(id)||confirmedReplacement))return true;
         if(load.mismatchSince==0&&available)load.mismatchSince=System.nanoTime();
         if(load.mismatchSince==0||elapsed(load.mismatchSince)<CATALOG_MATCH_TIMEOUT_MS)return false;
         failLoad("Apple Music did not confirm the requested song; try playing it again");
@@ -140,7 +142,7 @@ public final class AppleWebServer implements AutoCloseable {
             if(request!=null)request.future.completeExceptionally(new IOException("Apple Music request cancelled"));
         }
     }
-    public synchronized void reconnect(){cancelRequests();session=null;owner=null;state=null;commands.clear();pendingVolume=null;clearLoad();lastTrackId="";authorized=false;authState="restoring";stopped=false;pairing=random();born=System.nanoTime();lastAck=sequence;error="";}
+    public synchronized void reconnect(){cancelRequests();session=null;owner=null;state=null;commands.clear();pendingVolume=null;clearLoad();lastTrackId="";lastRequestedId="";authorized=false;authState="restoring";stopped=false;pairing=random();born=System.nanoTime();lastAck=sequence;error="";}
     public JsonObject request(String op,String value,int offset)throws Exception{
         if(!Arrays.asList("search","charts","songs","playlists","playlistTracks","recent","recommend","resourceTracks",
             "librarySearch","discover","genres","genreCharts","radio","liveRadio","webDiscover","webRadio","recentlyAdded","libraryAlbums","favoriteSongs",
@@ -162,7 +164,7 @@ public final class AppleWebServer implements AutoCloseable {
         if(!connected())return;
         clearPlaybackCommands();stopped=false;state=null;error="";
         clearLoad();
-        pendingLoad=new PendingLoad(++sequence,!library&&id.matches("[0-9]{1,20}")?id:"",lastTrackId);
+        pendingLoad=new PendingLoad(++sequence,!library&&id.matches("[0-9]{1,20}")?id:"",lastTrackId,lastRequestedId);
         loadQueuedAt=TRACE_TIMING?System.nanoTime():0L;
         JsonObject c=new JsonObject(),v=new JsonObject();c.addProperty("id",sequence);c.addProperty("name","load");v.addProperty("id",id);v.addProperty("library",library);c.add("value",v);enqueue(c,loadQueuedAt);
     }
@@ -250,12 +252,15 @@ public final class AppleWebServer implements AutoCloseable {
                     if(!stopped&&!changing&&acceptLoadState(incoming)){
                         String reportedId=text(incoming,"id",100);
                         String requestedId=pendingLoad!=null?pendingLoad.catalogId:
-                            state!=null&&reportedId.equals(text(state,"id",100))?text(state,"requestedCatalogId",100):"";
+                            reportedId.equals(lastTrackId)?lastRequestedId:"";
                         state=sanitize(incoming);
                         if(!requestedId.isEmpty()&&!requestedId.equals(reportedId))
                             state.addProperty("requestedCatalogId",requestedId);
                         pendingLoad=null;
-                        if(state.get("available").getAsBoolean()&&!reportedId.isEmpty())lastTrackId=reportedId;
+                        if(state.get("available").getAsBoolean()&&!reportedId.isEmpty()){
+                            lastTrackId=reportedId;
+                            lastRequestedId=requestedId;
+                        }
                         if(loadQueuedAt!=0&&state.get("available").getAsBoolean()&&state.get("playing").getAsBoolean()&&!text(state,"id",100).isEmpty()){
                             trace("load","playing-reported",millisSince(loadQueuedAt));
                             loadQueuedAt=0;

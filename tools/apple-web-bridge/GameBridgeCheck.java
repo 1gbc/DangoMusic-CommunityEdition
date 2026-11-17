@@ -104,6 +104,12 @@ public class GameBridgeCheck {
             check(s.snapshot().get("requestedCatalogId").getAsString().equals("789"),
                 "The replacement retains the requested queue identity on later telemetry");
 
+            s.playSong("789",false);
+            ack=post(s,"/sync",key,"{\"ack\":"+ack+"}",200).getAsJsonObject("command").get("id").getAsLong();
+            post(s,"/sync",key,"{\"ack\":"+ack+",\"state\":"+replacement+",\"loadResult\":{\"id\":"+ack+",\"resolvedId\":\"790\"}}",200);
+            check(s.snapshot()!=null&&s.snapshot().get("requestedCatalogId").getAsString().equals("789"),
+                "Repeating the same requested song accepts its already confirmed replacement");
+
             long priorLoad=ack;
             s.playSong("900",false);
             ack=post(s,"/sync",key,"{\"ack\":"+ack+"}",200).getAsJsonObject("command").get("id").getAsLong();
