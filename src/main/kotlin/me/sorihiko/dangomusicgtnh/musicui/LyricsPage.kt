@@ -186,7 +186,7 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
         val lyricModule = module.lyrics()
         val lyrics = song?.let { lyricModule?.playerLyrics(it) }
         val size = module.lyricsPageSize.value * frame.scale
-        layout(lyrics?.lines.orEmpty(), lyricArea.width, size)
+        val keptScroll = layout(lyrics?.lines.orEmpty(), lyricArea.width, size, preserveAppleScroll = true)
         if (rows.isEmpty()) {
             val loading = song != null && lyricModule?.isLoadingLyrics(song) == true
             val title = I18n.text(if (loading) "Loading lyrics..." else "No lyrics available")
@@ -207,7 +207,8 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
             appleFollowAfter = 0L
         }
         val target = manualPosition?.coerceAtMost(rows.last().center) ?: (rows.getOrNull(active)?.center ?: 0f)
-        scrollPosition = if (resumeAppleFollow) target else ui.approach(scrollPosition, target, 95f)
+        if (resumeAppleFollow) scrollPosition = target
+        else if (!keptScroll) scrollPosition = ui.approach(scrollPosition, target, 95f)
         resumeAppleFollow = false
         drawLyrics(active, size, null)
     }
@@ -289,11 +290,12 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
         }
     }
 
-    private fun layout(newLines: List<LyricLine>, width: Float, size: Float) {
+    private fun layout(newLines: List<LyricLine>, width: Float, size: Float, preserveAppleScroll: Boolean = false): Boolean {
         val translate = module.lyricsPageTranslation.get()
         val romanize = module.lyricsPageRomanization.get()
-        if (lines === newLines && layoutWidth == width && layoutSize == size &&
-            showTranslation == translate && showRomanization == romanize) return
+        val sameLayout = lines === newLines && layoutWidth == width && layoutSize == size
+        if (sameLayout && showTranslation == translate && showRomanization == romanize) return false
+        val previousRows = rows.takeIf { preserveAppleScroll && sameLayout && it.isNotEmpty() }
 
         lines = newLines
         layoutWidth = width
@@ -310,6 +312,18 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
             val height = original.size * size * 1.32f + (phonetic.size + translation.size) * size + 17f
             Row(top, original, phonetic, translation, height).also { top += height }
         }
+
+        if (previousRows == null) return false
+        // Keep the same original lyric near the viewport center when annotations reflow.
+        fun reanchor(position: Float): Float {
+            val index = previousRows.binarySearchBy(position) { it.top }
+                .let { if (it < 0) (-it - 2).coerceAtLeast(0) else it }
+            val offset = (position - previousRows[index].top).coerceIn(0f, rows[index].height)
+            return (rows[index].top + offset).coerceAtMost(rows.last().center)
+        }
+        scrollPosition = reanchor(scrollPosition)
+        manualPosition = manualPosition?.let(::reanchor)
+        return true
     }
 
     private fun drawLyrics(active: Int, size: Float, popup: LayoutBounds?) {

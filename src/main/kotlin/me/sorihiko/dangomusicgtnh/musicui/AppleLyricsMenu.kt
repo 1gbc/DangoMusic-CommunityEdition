@@ -2,6 +2,7 @@ package me.sorihiko.dangomusicgtnh.musicui
 
 import me.sorihiko.dangomusicgtnh.DangoClient
 import me.sorihiko.dangomusicgtnh.i18n.I18n
+import me.sorihiko.dangomusicgtnh.module.values.BooleanValue
 import me.sorihiko.dangomusicgtnh.music.AppleMusicSource
 import me.sorihiko.dangomusicgtnh.music.MusicSource
 import me.sorihiko.dangomusicgtnh.music.NeteaseTrack
@@ -12,7 +13,11 @@ import me.sorihiko.dangomusicgtnh.ui.VectorIcon
 import me.sorihiko.dangomusicgtnh.utils.Color
 import java.util.concurrent.CompletableFuture
 
-internal class AppleLyricsMenu(private val ui: Ui) {
+internal class AppleLyricsMenu(
+    private val ui: Ui,
+    private val romanization: BooleanValue,
+    private val translation: BooleanValue,
+) {
     private var trackKey: String? = null
     private var menuOpen = false
     private var creditsOpen = false
@@ -85,7 +90,8 @@ internal class AppleLyricsMenu(private val ui: Ui) {
 
     private fun drawMenu(frame: AppleLyricsLayout, song: NeteaseTrack) {
         val scale = frame.scale
-        val panel = frame.bounds(984f, 908f, 185f, 64f)
+        val rowHeight = 32f * scale
+        val panel = frame.bounds(984f, 908f, 185f, 128f)
         ui.ctx.pushOpacity(0.74f)
         ui.ctx.drawGlass(panel, Theme.GLASS_SIDEBAR.copy(radius = 6f * scale,
             tint = Color(0.06f, 0.04f, 0.05f, 0.22f), maxLuma = 0.58f, saturation = 1.12f,
@@ -94,27 +100,37 @@ internal class AppleLyricsMenu(private val ui: Ui) {
         ui.ctx.popOpacity()
         ui.ctx.drawShape(panel, ShapeStyle(radius = 6f * scale, borderWidth = 0.75f * scale,
             borderColor = Color(1f, 1f, 1f, 0.19f)))
-        val credits = panel.copy(height = 32f * scale)
-        val copy = credits.copy(y = credits.bottom)
-        row(credits, I18n.text("View Credits"), INFO, scale) {
+        fun item(index: Int, label: String, icon: VectorIcon, checked: Boolean = false, action: () -> Unit) {
+            val bounds = panel.copy(y = panel.y + index * rowHeight, height = rowHeight)
+            if (index > 0) {
+                ui.card(LayoutBounds(bounds.x, bounds.y, bounds.width, scale), Theme.TEXT_PRIMARY.copy(a = 0.11f), 0f)
+            }
+            row(bounds, I18n.text(label), icon, scale, checked, action)
+        }
+        item(0, "View Credits", INFO) {
             menuOpen = false
             creditsOpen = true
             load(song)
         }
-        ui.card(LayoutBounds(panel.x, credits.bottom, panel.width, scale), Theme.TEXT_PRIMARY.copy(a = 0.11f), 0f)
-        row(copy, I18n.text("Copy Link"), LINK, scale) {
+        item(1, "Copy Link", LINK) {
             menuOpen = false
             copyPending = true
             load(song)
         }
+        item(2, "Show Romanization", AppleLyricsIcons.romanization, romanization.get(), romanization::toggle)
+        item(3, "Show Translation", AppleLyricsIcons.translation, translation.get(), translation::toggle)
     }
 
-    private fun row(bounds: LayoutBounds, text: String, icon: VectorIcon, scale: Float, action: () -> Unit) {
+    private fun row(
+        bounds: LayoutBounds, text: String, icon: VectorIcon, scale: Float, checked: Boolean, action: () -> Unit,
+    ) {
         if (ui.hover(bounds)) ui.card(bounds, Color(1f, 1f, 1f, 0.10f), 5f * scale)
         val fontSize = 13f * scale
         ui.text(text, bounds.x + 10f * scale, bounds.y + 9f * scale, fontSize, Theme.TEXT_PRIMARY, Theme.FONT_MEDIUM)
-        PlayerIcons.draw(ui.ctx, icon, bounds.right - 17f * scale, bounds.y + bounds.height / 2f,
-            17f * scale, Theme.TEXT_PRIMARY)
+        val centerY = bounds.y + bounds.height / 2f
+        PlayerIcons.draw(ui.ctx, icon, bounds.right - 17f * scale, centerY, 17f * scale, Theme.TEXT_PRIMARY)
+        if (checked) PlayerIcons.draw(ui.ctx, PlayerIcons.check, bounds.right - 39f * scale,
+            centerY, 12f * scale, Theme.TEXT_PRIMARY)
         ui.hits += bounds to action
     }
 

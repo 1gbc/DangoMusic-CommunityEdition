@@ -64,7 +64,7 @@ class MusicScreen(
     private val settings = SettingsPage(this, module)
     internal val songComments = SongComments(ui)
     private val lyricsPage = LyricsPage(ui, module, songComments)
-    private val appleLyricsMenu = AppleLyricsMenu(ui)
+    private val appleLyricsMenu = AppleLyricsMenu(ui, module.lyricsPageRomanization, module.lyricsPageTranslation)
     private var appleLyricsFrame: AppleLyricsLayout? = null
     private var showAppleLyrics = true
     private var appleLyricsTrack: NeteaseTrack? = null
