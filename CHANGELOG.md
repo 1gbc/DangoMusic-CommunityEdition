@@ -4,6 +4,13 @@
 
 ## 未发布
 
+## 0.5.0-dev.1 · [PR #23](https://github.com/1gbc/DangoMusic-GTNH/pull/23)
+
+- feat(ui): match Apple Music lyrics player layout
+- fix(ui): smooth the Apple lyrics backdrop and add lyrics visibility
+- fix(apple): remove artwork seams and coalesce volume updates
+- fix(apple): preserve song links and resume lyric follow
+
 - 修复 Apple Music 大歌词页的 Copy Link。桥接保留服务器返回的官方曲目地址，并转发表演者和作曲者给 View Credits。
 - Apple Music 歌词手动翻阅后，在最近一次滚轮操作满 5 秒时平滑恢复跟随当前歌词。连续翻阅会重新计时。
 
