@@ -58,6 +58,8 @@ data class GlassStyle(
     val shadow: ShadowStyle = ShadowStyle(),
     /** 没有背景可采样时的退化填充色 */
     val fallback: Color = Color(0.11f, 0.11f, 0.13f, 0.88f),
+    /** Positive values draw only a fading bevel over the content beneath the glass. */
+    val edgeWidth: Float = 0f,
 )
 
 data class FontStyle(

@@ -217,6 +217,7 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
 
         // 中：上一首 / 播放 / 下一首 / 队列。点击区域固定，动画只改画出来的样子
         val cy = if (continuous) ry else bar.y + CONTROL_Y
+        val controlScale = if (lyricsOpen) 0.82f else 1f
         val playB = LayoutBounds(cx - 24f, cy - 24f, 48f, 48f)
         val prevB = LayoutBounds(cx - 62f - 16f, cy - 16f, 32f, 32f)
         val nextB = LayoutBounds(cx + 62f - 16f, cy - 16f, 32f, 32f)
@@ -224,19 +225,19 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         val stopB = LayoutBounds(queueB.right + 2f, cy - 16f, 32f, 32f)
         modeButton = LayoutBounds(cx - modeOffset, cy - 16f, 32f, 32f)
         val mode = if (snap.remote) MusicPlayer.Mode.SEQUENTIAL else MusicPlayer.mode
-        toggleButton(modeButton, cy, modeOpen, modeA, mode) {
+        toggleButton(modeButton, cy, modeOpen, modeA, mode, controlScale) {
             if (snap.remote || me.sorihiko.dangomusicgtnh.music.AppleWebPlayer.stationActive) return@toggleButton
             val opening = !modeOpen
             dismissMenu()
             modeOpen = opening
         }
-        val stopScale = button(stopB, stopA)
+        val stopScale = button(stopB, stopA) * controlScale
         PlayerIcons.draw(ctx, PlayerIcons.stop, stopB.x + 16f, cy, (if (UiStyle.continuous) 18f else 16f) * stopScale, Theme.TEXT_PRIMARY)
         ui.hits += stopB to { stopA.press.v -= 7f; PlaybackView.stop() }
-        val kPrev = button(prevB, prevA)
-        val kPlay = drawPlayDisc(playB)
-        val kNext = button(nextB, nextA)
-        val kQueue = button(queueB, queueA)
+        val kPrev = button(prevB, prevA) * controlScale
+        val kPlay = drawPlayDisc(playB, controlScale)
+        val kNext = button(nextB, nextA) * controlScale
+        val kQueue = button(queueB, queueA) * controlScale
         // 播放 ↔ 暂停：两个图标交叉淡入淡出，暂停的两道竖条从中间长出来，三角形收小淡出
         val p = playMorph.tick(if (snap.playing) 1f else 0f).coerceIn(0f, 1f)
         if (p > 0.01f) {
@@ -555,10 +556,10 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
      * 播放键：实心的强调色圆；正在播放时外面一圈一圈地往外扩散。
      * 返回当前的缩放（悬停放大、点击回弹），里面的图标按它缩放
      */
-    private fun drawPlayDisc(b: LayoutBounds): Float {
+    private fun drawPlayDisc(b: LayoutBounds, visualScale: Float): Float {
         val ctx = ui.ctx
         val hover = playA.hover.tick(if (ui.hover(b)) 1f else 0f).coerceIn(0f, 1f)
-        val k = 1f + playA.press.tick(0f) * 0.14f + hover * 0.06f
+        val k = (1f + playA.press.tick(0f) * 0.14f + hover * 0.06f) * visualScale
         if (PlaybackView.snapshot().playing) {
             val phase = (System.nanoTime() / 1e9 % 2.8 / 2.8).toFloat()
             if (phase < 0.7f) {
@@ -584,17 +585,17 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
     }
 
     /** 随机 / 单曲循环：选中的红底渐入渐出，点击先缩再弹回 */
-    private fun toggleButton(b: LayoutBounds, vy: Float, on: Boolean, a: Anim, mode: MusicPlayer.Mode, action: () -> Unit) {
+    private fun toggleButton(b: LayoutBounds, vy: Float, on: Boolean, a: Anim, mode: MusicPlayer.Mode, iconScale: Float, action: () -> Unit) {
         val o = a.on.tick(if (on) 1f else 0f).coerceIn(0f, 1f)
         val h = a.hover.tick(if (ui.hover(b)) 1f else 0f).coerceIn(0f, 1f)
         val k = 1f + a.press.tick(0f) * 0.14f
         val base = mixColor(Color(1f, 1f, 1f, 0.07f), Theme.CARD_HOVER, h)
         if (UiStyle.continuous) {
             if(h>0.01f) ui.card(b.scaled(k),Theme.CARD_HOVER.copy(a=Theme.CARD_HOVER.a*h),9f*k)
-            PlayerIcons.mode(ui.ctx, mode, b.x + b.width / 2f, vy, 18f * k, mixColor(Theme.TEXT_PRIMARY, RED, o))
+            PlayerIcons.mode(ui.ctx, mode, b.x + b.width / 2f, vy, 18f * k * iconScale, mixColor(Theme.TEXT_PRIMARY, RED, o))
         } else {
             ui.card(b.scaled(k), mixColor(base, RED.copy(a = 0.85f), o), 9f * k)
-            PlayerIcons.mode(ui.ctx, mode, b.x + b.width / 2f, vy, 18f * k, Theme.TEXT_PRIMARY)
+            PlayerIcons.mode(ui.ctx, mode, b.x + b.width / 2f, vy, 18f * k * iconScale, Theme.TEXT_PRIMARY)
         }
         ui.hits += b to {
             a.press.v -= 7f

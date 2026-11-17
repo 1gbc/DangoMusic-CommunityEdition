@@ -31,6 +31,7 @@ class GlassShader : GlShader(
             "u_Bevel",
             "u_Dispersion",
             "u_Highlight",
+            "u_EdgeWidth",
             "u_Opacity",
         )
     }
@@ -61,6 +62,7 @@ class GlassShader : GlShader(
         setUniform1f("u_Bevel", style.bevel)
         setUniform1f("u_Dispersion", style.dispersion)
         setUniform1f("u_Highlight", style.highlight)
+        setUniform1f("u_EdgeWidth", style.edgeWidth)
         setUniform1f("u_Opacity", opacity)
     }
 }

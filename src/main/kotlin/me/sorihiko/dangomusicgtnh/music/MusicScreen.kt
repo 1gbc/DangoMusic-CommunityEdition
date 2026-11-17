@@ -450,18 +450,16 @@ class MusicScreen(
         }
         if (lyricsOpen && !canOpenLyrics) closeLyrics()
         val win = LayoutBounds(26f, 20f + (1f - alpha) * 12f, ui.lw - 52f, ui.lh - 40f)
-        ui.ctx.drawGlass(win, Theme.GLASS_WINDOW)
         val pad = 10f
         val sideW = 224f
         val barH = 88f
         if (lyricsOpen) {
-            val rim = 1.5f
-            val inside = win.expand(-rim, -rim)
-            barRect = LayoutBounds(inside.x, inside.bottom - barH, inside.width, barH)
+            barRect = LayoutBounds(win.x, win.bottom - barH, win.width, barH)
             val content = LayoutBounds(win.x + pad, win.y + pad, win.width - 2f * pad, barRect.y - win.y - pad)
-            lyricsPage.draw(content, inside, Theme.GLASS_WINDOW.radius - rim, ::closeLyrics)
+            lyricsPage.draw(content, win, ::closeLyrics)
             return
         }
+        ui.ctx.drawGlass(win, Theme.GLASS_WINDOW)
         val side = LayoutBounds(win.x + pad, win.y + pad, sideW, win.height - pad * 2)
         val mainX = side.right + pad + 8f
         val mainW = win.right - pad - 8f - mainX

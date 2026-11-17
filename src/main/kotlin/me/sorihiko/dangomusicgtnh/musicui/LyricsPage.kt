@@ -102,10 +102,11 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
     private fun inLyricsModule(x: Int, y: Int): Boolean =
         lyricArea.contains(x, y) || shortcutArea.contains(x, y) || popupArea?.contains(x, y) == true
 
-    fun draw(area: LayoutBounds, backdrop: LayoutBounds, radius: Float, close: () -> Unit) {
+    fun draw(area: LayoutBounds, backdrop: LayoutBounds, close: () -> Unit) {
         pageArea = backdrop.copy(height = area.bottom - backdrop.y)
         val song = MusicPlayer.current?.takeIf { it.source == MusicSource.NETEASE }
-        drawBackdrop(backdrop, song, radius)
+        drawBackdrop(backdrop, song, Theme.GLASS_LYRICS_EDGE.radius)
+        ui.ctx.drawGlass(backdrop, Theme.GLASS_LYRICS_EDGE)
         if (song == null || !module.songCommentsEnabled.get()) {
             commentsOpen = false
             commentsProgress = 0f

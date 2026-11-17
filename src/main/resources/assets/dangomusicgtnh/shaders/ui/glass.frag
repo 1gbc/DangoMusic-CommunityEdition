@@ -19,6 +19,7 @@ uniform float u_Refraction;  // 边缘折射位移（逻辑像素）
 uniform float u_Bevel;       // 透镜斜面宽度（逻辑像素）
 uniform float u_Dispersion;  // 色散强度
 uniform float u_Highlight;   // 高光强度
+uniform float u_EdgeWidth;   // 仅叠加在内容边缘时的渐隐宽度
 uniform float u_Opacity;
 
 varying vec2 v_Position;
@@ -77,6 +78,7 @@ void main() {
     float d = sdRoundBox(p, halfSize, r);
     float aa = max(fwidth(d), 1e-4);
     float mask = 1.0 - smoothstep(-aa, 0.0, d);
+    if (u_EdgeWidth > 0.0) mask *= 1.0 - smoothstep(0.0, u_EdgeWidth, -d);
     if (mask <= 0.0) discard;
 
     // SDF 梯度 = 表面法线（指向外侧）

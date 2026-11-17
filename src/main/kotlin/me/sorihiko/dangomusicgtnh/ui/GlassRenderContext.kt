@@ -225,7 +225,8 @@ class GlassRenderContext : GuiCanvas {
 
         val backdrop = this.backdrop
         if (backdrop == null || !backdrop.ready) {
-            drawShape(bounds, ShapeStyle(style.fallback, style.radius, 1f, Color(1f, 1f, 1f, 0.10f)))
+            val fill = if (style.edgeWidth > 0f) Color.TRANSPARENT else style.fallback
+            drawShape(bounds, ShapeStyle(fill, style.radius, 1f, Color(1f, 1f, 1f, 0.10f)))
             return
         }
 
