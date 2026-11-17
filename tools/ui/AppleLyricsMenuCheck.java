@@ -91,6 +91,15 @@ public class AppleLyricsMenuCheck {
         }));
 
         var module = new NeteaseMusicModule();
+        var appleSize = java.util.Arrays.stream(NeteaseMusicModule.class.getMethods())
+            .filter(method -> method.getName().startsWith("getAppleLyricsPageSize"))
+            .findFirst().orElseThrow(() -> new AssertionError("Apple Music needs its own default text size"));
+        var textSize = (me.sorihiko.dangomusicgtnh.module.values.IntValue)field(module, "lyricsPageSize").get(module);
+        check(textSize.getValue() == 22 && appleSize.invoke(module).equals(24),
+            "Apple Music defaults to 24 while the existing NetEase size remains 22");
+        textSize.setValue(26);
+        check(appleSize.invoke(module).equals(26), "Existing custom lyric size remains in effect");
+        textSize.reset();
         var screen = new MusicScreen(module, () -> Unit.INSTANCE);
         var menu = (AppleLyricsMenu)field(screen, "appleLyricsMenu").get(screen);
         var page = (LyricsPage)field(screen, "lyricsPage").get(screen);

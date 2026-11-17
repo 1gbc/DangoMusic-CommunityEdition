@@ -71,6 +71,9 @@ class NeteaseMusicModule : Module() {
     // 拖窗口边缘时改，设置页里不显示
     @ModuleValue("Lyrics page font size", "")
     internal val lyricsPageSize = IntValue(14, 30, 22)
+    // Retain the shared page-size override when the player has chosen a custom size.
+    internal val appleLyricsPageSize: Int
+        get() = if (lyricsPageSize.value == lyricsPageSize.default) 24 else lyricsPageSize.value
     @ModuleValue("Lyrics page translation", "")
     internal val lyricsPageTranslation = BooleanValue(true)
     @ModuleValue("Lyrics page romanization", "")

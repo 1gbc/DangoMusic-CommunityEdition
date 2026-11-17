@@ -28,6 +28,9 @@ public class DynamicIslandCompactCheck {
         var clipStack = new ArrayDeque<LayoutBounds>();
         var texts = new ArrayList<String>();
         var textXs = new ArrayList<Float>();
+        var titleSizes = new ArrayList<Float>();
+        var cjkRuns = new ArrayList<CjkRun>();
+        float[] renderScale = {1f};
         var shell = new ArrayList<LayoutBounds>();
         var textClips = new ArrayList<LayoutBounds>();
         var radii = new ArrayList<Float>();
@@ -35,7 +38,9 @@ public class DynamicIslandCompactCheck {
         var canvas = proxy(GuiCanvas.class,(p,m,a)->{
             switch(m.getName()) {
                 case "drawGlass": shell.add((LayoutBounds)a[0]); radii.add(((GlassStyle)a[1]).getRadius()); break;
-                case "drawText": texts.add((String)a[0]); textXs.add((float)a[1]); textClips.add(clipStack.peek()); break;
+                case "drawText": texts.add((String)a[0]); textXs.add((float)a[1]); textClips.add(clipStack.peek());
+                    titleSizes.add(((FontStyle)a[3]).getFontSize() * renderScale[0]); break;
+                case "pushScale": renderScale[0]=(float)a[0]; break;
                 case "pushClip": clipStack.push((LayoutBounds)a[0]); break;
                 case "popClip": clipStack.pop(); break;
                 case "getOpacity": return 1f;
@@ -45,6 +50,10 @@ public class DynamicIslandCompactCheck {
         field(DangoClient.class,"gfx").set(null,proxy(Gfx.class,(p,m,a)->{
             return switch(m.getName()) {
                 case "newCanvas" -> canvas;
+                case "drawCjkRuns" -> {
+                    for (Object run : (List<?>)a[0]) cjkRuns.add((CjkRun)run);
+                    yield null;
+                }
                 case "uiTextWidth", "cjkWidth" -> ((String)a[0]).length() * (float)a[1] * .58f;
                 default -> null;
             };
@@ -67,7 +76,7 @@ public class DynamicIslandCompactCheck {
         Field previous=field(DynamicIslandModule.class,"lastNanos");
         Runnable draw=()->{
             try {
-                texts.clear();textXs.clear();textClips.clear();shell.clear();radii.clear();
+                texts.clear();textXs.clear();textClips.clear();shell.clear();radii.clear();titleSizes.clear();cjkRuns.clear();
                 previous.setLong(island,System.nanoTime()-16_000_000L);
                 render.invoke(island,new Object[]{null});
                 check(clipStack.isEmpty(),"Islands must restore scissor");
@@ -80,6 +89,8 @@ public class DynamicIslandCompactCheck {
             check(shell.get(0).getWidth()>150 && shell.get(0).getWidth()<180,"Compact keeps a longer minimum width");
             check(Math.abs(radii.get(0)-shell.get(0).getHeight()/2)<.001f,"Use capsule radius");
             check(Math.abs(textXs.get(0)-textClips.get(0).getX())<.001f,"Short title does not move");
+            check(Math.abs(titleSizes.get(0) - 18f * 1280f / 2464f) < .001f,
+                "The island renders the Apple Music track title at the same screen size");
         }
         String longTitle="A long title retaining every character through scrolling ".repeat(10);
         MusicPlayer.INSTANCE.acceptAppleState(track("2",longTitle),0,true);
@@ -108,6 +119,13 @@ public class DynamicIslandCompactCheck {
         check((float)titleOffset.invoke(island,81f,0.8) == 0f,"Start with a reading pause");
         check(Math.abs((float)titleOffset.invoke(island,81f,4.5)-81f)<.001f,"The full title suffix can be read");
         check((float)titleOffset.invoke(island,81f,7.0)<81f,"Return smoothly after reaching the ending");
+        width[0]=2560;
+        MusicPlayer.INSTANCE.acceptAppleState(track("4", "中文歌名"),0,true);
+        draw.run();
+        check(cjkRuns.size()==1 && cjkRuns.get(0).getStyle()==CjkStyle.NOTO_SC_BOLD,
+            "Chinese titles use the Apple lyrics page font fallback");
+        check(Math.abs(cjkRuns.get(0).getSize()*renderScale[0] - 18f*800f/1292f*.96f)<.001f,
+            "The title also matches the lyrics page in a height-limited viewport");
         width[0]=1280;
         layout.setValue(0);
         for(int i=0;i<75;i++)draw.run();

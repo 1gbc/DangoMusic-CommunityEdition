@@ -185,7 +185,7 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
         if (!frame.showLyrics) return
         val lyricModule = module.lyrics()
         val lyrics = song?.let { lyricModule?.playerLyrics(it) }
-        val size = module.lyricsPageSize.value * frame.scale
+        val size = module.appleLyricsPageSize * frame.scale
         val keptScroll = layout(lyrics?.lines.orEmpty(), lyricArea.width, size, preserveAppleScroll = true)
         if (rows.isEmpty()) {
             val loading = song != null && lyricModule?.isLoadingLyrics(song) == true

@@ -735,11 +735,11 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         val secondary = Theme.TEXT_SECONDARY
         val track = snap.track?.takeIf { it.source == MusicSource.APPLE }
 
-        val titleSize = 18f * scale
+        val titleSize = frame.titleSize
         val title = track?.name ?: I18n.text("Not playing")
         val artist = track?.artists.orEmpty().joinToString(" / ")
         val metadata = listOf(artist, track?.albumName.orEmpty()).filter { it.isNotBlank() }.joinToString(" — ")
-        val font = Theme.FONT_SEMIBOLD
+        val font = AppleLyricsLayout.TITLE_FONT
         ui.text(ui.trim(title, 514f * scale, titleSize, font), frame.x(396f), frame.y(886f), titleSize, primary, font)
         ui.text(ui.trim(metadata, 514f * scale, titleSize, font), frame.x(396f), frame.y(910f), titleSize, secondary, font)
         val favorite = track?.takeUnless { snap.remote }?.let(Library::favoriteState)

@@ -17,6 +17,7 @@ import me.sorihiko.dangomusicgtnh.music.CoverArt
 import me.sorihiko.dangomusicgtnh.music.CoverCache
 import me.sorihiko.dangomusicgtnh.music.MusicSource
 import me.sorihiko.dangomusicgtnh.music.PlaybackView
+import me.sorihiko.dangomusicgtnh.musicui.AppleLyricsLayout
 import me.sorihiko.dangomusicgtnh.musicui.PlayerIcons
 import me.sorihiko.dangomusicgtnh.musicui.fmtTime
 import me.sorihiko.dangomusicgtnh.musicui.mixColor
@@ -59,10 +60,10 @@ class DynamicIslandModule : Module() {
     @ModuleValue("Scale", "Island size")
     private val scale = FloatValue(0.6f, 1.6f, 1f, 2)
 
-    private enum class Kind(val height: Float, val coverSize: Float, val titleSize: Float) {
-        IDLE(32f, 0f, 12f),
-        FULL(68f, 48f, 14f),
-        MINI(32f, COMPACT_COVER_SIZE, 12f),
+    private enum class Kind(val height: Float, val coverSize: Float) {
+        IDLE(32f, 0f),
+        FULL(68f, 48f),
+        MINI(32f, COMPACT_COVER_SIZE),
     }
 
     private var context: GuiCanvas? = null
@@ -122,17 +123,17 @@ class DynamicIslandModule : Module() {
         titleScrollStartedAt = 0L
     }
 
-    private fun widthOf(kind: Kind, snap: PlaybackView.Snapshot, available: Float): Float {
+    private fun widthOf(kind: Kind, snap: PlaybackView.Snapshot, available: Float, titleSize: Float): Float {
         val title = snap.track?.name.orEmpty()
         val preferred = when {
             kind == Kind.IDLE -> 44f + idleWidth()
             kind == Kind.MINI -> (COMPACT_TITLE_LEFT + COMPACT_END_PADDING +
-                width(title, kind.titleSize, Theme.FONT_SEMIBOLD)).coerceIn(COMPACT_MIN_WIDTH, COMPACT_MAX_WIDTH)
+                titleWidth(title, titleSize)).coerceIn(COMPACT_MIN_WIDTH, COMPACT_MAX_WIDTH)
             UiStyle.continuous && kind == Kind.FULL -> 120f + maxOf(150f,
-                width(title, 14f, Theme.FONT_SEMIBOLD).coerceAtMost(260f),
+                titleWidth(title, titleSize).coerceAtMost(260f),
                 width(snap.track?.artists.orEmpty().joinToString(" / "), 11f).coerceAtMost(220f))
             else -> kind.coverSize + (if (islandAnimations.get()) 58f else 34f) +
-                max(width(title, kind.titleSize, Theme.FONT_SEMIBOLD), 128f)
+                max(titleWidth(title, titleSize), 128f)
         }
         return min(preferred, widthLimit(kind, available))
     }
@@ -210,6 +211,7 @@ class DynamicIslandModule : Module() {
         }
         val uiScale = min(platform.windowWidth / 1280f, platform.windowHeight / 800f).coerceAtLeast(0.5f)
         val requestedScale = uiScale * scale.value
+        val titleSizePx = AppleLyricsLayout.titleSizeFor(platform.windowWidth.toFloat(), platform.windowHeight.toFloat()) * scale.value
         // 小窗口先缩放 HUD，长歌名在剩余宽度内滚动。
         val baseScale = min(requestedScale, platform.windowWidth / 190f)
         val available = platform.windowWidth / baseScale - 16f
@@ -229,7 +231,7 @@ class DynamicIslandModule : Module() {
         }
 
         // 弹簧：略带回弹，接近 iOS 灵动岛的手感
-        val tw = widthOf(want, snap, available)
+        val tw = widthOf(want, snap, available, titleSizePx / baseScale)
         val th = want.height + extension
         val stiff = 230f
         val damp = 24f
@@ -242,6 +244,7 @@ class DynamicIslandModule : Module() {
         if (w < 1f || h < 1f) return
 
         val k = minOf(baseScale, platform.windowWidth / w, platform.windowHeight / h)
+        val titleSize = titleSizePx / k
         val travelX = (platform.windowWidth / k - w).coerceAtLeast(0f)
         val travelY = (platform.windowHeight / k - h).coerceAtLeast(0f)
         val initial = LayoutBounds(posX.value * travelX, posY.value * travelY, w, h)
@@ -285,7 +288,7 @@ class DynamicIslandModule : Module() {
             }
 
             // 内容按目标尺寸排版，在当前胶囊里居中，超出部分裁掉
-            val cw = widthOf(shown, snap, available)
+            val cw = widthOf(shown, snap, available, titleSize)
             val ch = shown.height
             val visibleExtension = extension.coerceAtMost((h - ch).coerceAtLeast(0f))
             val contentX = if (shown == Kind.MINI) pill.x else pill.x + (w - cw) / 2f
@@ -297,9 +300,9 @@ class DynamicIslandModule : Module() {
             ctx.pushOpacity(contentAlpha)
             when {
                 shown == Kind.IDLE -> drawIdle(ctx, cb)
-                shown == Kind.MINI -> drawMini(ctx, cb, snap)
-                continuous && shown == Kind.FULL -> drawDev6Song(ctx, cb, snap)
-                else -> drawSong(ctx, cb, snap)
+                shown == Kind.MINI -> drawMini(ctx, cb, snap, titleSize)
+                continuous && shown == Kind.FULL -> drawDev6Song(ctx, cb, snap, titleSize)
+                else -> drawSong(ctx, cb, snap, titleSize)
             }
             if (animations && shown == Kind.FULL) {
                 val cover = snap.track?.let(CoverCache::trackImage)
@@ -339,23 +342,34 @@ class DynamicIslandModule : Module() {
     private fun islandSourceLabel(snap: PlaybackView.Snapshot): String =
         if (!snap.remote && snap.track?.source == MusicSource.APPLE) "" else snap.sourceLabel
 
-    private fun drawMini(ctx: GuiCanvas, b: LayoutBounds, snap: PlaybackView.Snapshot) {
+    private fun drawMini(ctx: GuiCanvas, b: LayoutBounds, snap: PlaybackView.Snapshot, titleSize: Float) {
         val track = snap.track ?: return
         val cover = LayoutBounds(b.x + COMPACT_COVER_LEFT, b.y + (b.height - COMPACT_COVER_SIZE) / 2f,
             COMPACT_COVER_SIZE, COMPACT_COVER_SIZE)
         drawCover(ctx, cover, CoverCache.track(track), mask = true)
         drawTrackTitle(ctx, track.name, b.x + COMPACT_TITLE_LEFT, b.right - COMPACT_END_PADDING,
-            b.y + 11.3f, Kind.MINI.titleSize, if (snap.playing) Theme.TEXT_PRIMARY else Theme.TEXT_SECONDARY)
+            b.y + (b.height - titleSize) / 2f + 1f, titleSize,
+            if (snap.playing) Theme.TEXT_PRIMARY else Theme.TEXT_SECONDARY)
     }
 
-    private fun drawTrackTitle(ctx: GuiCanvas, title: String, left: Float, right: Float, y: Float, size: Float, color: Color) {
+    private inline fun <T> withTitleFont(draw: () -> T): T {
+        val previous = mt.useNotoSansSc
+        mt.useNotoSansSc = true
+        return try { draw() } finally { mt.useNotoSansSc = previous }
+    }
+
+    private fun titleWidth(title: String, size: Float): Float = withTitleFont {
+        width(title, size, AppleLyricsLayout.TITLE_FONT)
+    }
+
+    private fun drawTrackTitle(ctx: GuiCanvas, title: String, left: Float, right: Float, y: Float, size: Float, color: Color) = withTitleFont {
         val titleArea = LayoutBounds(left, y - 2f, (right - left).coerceAtLeast(0f), size + 6f)
         if (titleArea.width <= 0f || title.isEmpty()) return
         if (abs(titleScrollWidth - titleArea.width) > 0.1f) {
             titleScrollWidth = titleArea.width
             titleScrollStartedAt = lastNanos
         }
-        val overflow = width(title, size, Theme.FONT_SEMIBOLD) - titleArea.width
+        val overflow = width(title, size, AppleLyricsLayout.TITLE_FONT) - titleArea.width
         val offset = titleOffset(overflow, (lastNanos - titleScrollStartedAt) / 1e9)
         val previousClip = mt.clip
         val clip = previousClip?.intersect(titleArea) ?: titleArea
@@ -363,7 +377,7 @@ class DynamicIslandModule : Module() {
         ctx.pushClip(clip)
         mt.clip = clip
         try {
-            text(ctx, title, left - offset, y, size, color, Theme.FONT_SEMIBOLD)
+            text(ctx, title, left - offset, y, size, color, AppleLyricsLayout.TITLE_FONT)
         } finally {
             mt.clip = previousClip
             ctx.popClip()
@@ -380,7 +394,7 @@ class DynamicIslandModule : Module() {
             .coerceAtLeast(0f)
     }
 
-    private fun drawDev6Song(ctx: GuiCanvas, b: LayoutBounds, snap: PlaybackView.Snapshot) {
+    private fun drawDev6Song(ctx: GuiCanvas, b: LayoutBounds, snap: PlaybackView.Snapshot, titleSize: Float) {
         val track = snap.track ?: return
         val cover = LayoutBounds(b.x + 10f, b.y + 10f, 48f, 48f)
         drawCover(ctx, cover, CoverCache.track(track))
@@ -389,7 +403,7 @@ class DynamicIslandModule : Module() {
         val textWidth = right - x
         val source = trim(islandSourceLabel(snap), minOf(110f, textWidth * 0.55f), 9f)
         val sourceWidth = width(source, 9f)
-        drawTrackTitle(ctx, track.name, x, right - 4f, b.y + 12f, 14f, Theme.TEXT_PRIMARY)
+        drawTrackTitle(ctx, track.name, x, right - 4f, b.y + 12f, titleSize, Theme.TEXT_PRIMARY)
         text(ctx, trim(track.artists.joinToString(" / "), (textWidth - sourceWidth - 6f).coerceAtLeast(0f), 11f),
             x, b.y + 31f, 11f, Theme.TEXT_SECONDARY)
         if (source.isNotEmpty()) text(ctx, source, right - sourceWidth, b.y + 33f, 9f, Theme.TEXT_TERTIARY)
@@ -405,14 +419,14 @@ class DynamicIslandModule : Module() {
         drawSongProgress(ctx, barX, b.y + 52f, timeX - 7f - barX, position, duration)
     }
 
-    private fun drawSong(ctx: GuiCanvas, b: LayoutBounds, snap: PlaybackView.Snapshot) {
+    private fun drawSong(ctx: GuiCanvas, b: LayoutBounds, snap: PlaybackView.Snapshot, titleSize: Float) {
         val track = snap.track ?: return
         val cover = LayoutBounds(b.x + 10f, b.y + 10f, Kind.FULL.coverSize, Kind.FULL.coverSize)
         drawCover(ctx, cover, CoverCache.trackRounded(track) ?: CoverCache.track(track))
         val x = cover.right + 10f
         val right = songContentRight(b)
         val textWidth = right - x
-        drawTrackTitle(ctx, track.name, x, right, b.y + 12f, Kind.FULL.titleSize, Theme.TEXT_PRIMARY)
+        drawTrackTitle(ctx, track.name, x, right, b.y + 12f, titleSize, Theme.TEXT_PRIMARY)
 
         val artists = track.artists.joinToString(" / ")
         val album = track.albumName.trim()
