@@ -17,6 +17,13 @@
 - 页面使用 Inter 和 Noto Sans SC，保留字体许可。封面下方显示歌曲信息、收藏、进度及剩余时间、播放控制和独立音量条。
 - 三点菜单提供 View Credits 和 Copy Link。署名显示曲目元数据可提供的表演者与作曲者，复制操作使用 Apple Music 的曲目链接。单曲循环开启时显示带 1 的图标。
 
+## 0.4.0-dev.1 · [PR #24](https://github.com/1gbc/DangoMusic-GTNH/pull/24)
+
+- feat(dance): add spin speed and bounce continuously on the beat
+
+- 生物跟着节奏弹改为每拍一个连续的周期：拍子上压到最扁，约三分之一拍处拉到最长，再平滑落回，下一拍又压到最扁。以前后半拍完全静止，两次弹之间像停顿了一下。踩点时刻不变，「踩点偏移」和自己点 BPM 照常可用。
+- 「设置 → 歌词 → 跳舞」新增「转圈速度」（0.25×–4×，1× 为四拍一圈），打开「转圈」后显示。
+
 ## 0.3.1-dev.1 · [PR #22](https://github.com/1gbc/DangoMusic-GTNH/pull/22)
 
 - fix(ui): fade transient player notices after five seconds
