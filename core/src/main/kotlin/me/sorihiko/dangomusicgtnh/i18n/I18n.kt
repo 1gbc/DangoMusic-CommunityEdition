@@ -20,11 +20,16 @@ object I18n {
                 }
             }
     }
-    private val english: Map<String, String> by lazy { chinese.entries.associate { it.value to it.key } }
+    private val english: Map<String, String> by lazy {
+        chinese.entries.associate { it.value to it.key.substringAfter('|') }
+    }
 
     /** 仅传入界面文案，不传入歌名、歌手、歌词或用户输入。 */
     fun text(source: String): String =
         if (language == CHINESE) chinese[source] ?: source else english[source] ?: source
+
+    fun text(source: String, context: String): String =
+        if (language == CHINESE) chinese["$context|$source"] ?: text(source) else text(source)
 
     fun format(source: String, vararg args: Any): String = String.format(Locale.ROOT, text(source), *args)
 

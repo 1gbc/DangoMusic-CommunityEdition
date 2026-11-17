@@ -122,7 +122,10 @@ object MusicPlayer {
 
     val positionMs: Long
         get() = when (state) {
-            State.PLAYING -> if (current?.source == MusicSource.APPLE) applePosition else seekBaseMs + (line?.positionMicros ?: 0L) / 1000
+            State.PLAYING -> if (current?.source == MusicSource.APPLE) {
+                val position = appleClock.positionAt(System.nanoTime())
+                durationMs.takeIf { it > 0L }?.let { position.coerceAtMost(it) } ?: position
+            } else seekBaseMs + (line?.positionMicros ?: 0L) / 1000
             State.PAUSED -> pausedAtMs
             State.LOADING -> loadingPosition
             else -> 0L
@@ -391,7 +394,8 @@ object MusicPlayer {
 
     @Synchronized fun togglePause() {
         if (MusicSources.selected == MusicSource.APPLE) {
-            AppleWebPlayer.command(if (state == State.PLAYING) "pause" else "play"); return
+            if (state != State.LOADING) AppleWebPlayer.command(if (state == State.PLAYING) "pause" else "play")
+            return
         }
         when (state) {
             State.PLAYING -> {
@@ -471,7 +475,10 @@ object MusicPlayer {
     }
 
     fun seek(ms: Long) {
-        if (current?.source == MusicSource.APPLE) { AppleWebPlayer.command("seek", ms.coerceIn(0L, durationMs).toDouble() / 1000); return }
+        if (current?.source == MusicSource.APPLE) {
+            if (state != State.LOADING) AppleWebPlayer.command("seek", ms.coerceIn(0L, durationMs).toDouble() / 1000)
+            return
+        }
         if (audio == null) {
             // 恢复后还没加载：只改记住的进度，按播放时从这里开始
             synchronized(this) {
@@ -536,10 +543,18 @@ object MusicPlayer {
         failureTimer.shutdownNow()
     }
 
-    @Volatile private var applePosition = 0L
+    @Volatile private var appleClock = ApplePlaybackClock()
 
-    @JvmOverloads @Synchronized fun acceptAppleState(track: NeteaseTrack, position: Long, playing: Boolean, stationQueue: List<NeteaseTrack>? = null) {
+    @JvmOverloads @Synchronized fun acceptAppleState(
+        track: NeteaseTrack,
+        position: Long,
+        playing: Boolean,
+        stationQueue: List<NeteaseTrack>? = null,
+        receivedAtNanos: Long = System.nanoTime(),
+        seekSequence: Long = 0,
+    ) {
         if (MusicSources.selected != MusicSource.APPLE) return
+        val continuing = playing && state == State.PLAYING && current?.key == track.key
         if (current?.source != MusicSource.APPLE) {
             ++generation
             stopLine()
@@ -552,7 +567,7 @@ object MusicPlayer {
         } else if (queue.none { it.key == track.key }) { queue = listOf(track); originalQueue = queue }
         if (queue.getOrNull(index)?.key != track.key) index = queue.indexOfFirst { it.key == track.key }
         current = track
-        applePosition = position
+        appleClock = appleClock.report(position, receivedAtNanos, seekSequence, continuing)
         pausedAtMs = position
         state = if (playing) State.PLAYING else State.PAUSED
         message = AppleWebPlayer.message

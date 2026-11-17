@@ -52,6 +52,11 @@ object Theme {
         shadow = ShadowStyle(Color(0f, 0f, 0f, 0.30f), 36f, Vec2(0f, -10f)),
     )
 
+    val GLASS_LYRICS_EDGE = GLASS_WINDOW.copy(
+        shadow = GLASS_WINDOW.shadow.copy(outside = true),
+        edgeWidth = 2f,
+    )
+
     val GLASS_SIDEBAR = GlassStyle(
         radius = 22f,
         tint = Color(1f, 1f, 1f, 0.05f),

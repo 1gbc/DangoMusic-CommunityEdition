@@ -217,6 +217,7 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
 
         // 中：上一首 / 播放 / 下一首 / 队列。点击区域固定，动画只改画出来的样子
         val cy = if (continuous) ry else bar.y + CONTROL_Y
+        val controlScale = if (lyricsOpen) 0.82f else 1f
         val playB = LayoutBounds(cx - 24f, cy - 24f, 48f, 48f)
         val prevB = LayoutBounds(cx - 62f - 16f, cy - 16f, 32f, 32f)
         val nextB = LayoutBounds(cx + 62f - 16f, cy - 16f, 32f, 32f)
@@ -224,19 +225,19 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         val stopB = LayoutBounds(queueB.right + 2f, cy - 16f, 32f, 32f)
         modeButton = LayoutBounds(cx - modeOffset, cy - 16f, 32f, 32f)
         val mode = if (snap.remote) MusicPlayer.Mode.SEQUENTIAL else MusicPlayer.mode
-        toggleButton(modeButton, cy, modeOpen, modeA, mode) {
+        toggleButton(modeButton, cy, modeOpen, modeA, mode, controlScale) {
             if (snap.remote || me.sorihiko.dangomusicgtnh.music.AppleWebPlayer.stationActive) return@toggleButton
             val opening = !modeOpen
             dismissMenu()
             modeOpen = opening
         }
-        val stopScale = button(stopB, stopA)
+        val stopScale = button(stopB, stopA) * controlScale
         PlayerIcons.draw(ctx, PlayerIcons.stop, stopB.x + 16f, cy, (if (UiStyle.continuous) 18f else 16f) * stopScale, Theme.TEXT_PRIMARY)
         ui.hits += stopB to { stopA.press.v -= 7f; PlaybackView.stop() }
-        val kPrev = button(prevB, prevA)
-        val kPlay = drawPlayDisc(playB)
-        val kNext = button(nextB, nextA)
-        val kQueue = button(queueB, queueA)
+        val kPrev = button(prevB, prevA) * controlScale
+        val kPlay = drawPlayDisc(playB, controlScale)
+        val kNext = button(nextB, nextA) * controlScale
+        val kQueue = button(queueB, queueA) * controlScale
         // 播放 ↔ 暂停：两个图标交叉淡入淡出，暂停的两道竖条从中间长出来，三角形收小淡出
         val p = playMorph.tick(if (snap.playing) 1f else 0f).coerceIn(0f, 1f)
         if (p > 0.01f) {
@@ -555,10 +556,10 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
      * 播放键：实心的强调色圆；正在播放时外面一圈一圈地往外扩散。
      * 返回当前的缩放（悬停放大、点击回弹），里面的图标按它缩放
      */
-    private fun drawPlayDisc(b: LayoutBounds): Float {
+    private fun drawPlayDisc(b: LayoutBounds, visualScale: Float): Float {
         val ctx = ui.ctx
         val hover = playA.hover.tick(if (ui.hover(b)) 1f else 0f).coerceIn(0f, 1f)
-        val k = 1f + playA.press.tick(0f) * 0.14f + hover * 0.06f
+        val k = (1f + playA.press.tick(0f) * 0.14f + hover * 0.06f) * visualScale
         if (PlaybackView.snapshot().playing) {
             val phase = (System.nanoTime() / 1e9 % 2.8 / 2.8).toFloat()
             if (phase < 0.7f) {
@@ -584,17 +585,17 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
     }
 
     /** 随机 / 单曲循环：选中的红底渐入渐出，点击先缩再弹回 */
-    private fun toggleButton(b: LayoutBounds, vy: Float, on: Boolean, a: Anim, mode: MusicPlayer.Mode, action: () -> Unit) {
+    private fun toggleButton(b: LayoutBounds, vy: Float, on: Boolean, a: Anim, mode: MusicPlayer.Mode, iconScale: Float, action: () -> Unit) {
         val o = a.on.tick(if (on) 1f else 0f).coerceIn(0f, 1f)
         val h = a.hover.tick(if (ui.hover(b)) 1f else 0f).coerceIn(0f, 1f)
         val k = 1f + a.press.tick(0f) * 0.14f
         val base = mixColor(Color(1f, 1f, 1f, 0.07f), Theme.CARD_HOVER, h)
         if (UiStyle.continuous) {
             if(h>0.01f) ui.card(b.scaled(k),Theme.CARD_HOVER.copy(a=Theme.CARD_HOVER.a*h),9f*k)
-            PlayerIcons.mode(ui.ctx, mode, b.x + b.width / 2f, vy, 18f * k, mixColor(Theme.TEXT_PRIMARY, RED, o))
+            PlayerIcons.mode(ui.ctx, mode, b.x + b.width / 2f, vy, 18f * k * iconScale, mixColor(Theme.TEXT_PRIMARY, RED, o))
         } else {
             ui.card(b.scaled(k), mixColor(base, RED.copy(a = 0.85f), o), 9f * k)
-            PlayerIcons.mode(ui.ctx, mode, b.x + b.width / 2f, vy, 18f * k, Theme.TEXT_PRIMARY)
+            PlayerIcons.mode(ui.ctx, mode, b.x + b.width / 2f, vy, 18f * k * iconScale, Theme.TEXT_PRIMARY)
         }
         ui.hits += b to {
             a.press.v -= 7f
@@ -734,11 +735,12 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         val secondary = Theme.TEXT_SECONDARY
         val track = snap.track?.takeIf { it.source == MusicSource.APPLE }
 
-        val titleSize = 18f * scale
+        val titleSize = frame.titleSize
         val title = track?.name ?: I18n.text("Not playing")
         val artist = track?.artists.orEmpty().joinToString(" / ")
-        val metadata = listOf(artist, track?.albumName.orEmpty()).filter { it.isNotBlank() }.joinToString(" — ")
-        val font = Theme.FONT_SEMIBOLD
+        val metadata = if (snap.loading) I18n.text("Loading Apple Music song")
+            else listOf(artist, track?.albumName.orEmpty()).filter { it.isNotBlank() }.joinToString(" — ")
+        val font = AppleLyricsLayout.TITLE_FONT
         ui.text(ui.trim(title, 514f * scale, titleSize, font), frame.x(396f), frame.y(886f), titleSize, primary, font)
         ui.text(ui.trim(metadata, 514f * scale, titleSize, font), frame.x(396f), frame.y(910f), titleSize, secondary, font)
         val favorite = track?.takeUnless { snap.remote }?.let(Library::favoriteState)
@@ -755,7 +757,7 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
 
         progRect = frame.progress
         val duration = if (track == null) 0L else snap.durationMs.coerceAtLeast(0L)
-        progressHit = if (duration > 0L && !snap.remote) frame.bounds(390f, 936f, 612f, 24f) else LayoutBounds()
+        progressHit = if (duration > 0L && !snap.remote && !snap.loading) frame.bounds(390f, 936f, 612f, 24f) else LayoutBounds()
         val position = if (track != null && seekTrack == track.key) {
             (seekFraction.toDouble() * duration).toLong()
         } else snap.positionMs.coerceIn(0L, duration)
@@ -770,8 +772,11 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         PlayerIcons.mode(ctx, MusicPlayer.Mode.SHUFFLE, frame.x(568f), centerY, 21f * scale,
             if (mode == MusicPlayer.Mode.SHUFFLE) primary else secondary)
         PlayerIcons.draw(ctx, APPLE_PREVIOUS, frame.x(629f), centerY, 42f * scale, secondary)
-        val transportIcon = if (snap.playing) AppleLyricsIcons.pause else AppleLyricsIcons.play
-        PlayerIcons.draw(ctx, transportIcon, frame.x(696f), centerY, 42f * scale, primary)
+        if (snap.loading) PlayerIcons.loadingRing(ctx, frame.x(696f), centerY, null, 24f * scale)
+        else {
+            val transportIcon = if (snap.playing) AppleLyricsIcons.pause else AppleLyricsIcons.play
+            PlayerIcons.draw(ctx, transportIcon, frame.x(696f), centerY, 42f * scale, primary)
+        }
         PlayerIcons.draw(ctx, APPLE_NEXT, frame.x(762f), centerY, 42f * scale, secondary)
         val repeating = mode == MusicPlayer.Mode.REPEAT_ONE
         PlayerIcons.mode(ctx, if (repeating) mode else MusicPlayer.Mode.SEQUENTIAL,
@@ -779,7 +784,7 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         if (!snap.remote && track != null) {
             ui.hits += frame.bounds(548f, 980f, 40f, 46f) to { toggleAppleMode(MusicPlayer.Mode.SHUFFLE) }
             ui.hits += frame.bounds(603f, 978f, 52f, 50f) to { ClientMusic.control(PlaybackView::previous) }
-            ui.hits += frame.bounds(669f, 978f, 54f, 50f) to { ClientMusic.control(PlaybackView::togglePause) }
+            if (!snap.loading) ui.hits += frame.bounds(669f, 978f, 54f, 50f) to { ClientMusic.control(PlaybackView::togglePause) }
             ui.hits += frame.bounds(736f, 978f, 52f, 50f) to { ClientMusic.control(PlaybackView::next) }
             ui.hits += frame.bounds(803f, 980f, 40f, 46f) to { toggleAppleMode(MusicPlayer.Mode.REPEAT_ONE) }
         }

@@ -103,7 +103,8 @@ public final class AppleWebServer implements AutoCloseable {
             incoming.has("available")&&incoming.get("available").getAsBoolean();
         boolean confirmedReplacement=id.equals(load.resolvedId)&&
             (!id.equals(load.previousId)||load.catalogId.equals(load.previousRequestedId));
-        if(available&&(load.catalogId.isEmpty()||load.catalogId.equals(id)||confirmedReplacement))return true;
+        if(available&&(load.catalogId.isEmpty()||load.catalogId.equals(id)||confirmedReplacement))
+            return incoming.has("playing")&&incoming.get("playing").getAsBoolean();
         if(load.mismatchSince==0&&available)load.mismatchSince=System.nanoTime();
         if(load.mismatchSince==0||elapsed(load.mismatchSince)<CATALOG_MATCH_TIMEOUT_MS)return false;
         failLoad("Apple Music did not confirm the requested song; try playing it again");
@@ -119,6 +120,7 @@ public final class AppleWebServer implements AutoCloseable {
     public String origin(){return "http://127.0.0.1:"+server.getAddress().getPort();}
     public synchronized String pairingLink(){return origin()+"/#"+pairing;}
     public synchronized boolean connected(){return session!=null&&elapsed(lastSync)<10000;}
+    private long seekSequence;
     public synchronized JsonObject snapshot(){return connected()&&!stopped&&state!=null?new JsonParser().parse(state.toString()).getAsJsonObject():null;}
     public String error(){String failure=loadFailure;return failure.isEmpty()?error:failure;}
     public synchronized boolean authorized(){return connected()&&authorized;}
@@ -201,6 +203,8 @@ public final class AppleWebServer implements AutoCloseable {
                 lastAck=(long)a;lastSync=System.nanoTime();
                 while(!commands.isEmpty()&&commands.peek().get("id").getAsLong()<=lastAck){
                     JsonObject acknowledged=commands.remove();
+                    if ("seek".equals(acknowledged.get("name").getAsString()) && text(report,"commandError",300).isEmpty())
+                        seekSequence=acknowledged.get("id").getAsLong();
                     if(acknowledged.has("queuedNanos")&&acknowledged.get("id").getAsLong()==lastAck)
                         trace(text(acknowledged,"name",24),"bridge-ack",millisSince(acknowledged.get("queuedNanos").getAsLong()));
                 }
@@ -254,6 +258,8 @@ public final class AppleWebServer implements AutoCloseable {
                         String requestedId=pendingLoad!=null?pendingLoad.catalogId:
                             reportedId.equals(lastTrackId)?lastRequestedId:"";
                         state=sanitize(incoming);
+                        state.addProperty("receivedAtNanos",lastSync);
+                        state.addProperty("seekSequence",seekSequence);
                         if(!requestedId.isEmpty()&&!requestedId.equals(reportedId))
                             state.addProperty("requestedCatalogId",requestedId);
                         pendingLoad=null;

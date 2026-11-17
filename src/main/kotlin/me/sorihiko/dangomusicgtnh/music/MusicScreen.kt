@@ -64,7 +64,7 @@ class MusicScreen(
     private val settings = SettingsPage(this, module)
     internal val songComments = SongComments(ui)
     private val lyricsPage = LyricsPage(ui, module, songComments)
-    private val appleLyricsMenu = AppleLyricsMenu(ui)
+    private val appleLyricsMenu = AppleLyricsMenu(ui, module.lyricsPageRomanization, module.lyricsPageTranslation)
     private var appleLyricsFrame: AppleLyricsLayout? = null
     private var showAppleLyrics = true
     private var appleLyricsTrack: NeteaseTrack? = null
@@ -448,18 +448,18 @@ class MusicScreen(
             }
             return
         }
+        if (lyricsOpen && !canOpenLyrics) closeLyrics()
         val win = LayoutBounds(26f, 20f + (1f - alpha) * 12f, ui.lw - 52f, ui.lh - 40f)
-        ui.ctx.drawGlass(win, Theme.GLASS_WINDOW)
-
         val pad = 10f
         val sideW = 224f
         val barH = 88f
-        if (lyricsOpen && !canOpenLyrics) closeLyrics()
         if (lyricsOpen) {
-            barRect = LayoutBounds(win.x + pad, win.bottom - pad - barH, win.width - pad * 2f, barH)
-            lyricsPage.draw(LayoutBounds(win.x + pad, win.y + pad, win.width - pad * 2f, barRect.y - win.y - pad), barH, ::closeLyrics)
+            barRect = LayoutBounds(win.x, win.bottom - barH, win.width, barH)
+            val content = LayoutBounds(win.x + pad, win.y + pad, win.width - 2f * pad, barRect.y - win.y - pad)
+            lyricsPage.draw(content, win, ::closeLyrics)
             return
         }
+        ui.ctx.drawGlass(win, Theme.GLASS_WINDOW)
         val side = LayoutBounds(win.x + pad, win.y + pad, sideW, win.height - pad * 2)
         val mainX = side.right + pad + 8f
         val mainW = win.right - pad - 8f - mainX

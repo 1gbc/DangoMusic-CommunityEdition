@@ -212,7 +212,8 @@ object AppleWebPlayer {
             if (artwork.isNotEmpty() && item.coverUrl.isEmpty()) item.coverUrl = artwork
             item
         }.orEmpty() else null
-        MusicPlayer.acceptAppleState(track, s.get("positionMs").asLong, s.get("playing").asBoolean, stationQueue)
+        MusicPlayer.acceptAppleState(track, s.get("positionMs").asLong, s.get("playing").asBoolean, stationQueue,
+            s.get("receivedAtNanos").asLong, s.get("seekSequence").asLong)
     }
     private fun NeteaseTrack.matchesAppleId(id: String) =
         source == MusicSource.APPLE && (nativeId == id || mediaId.removePrefix("library:") == id)

@@ -52,6 +52,16 @@ async function appleAdapter(command) {
     }
   }
   const completion=globalThis.__dangoAppleCompletion;
+  async function runControl(method, ...args) {
+    if(typeof player[method]!=='function')throw Error('Control unavailable: '+method);
+    let timer;
+    try {
+      await Promise.race([
+        player[method](...args),
+        new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('Player control timed out')),4000);})
+      ]);
+    } finally {clearTimeout(timer);}
+  }
   if(command?.name==='region') {
     if(typeof player.api?.music!=='function')return {storefront:''};
     try {
@@ -301,6 +311,17 @@ async function appleAdapter(command) {
     globalThis.__dangoAppleMediaError='';
     const v=command.value||{};if(!idOk(v.id)||typeof player.setQueue!=='function')throw Error('Song loading unavailable');
     const generation=(globalThis.__dangoAppleGeneration||0)+1;globalThis.__dangoAppleGeneration=generation;
+    // Stop the old audio before either authorization or media preparation can wait.
+    if(player.isPlaying===true||globalThis.__dangoAppleLoadStage==='play') {
+      globalThis.__dangoAppleLoadStage='pause';
+      try {
+        await runControl('pause');
+      } catch(e) {
+        if(globalThis.__dangoAppleGeneration!==generation)return {cancelled:true};
+        globalThis.__dangoAppleLoadStage='error';return failure(e,'pause');
+      }
+    }
+    if(globalThis.__dangoAppleGeneration!==generation)return {cancelled:true};
     const session=await sessionReadiness();
     if(globalThis.__dangoAppleGeneration!==generation)return {cancelled:true};
     if(!session.authorized)return failure({reason:'UNAUTHORIZED_ERROR'},'authorization');
@@ -317,8 +338,18 @@ async function appleAdapter(command) {
     let stage='queue';
     try {
     globalThis.__dangoAppleLoadStage='queue';
+    // A cancelled SDK queue call can still finish. Serialize queue updates so
+    // that only the newest request can replace the queue and start playback.
+    const previousQueue=globalThis.__dangoAppleQueue;
+    if(previousQueue?.player===player) {
+      try {await previousQueue.work;} catch {}
+      if(globalThis.__dangoAppleGeneration!==generation)return {cancelled:true};
+    }
     const queueStarted=trace===null?0:performance.now();
-    await player.setQueue(descriptor);
+    const queue={player,work:Promise.resolve(player.setQueue(descriptor))};
+    globalThis.__dangoAppleQueue=queue;
+    try {await queue.work;}
+    finally {if(globalThis.__dangoAppleQueue===queue)globalThis.__dangoAppleQueue=null;}
     const queued=trace===null?0:performance.now();
     if(globalThis.__dangoAppleGeneration!==generation)return {cancelled:true};
     globalThis.__dangoAppleStation=station;
@@ -346,13 +377,7 @@ async function appleAdapter(command) {
       if(!method||typeof player[method]!=='function')throw Error('Control unavailable: '+command.name);
       if(command.name==='seek'&&(!Number.isFinite(command.value)||command.value<0||command.value>86400))throw Error('Invalid seek');
       completion.id='';
-      let timer;
-      try {
-        await Promise.race([
-          player[method](...(command.name==='seek'?[command.value]:[])),
-          new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('Player control timed out')),4000);})
-        ]);
-      } finally {clearTimeout(timer);}
+      await runControl(method,...(command.name==='seek'?[command.value]:[]));
       if(command.name==='stop')globalThis.__dangoAppleStation=false;
     }
     if(trace!==null)return {timing:{'sdk-ms':Math.round(performance.now()-trace)}};

@@ -174,8 +174,8 @@ class GlassRenderContext : GuiCanvas {
         drawTexturedImage(bounds,image,radius)
     }
 
-    override fun drawFlowingBackdrop(bounds: LayoutBounds, image: Texture, phase: Float) {
-        drawTexturedImage(bounds, image, 0f, phase)
+    override fun drawFlowingBackdrop(bounds: LayoutBounds, image: Texture, phase: Float, radius: Float) {
+        drawTexturedImage(bounds, image, radius, phase)
     }
 
     private fun drawTexturedImage(bounds: LayoutBounds, image: Texture, radius: Float, phase: Float = -1f) {
@@ -225,7 +225,8 @@ class GlassRenderContext : GuiCanvas {
 
         val backdrop = this.backdrop
         if (backdrop == null || !backdrop.ready) {
-            drawShape(bounds, ShapeStyle(style.fallback, style.radius, 1f, Color(1f, 1f, 1f, 0.10f)))
+            val fill = if (style.edgeWidth > 0f) Color.TRANSPARENT else style.fallback
+            drawShape(bounds, ShapeStyle(fill, style.radius, 1f, Color(1f, 1f, 1f, 0.10f)))
             return
         }
 

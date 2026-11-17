@@ -12,6 +12,8 @@ import me.sorihiko.dangomusicgtnh.music.PlaybackView
 import me.sorihiko.dangomusicgtnh.ui.LayoutBounds
 import me.sorihiko.dangomusicgtnh.ui.ShapeStyle
 import me.sorihiko.dangomusicgtnh.ui.Theme
+import me.sorihiko.dangomusicgtnh.ui.UiStyle
+import me.sorihiko.dangomusicgtnh.ui.VectorIcon
 import me.sorihiko.dangomusicgtnh.utils.Color
 
 /** 网易云唱片与歌词页。保留原来浏览页的状态，也不改动游戏内歌词的设置。 */
@@ -57,6 +59,7 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
 
     private var commentsOpen = false
     private var commentsProgress = 0f
+    private val flowStartedAt = System.nanoTime()
     private var pageArea = LayoutBounds()
     private var shortcutArea = LayoutBounds()
     private var popupArea: LayoutBounds? = null
@@ -100,10 +103,11 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
     private fun inLyricsModule(x: Int, y: Int): Boolean =
         lyricArea.contains(x, y) || shortcutArea.contains(x, y) || popupArea?.contains(x, y) == true
 
-    fun draw(area: LayoutBounds, controlsHeight: Float, close: () -> Unit) {
-        pageArea = area
-        ui.card(LayoutBounds(area.x, area.y, area.width, area.height + controlsHeight), Color.fromHex("#382122"), 22f)
+    fun draw(area: LayoutBounds, backdrop: LayoutBounds, close: () -> Unit) {
+        pageArea = backdrop.copy(height = area.bottom - backdrop.y)
         val song = MusicPlayer.current?.takeIf { it.source == MusicSource.NETEASE }
+        drawBackdrop(backdrop, song, Theme.GLASS_LYRICS_EDGE.radius)
+        ui.ctx.drawGlass(backdrop, Theme.GLASS_LYRICS_EDGE)
         if (song == null || !module.songCommentsEnabled.get()) {
             commentsOpen = false
             commentsProgress = 0f
@@ -111,20 +115,30 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
         val destination = if (commentsOpen) 1f else 0f
         commentsProgress = ui.approach(commentsProgress, destination, 65f)
         if (kotlin.math.abs(commentsProgress - destination) < 0.02f) commentsProgress = destination
-        val showComments = song != null && commentsProgress >= 0.5f
+        val commentsSong = song?.takeIf { commentsProgress >= 0.5f }
         val alpha = kotlin.math.abs(commentsProgress * 2f - 1f)
         val before = ui.hits.size
-        ui.shifted(0f, if (showComments) (1f - alpha) * 16f else (alpha - 1f) * 16f, alpha) {
-            if (showComments && song != null) {
-                comments.draw(area, song) { commentsOpen = false }
+        ui.shifted(0f, if (commentsSong != null) (1f - alpha) * 16f else (alpha - 1f) * 16f, alpha) {
+            if (commentsSong != null) {
+                comments.draw(area, commentsSong) { commentsOpen = false }
             } else drawLyricsContent(area, close)
         }
         if (alpha < 0.99f) while (ui.hits.size > before) ui.hits.removeAt(ui.hits.lastIndex)
     }
 
     private var resumeAppleFollow = false
-    private val appleFlowStartedAt = System.nanoTime()
 
+    private fun drawBackdrop(bounds: LayoutBounds, song: NeteaseTrack?, radius: Float = 0f) {
+        val texture = song?.let(CoverCache::trackBackdrop)
+        if (texture == null) {
+            ui.card(bounds, Color.fromHex("#382122"), radius)
+            return
+        }
+        val period = 14_000_000_000L
+        val elapsed = (System.nanoTime() - flowStartedAt) % period
+        val phase = (elapsed.toDouble() / period * Math.PI * 2.0).toFloat()
+        ui.ctx.drawFlowingBackdrop(bounds, texture, phase, radius)
+    }
 
     fun resumeAppleLyrics() {
         manualPosition = null
@@ -139,15 +153,7 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
         shortcutArea = LayoutBounds()
         popupArea = null
         val song = playback.track?.takeIf { it.source == MusicSource.APPLE }
-        val backdrop = song?.let(CoverCache::trackBackdrop)
-        if (backdrop != null) {
-            val period = 14_000_000_000L
-            val elapsed = (System.nanoTime() - appleFlowStartedAt) % period
-            val phase = (elapsed.toDouble() / period * Math.PI * 2.0).toFloat()
-            ui.ctx.drawFlowingBackdrop(frame.viewport, backdrop, phase)
-        } else {
-            ui.card(frame.viewport, Color.fromHex("#382122"), 0f)
-        }
+        drawBackdrop(frame.viewport, song)
         val closeHit = frame.close
         PlayerIcons.draw(ui.ctx, AppleLyricsIcons.close, closeHit.x + closeHit.width / 2f,
             closeHit.y + closeHit.height / 2f, 24f * frame.scale, white.copy(a = 0.72f))
@@ -164,8 +170,10 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
             scrollPosition = 0f
         }
         track = song
-        val coverRadius = 0.08f // Same cover mask as the existing large-cover grid.
-        val cover = song?.let(CoverCache::appleLyricsArtwork)
+        // The reference cover turns into the straight edge at about 18 px out of 600.
+        // The continuous-corner shader extends the nominal radius by 1.5.
+        val coverRadius = if (UiStyle.continuous) 0.02f else 0.03f
+        val cover = song?.let(CoverCache::lyricsArtwork)
         val radius = frame.artwork.width * coverRadius
         if (cover != null) ui.ctx.drawRoundedImage(frame.artwork, cover, radius)
         else ui.card(frame.artwork, Theme.TRACK, radius)
@@ -177,8 +185,8 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
         if (!frame.showLyrics) return
         val lyricModule = module.lyrics()
         val lyrics = song?.let { lyricModule?.playerLyrics(it) }
-        val size = module.lyricsPageSize.value * frame.scale
-        layout(lyrics?.lines.orEmpty(), lyricArea.width, size)
+        val size = module.appleLyricsPageSize * frame.scale
+        val keptScroll = layout(lyrics?.lines.orEmpty(), lyricArea.width, size, preserveAppleScroll = true)
         if (rows.isEmpty()) {
             val loading = song != null && lyricModule?.isLoadingLyrics(song) == true
             val title = I18n.text(if (loading) "Loading lyrics..." else "No lyrics available")
@@ -199,9 +207,10 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
             appleFollowAfter = 0L
         }
         val target = manualPosition?.coerceAtMost(rows.last().center) ?: (rows.getOrNull(active)?.center ?: 0f)
-        scrollPosition = if (resumeAppleFollow) target else ui.approach(scrollPosition, target, 95f)
+        if (resumeAppleFollow) scrollPosition = target
+        else if (!keptScroll) scrollPosition = ui.approach(scrollPosition, target, 95f)
         resumeAppleFollow = false
-        drawLyrics(active, size, null)
+        drawLyrics(active, size, null, centered = true)
     }
 
     private fun drawLyricsContent(area: LayoutBounds, close: () -> Unit) {
@@ -217,7 +226,10 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
         val size = module.lyricsPageSize.value.toFloat()
 
         val collapse = LayoutBounds(area.x + 18f, area.y + 16f, 36f, 36f)
-        button(collapse, "⌄", I18n.text("Collapse lyrics"), action = close)
+        PlayerIcons.draw(ui.ctx, PlayerIcons.chevronDown, collapse.x + collapse.width / 2f,
+            collapse.y + collapse.height / 2f, 20f, white)
+        ui.hits += collapse to close
+        if (ui.hover(collapse)) drawTooltip(collapse, I18n.text("Collapse lyrics"), left = false)
 
         val leftWidth = area.width * 0.46f
         val textX = area.x + leftWidth
@@ -278,11 +290,12 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
         }
     }
 
-    private fun layout(newLines: List<LyricLine>, width: Float, size: Float) {
+    private fun layout(newLines: List<LyricLine>, width: Float, size: Float, preserveAppleScroll: Boolean = false): Boolean {
         val translate = module.lyricsPageTranslation.get()
         val romanize = module.lyricsPageRomanization.get()
-        if (lines === newLines && layoutWidth == width && layoutSize == size &&
-            showTranslation == translate && showRomanization == romanize) return
+        val sameLayout = lines === newLines && layoutWidth == width && layoutSize == size
+        if (sameLayout && showTranslation == translate && showRomanization == romanize) return false
+        val previousRows = rows.takeIf { preserveAppleScroll && sameLayout && it.isNotEmpty() }
 
         lines = newLines
         layoutWidth = width
@@ -299,9 +312,21 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
             val height = original.size * size * 1.32f + (phonetic.size + translation.size) * size + 17f
             Row(top, original, phonetic, translation, height).also { top += height }
         }
+
+        if (previousRows == null) return false
+        // Keep the same original lyric near the viewport center when annotations reflow.
+        fun reanchor(position: Float): Float {
+            val index = previousRows.binarySearchBy(position) { it.top }
+                .let { if (it < 0) (-it - 2).coerceAtLeast(0) else it }
+            val offset = (position - previousRows[index].top).coerceIn(0f, rows[index].height)
+            return (rows[index].top + offset).coerceAtMost(rows.last().center)
+        }
+        scrollPosition = reanchor(scrollPosition)
+        manualPosition = manualPosition?.let(::reanchor)
+        return true
     }
 
-    private fun drawLyrics(active: Int, size: Float, popup: LayoutBounds?) {
+    private fun drawLyrics(active: Int, size: Float, popup: LayoutBounds?, centered: Boolean = false) {
         val a = lyricArea
         val baseline = a.y + a.height / 2f - scrollPosition
         val first = rows.binarySearchBy(a.y - baseline) { it.top + it.height }
@@ -315,24 +340,25 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
             val edge = minOf(center - a.y, a.bottom - center).div(48f).coerceIn(0.22f, 1f)
             val color = white.copy(a = (if (i == active) 1f else 0.53f) * edge)
             for (text in row.text) {
-                lyricText(text, y, size, color, Theme.FONT_SEMIBOLD, popup)
+                lyricText(text, y, size, color, Theme.FONT_SEMIBOLD, popup, centered)
                 y += size * 1.32f
             }
             val annotationColor = color.copy(a = color.a * 0.85f)
             for (text in row.phonetic + row.translation) {
-                lyricText(text, y, size * 0.74f, annotationColor, Theme.FONT_REGULAR, popup)
+                lyricText(text, y, size * 0.74f, annotationColor, Theme.FONT_REGULAR, popup, centered)
                 y += size
             }
         }
         ui.endClip()
     }
 
-    private fun lyricText(text: String, y: Float, size: Float, color: Color, font: String, popup: LayoutBounds?) {
+    private fun lyricText(text: String, y: Float, size: Float, color: Color, font: String, popup: LayoutBounds?, centered: Boolean) {
         // 中文走延迟绘制，弹窗背后的文字也需要在提交时截断。
         val visible = if (popup != null && y + size >= popup.y && y <= popup.bottom) {
             ui.trim(text, popup.x - lyricArea.x - 10f, size, font)
         } else text
-        ui.text(visible, lyricArea.x, y, size, color, font)
+        val x = if (centered) lyricArea.x + (lyricArea.width - ui.width(visible, size, font)) / 2f else lyricArea.x
+        ui.text(visible, x, y, size, color, font)
     }
 
     private fun drawRecord(cx: Float, cy: Float, diameter: Float, song: NeteaseTrack?) {
@@ -345,23 +371,25 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
             ui.ctx.drawShape(groove, ShapeStyle(Color.TRANSPARENT, groove.width / 2f, 1f, white.copy(a = 0.06f)))
         }
         val cover = disc.expand(-diameter * 0.165f, -diameter * 0.165f)
-        ui.drawCover(cover, song?.let { CoverCache.trackRoundedLarge(it, 0.5f) }, cover.width / 2f)
+        val artwork = song?.let(CoverCache::lyricsArtwork)
+        val radius = cover.width / 2f
+        if (artwork != null) ui.ctx.drawRoundedImage(cover, artwork, radius)
+        else ui.card(cover, Theme.TRACK, radius)
         if (song == null) ui.icon("♫", cx, cy, diameter * 0.19f, white.copy(a = 0.55f))
-
     }
 
     private fun drawShortcuts(x: Float, y: Float, song: NeteaseTrack?) {
         val seekable = song != null && MusicPlayer.durationMs > 0 &&
             (MusicPlayer.state == MusicPlayer.State.PLAYING || MusicPlayer.state == MusicPlayer.State.PAUSED)
         fun at(index: Int) = LayoutBounds(x, y + 40f * index + if (index >= 2) 24f else 0f, 34f, 34f)
-        button(at(0), "↶5", I18n.text("Back 5 seconds"), enabled = seekable) { seek(song, -5000L) }
-        button(at(1), "↷5", I18n.text("Forward 5 seconds"), enabled = seekable) { seek(song, 5000L) }
-        button(at(2), I18n.text("Phonetic glyph"), I18n.text(if (hasRomanization) "Phonetic lyrics" else "No phonetic lyrics"),
+        button(at(0), LyricsIcons.backFive, I18n.text("Back 5 seconds"), enabled = seekable) { seek(song, -5000L) }
+        button(at(1), LyricsIcons.forwardFive, I18n.text("Forward 5 seconds"), enabled = seekable) { seek(song, 5000L) }
+        button(at(2), LyricsIcons.phonetic, I18n.text(if (hasRomanization) "Phonetic lyrics" else "No phonetic lyrics"),
             showRomanization && hasRomanization, hasRomanization) { module.lyricsPageRomanization.toggle() }
-        button(at(3), I18n.text("Translation glyph"), I18n.text(if (hasTranslation) "Lyric translation" else "No lyric translation"),
+        button(at(3), LyricsIcons.translation, I18n.text(if (hasTranslation) "Lyric translation" else "No lyric translation"),
             showTranslation && hasTranslation, hasTranslation) { module.lyricsPageTranslation.toggle() }
-        button(at(4), "Tt", I18n.text("Lyrics font size"), menu == Menu.SIZE) { toggleMenu(Menu.SIZE) }
-        button(at(5), "…", I18n.text("Lyrics settings"), menu == Menu.MORE) { toggleMenu(Menu.MORE) }
+        button(at(4), LyricsIcons.fontSize, I18n.text("Lyrics font size"), menu == Menu.SIZE) { toggleMenu(Menu.SIZE) }
+        button(at(5), AppleLyricsIcons.more, I18n.text("Lyrics settings"), menu == Menu.MORE) { toggleMenu(Menu.MORE) }
     }
 
     private fun seek(song: NeteaseTrack?, delta: Long) = ClientMusic.control {
@@ -379,8 +407,8 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
         val size = module.lyricsPageSize.value
         val sizeY = b.y + 37f
         ui.text(I18n.format("Font size: %d", size), b.x + 14f, sizeY + 8f, 13f, white)
-        button(LayoutBounds(b.right - 84f, sizeY, 28f, 28f), "−", null, enabled = size > 14) { module.lyricsPageSize.setValue(size - 2) }
-        button(LayoutBounds(b.right - 46f, sizeY, 28f, 28f), "+", null, enabled = size < 30) { module.lyricsPageSize.setValue(size + 2) }
+        button(LayoutBounds(b.right - 84f, sizeY, 28f, 28f), LyricsIcons.minus, null, enabled = size > 14) { module.lyricsPageSize.setValue(size - 2) }
+        button(LayoutBounds(b.right - 46f, sizeY, 28f, 28f), LyricsIcons.plus, null, enabled = size < 30) { module.lyricsPageSize.setValue(size + 2) }
         if (more) {
             ui.text(I18n.text("Show phonetic lyrics"), b.x + 14f, b.y + 109f, 13f, white)
             ui.text(I18n.text("Lyric translation"), b.x + 14f, b.y + 78f, 13f, white)
@@ -391,10 +419,10 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
                 val offset = lyricOffset(song) / 1000.0
                 val label = I18n.format("Lyrics offset · %+.1f s", offset)
                 ui.text(label, b.x + 14f, b.y + 143f, 12f, white)
-                button(LayoutBounds(b.right - 84f, b.y + 135f, 28f, 28f), "−", null, enabled = offset > -30) {
+                button(LayoutBounds(b.right - 84f, b.y + 135f, 28f, 28f), LyricsIcons.minus, null, enabled = offset > -30) {
                     adjustLyricOffset(song, -500L)
                 }
-                button(LayoutBounds(b.right - 46f, b.y + 135f, 28f, 28f), "+", null, enabled = offset < 30) {
+                button(LayoutBounds(b.right - 46f, b.y + 135f, 28f, 28f), LyricsIcons.plus, null, enabled = offset < 30) {
                     adjustLyricOffset(song, 500L)
                 }
             }
@@ -408,20 +436,60 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
         ui.hits += b to {}
     }
 
-    private fun button(b: LayoutBounds, glyph: String, tooltip: String?, on: Boolean = false, enabled: Boolean = true, action: () -> Unit) {
+    private fun button(b: LayoutBounds, icon: VectorIcon, tooltip: String?, on: Boolean = false, enabled: Boolean = true, action: () -> Unit) {
         val hovered = ui.hover(b)
         val fill = white.copy(a = if (on) 0.21f else if (hovered && enabled) 0.13f else 0.04f)
         ui.ctx.drawShape(b, ShapeStyle(fill, b.height / 2f, 1f, white.copy(a = if (on) 0.74f else 0.20f)))
-        ui.icon(glyph, b.x + b.width / 2f, b.y + b.height / 2f, 15f, white.copy(a = if (enabled) 1f else 0.33f))
+        PlayerIcons.draw(ui.ctx, icon, b.x + b.width / 2f, b.y + b.height / 2f, 18f,
+            white.copy(a = if (enabled) 1f else 0.33f))
         if (enabled) ui.hits += b to action
-        if (tooltip != null && hovered && menu == null) {
-            val width = ui.width(tooltip, 12f) + 18f
-            val x = if (b.x > lyricArea.x) b.x - width - 9f else b.right + 9f
-            val tip = LayoutBounds(x, b.y - 24f, width, 22f)
-            val box = if (b.x > lyricArea.x) tip else LayoutBounds(x, b.y + 7f, width, 22f)
-            ui.card(box, Color.fromHex("#513332"), 7f)
-            ui.text(tooltip, box.x + 9f, box.y + 5f, 12f, white)
-        }
+        if (tooltip != null && hovered && menu == null) drawTooltip(b, tooltip, left = true)
+    }
+
+    private fun drawTooltip(anchor: LayoutBounds, text: String, left: Boolean) {
+        val width = ui.width(text, 12f) + 18f
+        val box = if (left) LayoutBounds(anchor.x - width - 9f, anchor.y - 24f, width, 22f)
+            else LayoutBounds(anchor.right + 9f, anchor.y + 7f, width, 22f)
+        ui.card(box, Color.fromHex("#513332"), 7f)
+        ui.text(text, box.x + 9f, box.y + 5f, 12f, white)
+    }
+}
+
+private object LyricsIcons {
+    private fun seekFive(forward: Boolean) = VectorIcon.path {
+        fun mirror(x: Double) = if (forward) 24.0 - x else x
+        move(mirror(4.0), 11.0)
+        curve(mirror(4.0), 5.7, mirror(7.3), 3.0, mirror(12.0), 3.0)
+        curve(mirror(17.0), 3.0, mirror(21.0), 6.6, mirror(21.0), 11.5)
+        curve(mirror(21.0), 16.2, mirror(17.4), 20.0, mirror(13.0), 20.5)
+        move(mirror(1.0), 7.8); line(mirror(4.0), 11.0); line(mirror(7.7), 8.3)
+        move(14.5, 8.1); line(10.3, 8.1); line(9.8, 11.8)
+        curve(16.8, 9.8, 16.2, 18.0, 9.5, 15.8)
+    }
+    val backFive = seekFive(false)
+    val forwardFive = seekFive(true)
+    val phonetic = VectorIcon.path {
+        move(2.5, 12.0); line(5.0, 12.0); line(7.5, 7.0); line(11.0, 17.0)
+        line(14.0, 5.5); line(17.0, 15.0); line(19.0, 12.0); line(21.5, 12.0)
+    }
+    val translation = VectorIcon.path {
+        move(2.0, 5.7); line(13.3, 5.7)
+        move(7.7, 3.0); line(7.7, 5.7)
+        move(11.3, 6.0); curve(10.6, 10.6, 7.5, 14.2, 2.7, 16.2)
+        move(4.9, 8.8); curve(6.2, 11.3, 8.1, 13.3, 10.6, 14.6)
+        move(12.3, 21.0); line(17.0, 10.9); line(21.7, 21.0)
+        move(14.0, 17.4); line(20.0, 17.4)
+    }
+    val fontSize = VectorIcon.path {
+        move(2.0, 5.0); line(14.0, 5.0)
+        move(8.0, 5.0); line(8.0, 19.0)
+        move(14.0, 12.0); line(22.0, 12.0)
+        move(18.0, 9.0); line(18.0, 16.5); curve(18.0, 19.0, 19.5, 19.4, 21.3, 18.8)
+    }
+    val minus = VectorIcon.path { move(5.0, 12.0); line(19.0, 12.0) }
+    val plus = VectorIcon.path {
+        move(5.0, 12.0); line(19.0, 12.0)
+        move(12.0, 5.0); line(12.0, 19.0)
     }
 }
 

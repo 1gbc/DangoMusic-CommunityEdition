@@ -6,7 +6,9 @@ plugins {
     id("com.gtnewhorizons.gtnhconvention")
 }
 
-version = "0.5.1-dev.1"
+version = "0.5.1-next-major.5"
+// Keep the generated Forge version tag in sync with the JAR version.
+extra["modVersion"] = version.toString()
 
 dependencies {
     "shadowCompile"(project(":core"))
