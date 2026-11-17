@@ -14,6 +14,7 @@ import java.awt.Font
 import java.awt.GraphicsEnvironment
 import java.awt.RenderingHints
 import java.awt.font.FontRenderContext
+import me.sorihiko.dangomusicgtnh.gfx.CjkStyle
 import java.awt.image.BufferedImage
 import java.awt.image.DataBufferByte
 import java.io.File
@@ -89,6 +90,19 @@ object CjkFont {
 
     private fun fonts(style: Int): List<Font> {
         fontLists[style]?.let { return it }
+        if (style == CjkStyle.NOTO_SC || style == CjkStyle.NOTO_SC_BOLD) {
+            val bold = style == CjkStyle.NOTO_SC_BOLD
+            val suffix = if (bold) "Bold" else "Regular"
+            val path = "/assets/dangomusicgtnh/fonts/NotoSansSC-$suffix.otf"
+            val noto = runCatching {
+                javaClass.getResourceAsStream(path)?.use { Font.createFont(Font.TRUETYPE_FONT, it) }
+            }.getOrElse {
+                DangoLogger.warn("Could not load bundled Noto Sans SC: {}", it.toString())
+                null
+            }
+            return (listOfNotNull(noto?.deriveFont(baseOf(style))) + fonts(if (bold) BOLD else PLAIN))
+                .also { fontLists[style] = it }
+        }
         if (style == LYRIC || style == SIDE) {
             val custom = customFonts[style]?.let { listOf(it.deriveFont(Font.PLAIN, baseOf(style))) } ?: emptyList()
             val list = custom + fonts(if (style == SIDE) BOLD else PLAIN)

@@ -312,6 +312,9 @@ internal object Library {
         if (ScreenState.page == Page.SEARCH && source == MusicSource.APPLE) loadCatalogGenres()
     }
 
+    fun appleSongDetails(track: NeteaseTrack): java.util.concurrent.CompletableFuture<AppleMusicSource.SongDetails> =
+        java.util.concurrent.CompletableFuture.supplyAsync({ AppleMusicSource.songDetails(track) }, worker)
+
     fun showStatus(message: String, startedAt: Long = System.nanoTime()) {
         val next = TimedNotice(message, startedAt)
         if (message.isEmpty() || next.opacity() > 0f) notice = next

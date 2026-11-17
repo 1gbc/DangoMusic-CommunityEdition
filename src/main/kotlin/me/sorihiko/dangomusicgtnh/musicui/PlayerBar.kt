@@ -19,6 +19,7 @@ import me.sorihiko.dangomusicgtnh.ui.ShapeStyle
 import me.sorihiko.dangomusicgtnh.ui.Theme
 import me.sorihiko.dangomusicgtnh.ui.UiStyle
 import me.sorihiko.dangomusicgtnh.ui.Vec2
+import me.sorihiko.dangomusicgtnh.ui.VectorIcon
 import me.sorihiko.dangomusicgtnh.utils.Color
 
 import kotlin.math.max
@@ -35,6 +36,7 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         var lastSkipNotice = 0L
     }
 
+    private var appleLyricsControls = false
     private var progressHit = LayoutBounds()
     private var progRect = LayoutBounds()
     private var volRect = LayoutBounds()
@@ -78,6 +80,7 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
     private val progKnob = Spring(300f, 26f)
 
     fun draw(bar: LayoutBounds, lyricsOpen: Boolean) {
+        if (appleLyricsControls) endAppleLyricsControls()
         val ctx = ui.ctx
         hitStart = ui.hits.size
         // 播放顺序 / 音量 / 音质菜单：两种界面风格用同一套弹出动画（外观见 PopupLook）
@@ -714,6 +717,104 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
             ShapeStyle(Theme.TEXT_PRIMARY, radius, shadow = ShadowStyle(Color(0f, 0f, 0f, 0.25f * knob), 4f, Vec2(0f, 1f))))
     }
 
+    fun drawAppleLyrics(frame: AppleLyricsLayout, snap: PlaybackView.Snapshot, openMore: () -> Unit) {
+        if (frame.scale <= 0f) return
+        if (!appleLyricsControls) {
+            dismissMenu()
+            modeMotion.snap(false)
+            qualityMotion.snap(false)
+            volumeMotion.snap(false)
+            seekTrack = null
+            volumeDragging = false
+            appleLyricsControls = true
+        }
+        val scale = frame.scale
+        val ctx = ui.ctx
+        val primary = Theme.TEXT_PRIMARY
+        val secondary = Theme.TEXT_SECONDARY
+        val track = snap.track?.takeIf { it.source == MusicSource.APPLE }
+
+        val titleSize = 18f * scale
+        val title = track?.name ?: I18n.text("Not playing")
+        val artist = track?.artists.orEmpty().joinToString(" / ")
+        val metadata = listOf(artist, track?.albumName.orEmpty()).filter { it.isNotBlank() }.joinToString(" — ")
+        val font = Theme.FONT_SEMIBOLD
+        ui.text(ui.trim(title, 514f * scale, titleSize, font), frame.x(396f), frame.y(886f), titleSize, primary, font)
+        ui.text(ui.trim(metadata, 514f * scale, titleSize, font), frame.x(396f), frame.y(910f), titleSize, secondary, font)
+        val favorite = track?.takeUnless { snap.remote }?.let(Library::favoriteState)
+        val ready = favorite?.selected != null && !favorite.pending
+        ui.card(frame.bounds(924f, 890f, 28f, 28f), primary.copy(a = 0.10f), 14f * scale)
+        SidebarIcons.draw(ctx, if (favorite?.selected == true) "filledStar" else "star",
+            frame.x(938f), frame.y(904f), primary, 17f * scale)
+        if (ready && track != null) ui.hits += frame.bounds(924f, 890f, 28f, 28f) to { Library.toggleAppleFavorite(track) }
+        ui.card(frame.bounds(968f, 890f, 28f, 28f), primary.copy(a = 0.10f), 14f * scale)
+        PlayerIcons.draw(ctx, AppleLyricsIcons.more, frame.x(982f), frame.y(904f),
+            17f * scale, primary)
+
+        if (track != null) ui.hits += frame.moreButton to openMore
+
+        progRect = frame.progress
+        val duration = if (track == null) 0L else snap.durationMs.coerceAtLeast(0L)
+        progressHit = if (duration > 0L && !snap.remote) frame.bounds(390f, 936f, 612f, 24f) else LayoutBounds()
+        val position = if (track != null && seekTrack == track.key) {
+            (seekFraction.toDouble() * duration).toLong()
+        } else snap.positionMs.coerceIn(0L, duration)
+        drawAppleSlider(progRect, if (duration > 0L) (position.toDouble() / duration).toFloat() else 0f, scale)
+        val timeSize = 12f * scale
+        val remaining = if (duration > 0L) "-${fmtTime(duration - position)}" else "--:--"
+        ui.text(if (duration > 0L) fmtTime(position) else "--:--", progRect.x, frame.y(958f), timeSize, secondary, font)
+        ui.text(remaining, progRect.right - ui.width(remaining, timeSize, font), frame.y(958f), timeSize, secondary, font)
+
+        val centerY = frame.y(1003f)
+        val mode = MusicPlayer.mode
+        PlayerIcons.mode(ctx, MusicPlayer.Mode.SHUFFLE, frame.x(568f), centerY, 21f * scale,
+            if (mode == MusicPlayer.Mode.SHUFFLE) primary else secondary)
+        PlayerIcons.draw(ctx, APPLE_PREVIOUS, frame.x(629f), centerY, 42f * scale, secondary)
+        val transportIcon = if (snap.playing) AppleLyricsIcons.pause else AppleLyricsIcons.play
+        PlayerIcons.draw(ctx, transportIcon, frame.x(696f), centerY, 42f * scale, primary)
+        PlayerIcons.draw(ctx, APPLE_NEXT, frame.x(762f), centerY, 42f * scale, secondary)
+        val repeating = mode == MusicPlayer.Mode.REPEAT_ONE
+        PlayerIcons.mode(ctx, if (repeating) mode else MusicPlayer.Mode.SEQUENTIAL,
+            frame.x(823f), centerY, 21f * scale, if (repeating) primary else secondary)
+        if (!snap.remote && track != null) {
+            ui.hits += frame.bounds(548f, 980f, 40f, 46f) to { toggleAppleMode(MusicPlayer.Mode.SHUFFLE) }
+            ui.hits += frame.bounds(603f, 978f, 52f, 50f) to { ClientMusic.control(PlaybackView::previous) }
+            ui.hits += frame.bounds(669f, 978f, 54f, 50f) to { ClientMusic.control(PlaybackView::togglePause) }
+            ui.hits += frame.bounds(736f, 978f, 52f, 50f) to { ClientMusic.control(PlaybackView::next) }
+            ui.hits += frame.bounds(803f, 980f, 40f, 46f) to { toggleAppleMode(MusicPlayer.Mode.REPEAT_ONE) }
+        }
+
+        val volume = MusicPlayer.volume.coerceIn(0f, 1f)
+        volRect = frame.volume
+        PlayerIcons.speaker(ctx, frame.x(402f), frame.y(1053f), primary, 0.50f * scale, waves = 0, muted = volume == 0f)
+        drawAppleSlider(volRect, volume, scale)
+        ui.hits += frame.bounds(410f, 1041f, 592f, 24f) to {
+            volumeDragging = true
+            setVolumeAt(ui.mx, ui.my)
+        }
+    }
+
+    fun endAppleLyricsControls() {
+        if (!appleLyricsControls) return
+        appleLyricsControls = false
+        seekTrack = null
+        volumeDragging = false
+        progressHit = LayoutBounds()
+    }
+
+    private fun toggleAppleMode(mode: MusicPlayer.Mode) {
+        module.selectPlaybackMode(if (MusicPlayer.mode == mode) MusicPlayer.Mode.SEQUENTIAL else mode)
+    }
+
+    private fun drawAppleSlider(bounds: LayoutBounds, fraction: Float, scale: Float) {
+        ui.card(bounds, Theme.TEXT_PRIMARY.copy(a = 0.38f), bounds.height / 2f)
+        val fill = bounds.width * fraction
+        if (fill > 0f) ui.card(bounds.copy(width = fill), Theme.TEXT_PRIMARY, minOf(fill, bounds.height) / 2f)
+        val radius = 6f * scale
+        ui.card(LayoutBounds(bounds.x + fill - radius, bounds.y + bounds.height / 2f - radius,
+            radius * 2f, radius * 2f), Theme.TEXT_PRIMARY, radius)
+    }
+
     /** 从按下的位置开始预览，拖动时更新，松手后只跳转一次。 */
     fun mouseDown(mx: Int, my: Int): Boolean {
         if (!progressHit.contains(mx, my)) return false
@@ -732,7 +833,7 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
             seekFraction = fractionAt(mx)
             return
         }
-        if (volumeOpen && volumeDragging) setVolumeAt(mx, my)
+        if ((appleLyricsControls || volumeOpen) && volumeDragging) setVolumeAt(mx, my)
     }
 
     fun mouseUp() {
@@ -760,7 +861,7 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
 
     private fun setVolumeAt(x: Int, y: Int) {
         if (volRect.height <= 0f || volRect.width <= 0f) return
-        val volume = if (UiStyle.continuous) ((x - volRect.x) / volRect.width).coerceIn(0f, 1f)
+        val volume = if (appleLyricsControls || UiStyle.continuous) ((x - volRect.x) / volRect.width).coerceIn(0f, 1f)
             else ((volRect.bottom - y) / volRect.height).coerceIn(0f, 1f)
         applyVolume(volume)
     }
@@ -768,6 +869,24 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
     private fun applyVolume(volume: Float) {
         module.setVolume(volume)
         PlaybackView.setVolume(volume)
+    }
+}
+
+private val APPLE_PREVIOUS = VectorIcon.path(filled = true) {
+    for (right in listOf(11.5, 22.0)) {
+        move(right, 6.0)
+        line(right - 10.5, 12.0)
+        line(right, 18.0)
+        close()
+    }
+}
+
+private val APPLE_NEXT = VectorIcon.path(filled = true) {
+    for (left in listOf(2.0, 12.5)) {
+        move(left, 6.0)
+        line(left + 10.5, 12.0)
+        line(left, 18.0)
+        close()
     }
 }
 

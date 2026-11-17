@@ -23,10 +23,11 @@ class ImageShader : GlShader(
             "u_Bounds",
             "u_Radius",
             "u_Continuous",
+            "u_FlowPhase",
         )
     }
 
-    fun setup(mat4: Matrix4f, screenSize: Size, opacity: Float,bounds: LayoutBounds,radius: Float){
+    fun setup(mat4: Matrix4f, screenSize: Size, opacity: Float, bounds: LayoutBounds, radius: Float, phase: Float){
         buffer.clear()
         mat4.store(buffer)
         buffer.flip()
@@ -36,7 +37,8 @@ class ImageShader : GlShader(
         setUniform1i("u_Texture", 0)
         setUniform1f("u_Opacity", opacity)
         setUniform4f("u_Bounds",bounds.x,bounds.y,bounds.width,bounds.height)
-        setUniform1f("u_Radius",radius)
+        setUniform1f("u_Radius", radius)
+        setUniform1f("u_FlowPhase", phase)
         setUniform1f("u_Continuous",if(UiStyle.continuous) 1f else 0f)
     }
 }

@@ -96,11 +96,28 @@ async function appleAdapter(command) {
     const v=command.value||{},op=v.op,offset=Number(v.offset||0);
     if(!Number.isInteger(offset)||offset<0||offset>10000)throw Error('Invalid page');
     let storefront=/^[a-z]{2}$/.test(player.storefrontId)?player.storefrontId:'';
-    const catalogOperation=['search','charts','resourceTracks','discover','genres','genreCharts','liveRadio','webDiscover','webRadio','favoriteState','favoriteAdd','favoriteRemove'].includes(op);
+    const catalogOperation=['search','charts','resourceTracks','discover','genres','genreCharts','liveRadio','webDiscover','webRadio','favoriteState','favoriteAdd','favoriteRemove','songDetails'].includes(op);
     if(catalogOperation&&!storefront&&typeof player.api?.music==='function') {
       try {const region=await player.api.music('/v1/me/storefront');const payload=region?.data?.data||region?.data;const id=Array.isArray(payload)?payload[0]?.id:'';if(/^[a-z]{2}$/.test(id))storefront=id;}catch{}
     }
     if(catalogOperation&&!storefront)return {items:[],hasMore:false,error:'Apple Music region unavailable; sign in and retry'};
+    if(op==='songDetails') {
+      const id=String(v.id||'');
+      const library=/^library:(i\.[A-Za-z0-9._-]{1,90})$/.exec(id);
+      if(!library&&!/^\d{1,20}$/.test(id))throw Error('Invalid song identifier');
+      const path=library?'/v1/me/library/songs/'+encodeURIComponent(library[1]):'/v1/catalog/'+storefront+'/songs/'+id;
+      try {
+        const response=await player.api.music(path,library?{include:'catalog'}:{});
+        const rows=Array.isArray(response?.data)?response.data:response?.data?.data;
+        const row=rows?.[0];
+        if(!row)return {error:'Apple Music song details are unavailable'};
+        const a=row.attributes||{};
+        const catalog=row.relationships?.catalog?.data?.[0]?.attributes||{};
+        const url=catalog.url||a.url;
+        return {artist:text(catalog.artistName||a.artistName),composer:text(catalog.composerName||a.composerName),
+          url:typeof url==='string'&&url.length<=700?url:''};
+      }catch(e){return failure(e,op);}
+    }
     if(op==='webDiscover'||op==='webRadio') {
       const route=op==='webDiscover'?'new':'radio';
       const locale=/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(document.documentElement.lang)?document.documentElement.lang:'';
@@ -279,6 +296,7 @@ async function appleAdapter(command) {
     if(signIn){signIn.click();return {loginRoute:'website'};}
     if(player.isAuthorized!==true&&typeof player.authorize==='function')Promise.resolve(player.authorize()).catch(()=>{});
   } else if(command?.name==='load') {
+    const trace=command.trace===true?performance.now():null;
     completion.id='';
     globalThis.__dangoAppleMediaError='';
     const v=command.value||{};if(!idOk(v.id)||typeof player.setQueue!=='function')throw Error('Song loading unavailable');
@@ -299,16 +317,24 @@ async function appleAdapter(command) {
     let stage='queue';
     try {
     globalThis.__dangoAppleLoadStage='queue';
+    const queueStarted=trace===null?0:performance.now();
     await player.setQueue(descriptor);
+    const queued=trace===null?0:performance.now();
     if(globalThis.__dangoAppleGeneration!==generation)return {cancelled:true};
     globalThis.__dangoAppleStation=station;
     completion.id='';
     stage='play';globalThis.__dangoAppleLoadStage='play';await player.play();
+    if(globalThis.__dangoAppleGeneration!==generation)return {cancelled:true};
     globalThis.__dangoAppleLoadStage='done';
-    } catch(e) {globalThis.__dangoAppleLoadStage='error';return failure(e,stage);}
+    if(trace!==null)return {timing:{'queue-ms':Math.round(queued-queueStarted),'play-ms':Math.round(performance.now()-queued)}};
+    } catch(e) {
+      if(globalThis.__dangoAppleGeneration!==generation)return {cancelled:true};
+      globalThis.__dangoAppleLoadStage='error';return failure(e,stage);
+    }
   }
   const methods={play:'play',pause:'pause',stop:'stop',next:'skipToNextItem',previous:'skipToPreviousItem',seek:'seekToTime'};
   if(command && !['query','load','login'].includes(command.name)){
+    const trace=command.trace===true?performance.now():null;
     if(['stop','pause'].includes(command.name))globalThis.__dangoAppleGeneration=(globalThis.__dangoAppleGeneration||0)+1;
     if(command.name==='volume') {
       if(!Number.isFinite(command.value)||command.value<0||command.value>1)throw Error('Invalid volume');
@@ -328,6 +354,7 @@ async function appleAdapter(command) {
       } finally {clearTimeout(timer);}
       if(command.name==='stop')globalThis.__dangoAppleStation=false;
     }
+    if(trace!==null)return {timing:{'sdk-ms':Math.round(performance.now()-trace)}};
   }
   const readiness=await sessionReadiness();
   const item=player.nowPlayingItem, a=item?.attributes||{};

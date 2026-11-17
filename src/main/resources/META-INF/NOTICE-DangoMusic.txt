@@ -12,6 +12,9 @@ https://github.com/1gbc/DangoMusic-GTNH/blob/port/gtnh-1.7.10/CHANGELOG.md
 Bundled third-party works retain their own licenses and copyrights:
 - Inter fonts (upstream subsets), Copyright (c) 2016 The Inter Project Authors.
   SIL OFL 1.1: assets/dangomusicgtnh/fonts/Inter-LICENSE.txt.
+- Noto Sans SC, Copyright (c) 2014-2021 Adobe. Vendored unmodified from
+  https://github.com/notofonts/noto-cjk/tree/f8d157532fbfaeda587e826d4cd5b21a49186f7c/Sans/SubsetOTF/SC.
+  SIL OFL 1.1: assets/dangomusicgtnh/fonts/NotoSansSC-OFL.txt.
 - JOrbis/Jogg 0.0.17, Copyright (C) 2000 ymnk, JCraft, Inc. and source authors.
   Source headers: GNU Library GPL v2 or later. LGPL 2.1 copy:
   licenses/JOrbis-LGPL-2.1.txt. Upstream: https://github.com/ymnk/jorbis

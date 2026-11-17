@@ -5,6 +5,8 @@ import me.sorihiko.dangomusicgtnh.i18n.I18n
 
 import me.sorihiko.dangomusicgtnh.DangoClient
 import me.sorihiko.dangomusicgtnh.module.impls.music.NeteaseMusicModule
+import me.sorihiko.dangomusicgtnh.musicui.AppleLyricsLayout
+import me.sorihiko.dangomusicgtnh.musicui.AppleLyricsMenu
 import me.sorihiko.dangomusicgtnh.musicui.ArtistPage
 import me.sorihiko.dangomusicgtnh.musicui.ArtistRef
 import me.sorihiko.dangomusicgtnh.musicui.GridPage
@@ -62,7 +64,12 @@ class MusicScreen(
     private val settings = SettingsPage(this, module)
     internal val songComments = SongComments(ui)
     private val lyricsPage = LyricsPage(ui, module, songComments)
+    private val appleLyricsMenu = AppleLyricsMenu(ui)
+    private var appleLyricsFrame: AppleLyricsLayout? = null
+    private var showAppleLyrics = true
+    private var appleLyricsTrack: NeteaseTrack? = null
     private var lyricsOpen = false
+    private val appleLyricsOpen get() = lyricsOpen && MusicSources.selected == MusicSource.APPLE
     internal val canOpenLyrics get() = MusicSources.selected == MusicSource.NETEASE || MusicSources.selected == MusicSource.APPLE
 
     /** 平台层根据搜索、筛选和设置输入框的焦点开关系统输入法。 */
@@ -150,7 +157,7 @@ class MusicScreen(
 
     internal fun goBack() {
         if (lyricsOpen) {
-            if (!lyricsPage.dismissMenu()) closeLyrics()
+            if (!appleLyricsMenu.dismiss() && !lyricsPage.dismissMenu()) closeLyrics()
             return
         }
         if (ScreenState.page == Page.SETTINGS) {
@@ -319,6 +326,10 @@ class MusicScreen(
         if (!lyricsOpen) return
         lyricsOpen = false
         lyricsPage.reset()
+        appleLyricsMenu.reset()
+        appleLyricsFrame = null
+        appleLyricsTrack = null
+        bar.endAppleLyricsControls()
     }
 
     /** 取消所有输入框的焦点（搜索、筛选、房间码） */
@@ -532,6 +543,25 @@ class MusicScreen(
     private val edgeGlow = me.sorihiko.dangomusicgtnh.musicui.Spring(300f, 26f)
 
     private fun drawWindow(alpha: Float) {
+        if (appleLyricsOpen) {
+            val layout = AppleLyricsLayout(LayoutBounds(0f, 0f, ui.lw, ui.lh), showAppleLyrics)
+            winRect = layout.viewport
+            barRect = LayoutBounds()
+            val playback = PlaybackView.snapshot()
+            appleLyricsFrame = layout
+            appleLyricsTrack = playback.track
+            ui.mt.useNotoSansSc = true
+            try {
+                lyricsPage.drawApple(layout, playback, ::closeLyrics) {
+                    showAppleLyrics = !showAppleLyrics
+                    if (showAppleLyrics) lyricsPage.resumeAppleLyrics()
+                }
+                bar.drawAppleLyrics(layout, playback, appleLyricsMenu::toggle)
+            } finally {
+                ui.mt.useNotoSansSc = false
+            }
+            return
+        }
         val base = dragWin ?: savedWin()
         winRect = base
         val win = LayoutBounds(base.x, base.y + (1f - alpha) * 12f, base.width, base.height)
@@ -577,6 +607,17 @@ class MusicScreen(
         ScreenState.page == Page.HOME && !lyricsOpen && !login.visible && grid.atTop
 
     private fun drawBar() {
+        if (appleLyricsOpen) {
+            appleLyricsFrame?.let { layout ->
+                ui.mt.useNotoSansSc = true
+                try {
+                    appleLyricsMenu.draw(layout, appleLyricsTrack)
+                } finally {
+                    ui.mt.useNotoSansSc = false
+                }
+            }
+            return
+        }
         // 播放栏画在最上面，点击也要先轮到它（点到的是第一个命中的区域）
         val before = ui.hits.size
         bar.draw(barRect, lyricsOpen)
@@ -733,7 +774,7 @@ class MusicScreen(
             ui.hits.firstOrNull { it.first.contains(mx, my) }?.second?.invoke()
             return
         }
-        if (mouseButton == 0 && beginWindowDrag(mx, my)) return
+        if (!appleLyricsOpen && mouseButton == 0 && beginWindowDrag(mx, my)) return
         // 快捷键的“重置”按钮可能滚到了播放栏底下：点在播放栏上时先交给播放栏（以前会把音质按钮的点击吃掉）
         if (!lyricsOpen && mouseButton == 0 && !barRect.expand(0f, 8f).contains(mx, my) && settings.resetKeyAt(mx, my)) return
         if (!lyricsOpen && settings.bindMouse(mouseButton)) return
@@ -753,6 +794,10 @@ class MusicScreen(
             return
         }
         if (mouseButton != 0) return
+        if (appleLyricsOpen && appleLyricsMenu.capturesInput) {
+            ui.hits.firstOrNull { it.first.contains(mx, my) }?.second?.invoke()
+            return
+        }
         if (bar.mouseDown(mx, my)) return
         if (!lyricsOpen && tracks.scrollbarDown(mx, my)) return
         val hit = ui.hits.firstOrNull { it.first.contains(mx, my) }
@@ -821,6 +866,7 @@ class MusicScreen(
         val ly = (y / ui.scale).toInt()
         if (bar.menuContains(lx, ly)) return
         if (lyricsOpen) {
+            if (appleLyricsMenu.capturesInput) return
             lyricsPage.scroll(wheel, lx, ly)
             return
         }

@@ -174,7 +174,11 @@ class GlassRenderContext : GuiCanvas {
         drawTexturedImage(bounds,image,radius)
     }
 
-    private fun drawTexturedImage(bounds: LayoutBounds,image: Texture,radius: Float) {
+    override fun drawFlowingBackdrop(bounds: LayoutBounds, image: Texture, phase: Float) {
+        drawTexturedImage(bounds, image, 0f, phase)
+    }
+
+    private fun drawTexturedImage(bounds: LayoutBounds, image: Texture, radius: Float, phase: Float = -1f) {
         imageShader.bind()
         imageShader.setup(
             getTransform(),
@@ -182,7 +186,7 @@ class GlassRenderContext : GuiCanvas {
                 mc.displayWidth.toFloat(),
                 mc.displayHeight.toFloat()
             ),
-            getOpacity(),bounds,radius
+            getOpacity(), bounds, radius, phase
         )
         GL13.glActiveTexture(GL13.GL_TEXTURE0)
         (image as LegacyTexture).bind()

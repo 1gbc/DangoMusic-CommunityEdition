@@ -8,6 +8,7 @@ import me.sorihiko.dangomusicgtnh.music.CoverCache
 import me.sorihiko.dangomusicgtnh.music.MusicPlayer
 import me.sorihiko.dangomusicgtnh.music.MusicSource
 import me.sorihiko.dangomusicgtnh.music.NeteaseTrack
+import me.sorihiko.dangomusicgtnh.music.PlaybackView
 import me.sorihiko.dangomusicgtnh.ui.LayoutBounds
 import me.sorihiko.dangomusicgtnh.ui.ShapeStyle
 import me.sorihiko.dangomusicgtnh.ui.Theme
@@ -45,6 +46,7 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
     private var hasTranslation = false
     private var hasRomanization = false
     private var manualPosition: Float? = null
+    private var appleFollowAfter = 0L
     private var scrollPosition = 0f
 
     fun dismissMenu(): Boolean {
@@ -73,6 +75,8 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
         popupArea = null
         menu = null
         manualPosition = null
+        appleFollowAfter = 0L
+        resumeAppleFollow = false
     }
 
     fun scroll(wheel: Int, x: Int, y: Int) {
@@ -85,6 +89,9 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
             val end = rows.lastOrNull()?.center ?: return
             val position = manualPosition ?: scrollPosition
             manualPosition = (position + if (wheel > 0) -80f else 80f).coerceIn(0f, end)
+            if (track?.source == MusicSource.APPLE) {
+                appleFollowAfter = System.nanoTime() + APPLE_LYRIC_IDLE_NANOS
+            }
         } else if (wheel < 0 && MusicPlayer.current?.source == MusicSource.NETEASE) {
             openComments()
         }
@@ -113,6 +120,88 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
             } else drawLyricsContent(area, close)
         }
         if (alpha < 0.99f) while (ui.hits.size > before) ui.hits.removeAt(ui.hits.lastIndex)
+    }
+
+    private var resumeAppleFollow = false
+    private val appleFlowStartedAt = System.nanoTime()
+
+
+    fun resumeAppleLyrics() {
+        manualPosition = null
+        appleFollowAfter = 0L
+        resumeAppleFollow = true
+    }
+
+    fun drawApple(frame: AppleLyricsLayout, playback: PlaybackView.Snapshot, close: () -> Unit, toggleLyrics: () -> Unit) {
+        if (frame.scale <= 0f) return
+        pageArea = frame.viewport
+        lyricArea = frame.lyrics
+        shortcutArea = LayoutBounds()
+        popupArea = null
+        val song = playback.track?.takeIf { it.source == MusicSource.APPLE }
+        val backdrop = song?.let(CoverCache::trackBackdrop)
+        if (backdrop != null) {
+            val period = 14_000_000_000L
+            val elapsed = (System.nanoTime() - appleFlowStartedAt) % period
+            val phase = (elapsed.toDouble() / period * Math.PI * 2.0).toFloat()
+            ui.ctx.drawFlowingBackdrop(frame.viewport, backdrop, phase)
+        } else {
+            ui.card(frame.viewport, Color.fromHex("#382122"), 0f)
+        }
+        val closeHit = frame.close
+        PlayerIcons.draw(ui.ctx, AppleLyricsIcons.close, closeHit.x + closeHit.width / 2f,
+            closeHit.y + closeHit.height / 2f, 24f * frame.scale, white.copy(a = 0.72f))
+        ui.hits += closeHit to close
+        val toggleHit = frame.lyricsToggle
+        PlayerIcons.draw(ui.ctx, AppleLyricsIcons.lyrics, toggleHit.x + toggleHit.width / 2f,
+            toggleHit.y + toggleHit.height / 2f, 26f * frame.scale,
+            white.copy(a = if (ui.hover(toggleHit)) 1f else 0.72f))
+        ui.hits += toggleHit to toggleLyrics
+
+        if (song?.key != track?.key) {
+            manualPosition = null
+            appleFollowAfter = 0L
+            scrollPosition = 0f
+        }
+        track = song
+        val coverRadius = 0.08f // Same cover mask as the existing large-cover grid.
+        val cover = song?.let(CoverCache::appleLyricsArtwork)
+        val radius = frame.artwork.width * coverRadius
+        if (cover != null) ui.ctx.drawRoundedImage(frame.artwork, cover, radius)
+        else ui.card(frame.artwork, Theme.TRACK, radius)
+        val rim = 0.75f * frame.scale
+        ui.ctx.drawShape(frame.artwork.expand(-rim, -rim), ShapeStyle(
+            radius = (radius - rim).coerceAtLeast(0f), borderWidth = rim,
+            borderColor = white.copy(a = 0.20f), clipBounds = frame.artwork, clipRadius = radius
+        ))
+        if (!frame.showLyrics) return
+        val lyricModule = module.lyrics()
+        val lyrics = song?.let { lyricModule?.playerLyrics(it) }
+        val size = module.lyricsPageSize.value * frame.scale
+        layout(lyrics?.lines.orEmpty(), lyricArea.width, size)
+        if (rows.isEmpty()) {
+            val loading = song != null && lyricModule?.isLoadingLyrics(song) == true
+            val title = I18n.text(if (loading) "Loading lyrics..." else "No lyrics available")
+            val detail = I18n.text("There aren't any lyrics available for this song.")
+            val fontSize = 13f * frame.scale
+            val center = lyricArea.x + lyricArea.width / 2f
+            val font = Theme.FONT_SEMIBOLD
+            ui.text(title, center - ui.width(title, fontSize, font) / 2f, frame.y(630f), fontSize, white, font)
+            if (!loading) {
+                ui.text(detail, center - ui.width(detail, fontSize) / 2f, frame.y(669f), fontSize, white.copy(a = 0.8f))
+            }
+            return
+        }
+        val position = playback.positionMs + (song?.let(::lyricOffset) ?: 0L)
+        val active = lyrics?.indexAt(position) ?: -1
+        if (appleFollowAfter != 0L && System.nanoTime() - appleFollowAfter >= 0L) {
+            manualPosition = null
+            appleFollowAfter = 0L
+        }
+        val target = manualPosition?.coerceAtMost(rows.last().center) ?: (rows.getOrNull(active)?.center ?: 0f)
+        scrollPosition = if (resumeAppleFollow) target else ui.approach(scrollPosition, target, 95f)
+        resumeAppleFollow = false
+        drawLyrics(active, size, null)
     }
 
     private fun drawLyricsContent(area: LayoutBounds, close: () -> Unit) {
@@ -335,3 +424,5 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
         }
     }
 }
+
+private const val APPLE_LYRIC_IDLE_NANOS = 5_000_000_000L

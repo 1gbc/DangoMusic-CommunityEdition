@@ -55,6 +55,33 @@ public class GameBridgeCheck {
             JsonObject next=post(s,"/sync",key,"{\"ack\":"+ack+",\"commandResult\":{\"id\":"+ack+",\"favorite\":true}}",200);
             check(favorite.get(2,java.util.concurrent.TimeUnit.SECONDS).get("favorite").getAsBoolean(),"The confirmed favorite reaches its caller");
             check(next.getAsJsonObject("command").get("name").getAsString().equals("load"),"The newly selected song still loads");
+            s.reconnect();
+            JsonObject paired=post(s,"/pair",s.pairingLink().split("#")[1],"{}",200);
+            key=paired.get("session").getAsString();
+            ack=paired.get("ack").getAsLong();
+            for(int i=0;i<30;i++)s.command("volume",i/30.0);
+            s.command("next",null);
+            JsonObject control=post(s,"/sync",key,"{\"ack\":"+ack+"}",200).getAsJsonObject("command");
+            check(control.get("name").getAsString().equals("next"),"Unsent drag updates must not delay or drop Next");
+            ack=control.get("id").getAsLong();
+            control=post(s,"/sync",key,"{\"ack\":"+ack+"}",200).getAsJsonObject("command");
+            check(control.get("name").getAsString().equals("volume")&&control.get("value").getAsDouble()==29/30.0,
+                "Only the final drag volume is dispatched");
+            s.command("volume",0.2);
+            s.command("volume",0.4);
+            s.playSong("456",false);
+            long volumeAck=control.get("id").getAsLong();
+            control=post(s,"/sync",key,"{\"ack\":"+volumeAck+"}",200).getAsJsonObject("command");
+            check(control.get("name").getAsString().equals("load"),"Load is sent before pending volume");
+            ack=control.get("id").getAsLong();
+            control=post(s,"/sync",key,"{\"ack\":"+ack+",\"state\":"+state+"}",200).getAsJsonObject("command");
+            check(s.snapshot()==null,"Previous song telemetry is rejected after the new load is acknowledged");
+            check(control.get("name").getAsString().equals("volume")&&control.get("value").getAsDouble()==0.4,
+                "The latest volume survives the load and supersedes the in-flight value");
+            String updated=state.replace("123","456");
+            post(s,"/sync",key,"{\"ack\":"+ack+",\"state\":"+updated+"}",200);
+            check(s.snapshot()!=null&&s.snapshot().get("id").getAsString().equals("456"),
+                "The current track publishes telemetry while a volume update is awaiting acknowledgement");
             s.reconnect();post(s,"/sync",key,"{\"ack\":0}",403);
             System.out.println("Game bridge protocol checks passed");
         } finally {s.close();}

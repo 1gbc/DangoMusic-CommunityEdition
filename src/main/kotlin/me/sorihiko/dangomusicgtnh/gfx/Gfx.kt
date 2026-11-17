@@ -71,6 +71,8 @@ object CjkStyle {
     const val LYRIC = 3
     /** 驾驶舱歌词（玩家给驾驶舱选的字体，没有的字退回粗体） */
     const val SIDE = 4
+    const val NOTO_SC = 5
+    const val NOTO_SC_BOLD = 6
 }
 
 /** 一段要画的平滑字体文字。centered = (x, y) 是可见部分的中心；否则 y 是基线 */
@@ -87,13 +89,15 @@ interface Texture
 
 interface Textures {
     /** 把图片传成贴图（必须在渲染线程调用） */
-    fun upload(name: String, image: BufferedImage): Texture
+    fun upload(name: String, image: BufferedImage, linear: Boolean = false): Texture
     fun delete(texture: Texture)
 }
 
 // ---------------------------------------------------------------- 液态玻璃画布
 
 interface GuiCanvas : RenderContext {
+    fun drawFlowingBackdrop(bounds: LayoutBounds, image: Texture, phase: Float)
+
     /**
      * 开始画一帧：保存渲染状态、设好混合。
      * [captureBackdrop] = 先截一张当前画面给液态玻璃做背景（不截时玻璃退化成半透明面板）。
