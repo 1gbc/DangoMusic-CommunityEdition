@@ -15,6 +15,7 @@ import me.sorihiko.dangomusicgtnh.module.values.IntValue
 import me.sorihiko.dangomusicgtnh.module.values.ModuleValue
 import me.sorihiko.dangomusicgtnh.music.CoverArt
 import me.sorihiko.dangomusicgtnh.music.CoverCache
+import me.sorihiko.dangomusicgtnh.music.MusicSource
 import me.sorihiko.dangomusicgtnh.music.PlaybackView
 import me.sorihiko.dangomusicgtnh.musicui.PlayerIcons
 import me.sorihiko.dangomusicgtnh.musicui.fmtTime
@@ -75,7 +76,6 @@ class DynamicIslandModule : Module() {
     private var vw = 0f
     private var vh = 0f
     private var lastNanos = 0L
-    private var cornerRadius = -1f
     private var volumeUntil = 0L
     private var targetVolume = 0f
     private var animatedVolume = 0f
@@ -107,7 +107,6 @@ class DynamicIslandModule : Module() {
         shown = Kind.IDLE
         contentAlpha = 0f
         lastNanos = 0L
-        cornerRadius = -1f
         volumeUntil = 0L
         volumeReveal = 0f
         waveActivity = 0f
@@ -261,12 +260,8 @@ class DynamicIslandModule : Module() {
         val ctx = context ?: DangoClient.gfx.newCanvas().also { context = it }
         ctx.begin(glass.get(), 0, 0)
         try {
-            val targetRadius = if (UiStyle.continuous && want != Kind.IDLE) {
-                want.coverSize * CoverCache.DEFAULT_CORNER_RATIO
-            } else min(h / 2f, 22f)
-            cornerRadius = if (!UiStyle.continuous || cornerRadius < 0f) targetRadius
-                else cornerRadius + (targetRadius - cornerRadius) * (1f - exp(-dt / 0.12f))
-            val r = min(h / 2f, cornerRadius)
+            // Use the panel radius for the shell throughout expansion. The cover rounds independently.
+            val r = min(h / 2f, Theme.GLASS_SIDEBAR.radius)
 
             ctx.pushScale(k, k, 1f)
             if (glass.get()) {
@@ -295,9 +290,9 @@ class DynamicIslandModule : Module() {
             ctx.pushOpacity(contentAlpha)
             when {
                 shown == Kind.IDLE -> drawIdle(ctx, cb)
-                shown == Kind.MINI -> drawMini(ctx, cb, r, snap)
-                continuous && shown == Kind.FULL -> drawDev6Song(ctx, cb, r, snap)
-                else -> drawSong(ctx, cb, r, shown, snap)
+                shown == Kind.MINI -> drawMini(ctx, cb, snap)
+                continuous && shown == Kind.FULL -> drawDev6Song(ctx, cb, snap)
+                else -> drawSong(ctx, cb, shown, snap)
             }
             if (animations && shown != Kind.IDLE) {
                 val cover = snap.track?.let(CoverCache::trackImage)
@@ -334,15 +329,19 @@ class DynamicIslandModule : Module() {
         }
     }
 
+    private fun islandSourceLabel(snap: PlaybackView.Snapshot): String =
+        if (!snap.remote && snap.track?.source == MusicSource.APPLE) "" else snap.sourceLabel
+
     private fun miniTitle(snap: PlaybackView.Snapshot): String {
         val name = snap.track?.name.orEmpty()
-        return if (snap.sourceLabel.isBlank()) name else "$name · ${snap.sourceLabel}"
+        val source = islandSourceLabel(snap)
+        return if (source.isBlank()) name else "$name · $source"
     }
 
-    private fun drawMini(ctx: GuiCanvas, b: LayoutBounds, radius: Float, snap: PlaybackView.Snapshot) {
+    private fun drawMini(ctx: GuiCanvas, b: LayoutBounds, snap: PlaybackView.Snapshot) {
         val track = snap.track ?: return
         val cover = LayoutBounds(b.x + 9f, b.y + 5f, 22f, 22f)
-        drawCover(ctx, cover, CoverCache.track(track), radius)
+        drawCover(ctx, cover, CoverCache.track(track))
         val x = cover.right + 9f
         val title = trim(miniTitle(snap), (songContentRight(b) - x).coerceAtLeast(0f), 12f, Theme.FONT_SEMIBOLD)
         text(ctx, title, x, b.y + 11.3f, 12f,
@@ -350,14 +349,14 @@ class DynamicIslandModule : Module() {
 
     }
 
-    private fun drawDev6Song(ctx: GuiCanvas, b: LayoutBounds, radius: Float, snap: PlaybackView.Snapshot) {
+    private fun drawDev6Song(ctx: GuiCanvas, b: LayoutBounds, snap: PlaybackView.Snapshot) {
         val track = snap.track ?: return
         val cover = LayoutBounds(b.x + 10f, b.y + 10f, 48f, 48f)
-        drawCover(ctx, cover, CoverCache.track(track), radius)
+        drawCover(ctx, cover, CoverCache.track(track))
         val x = cover.right + 10f
         val right = songContentRight(b)
         val textWidth = right - x
-        val source = trim(snap.sourceLabel, minOf(110f, textWidth * 0.55f), 9f)
+        val source = trim(islandSourceLabel(snap), minOf(110f, textWidth * 0.55f), 9f)
         val sourceWidth = width(source, 9f)
         text(ctx, trim(track.name, textWidth - 4f, 14f, Theme.FONT_SEMIBOLD),
             x, b.y + 12f, 14f, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
@@ -376,12 +375,12 @@ class DynamicIslandModule : Module() {
         drawSongProgress(ctx, barX, b.y + 52f, timeX - 7f - barX, position, duration)
     }
 
-    private fun drawSong(ctx: GuiCanvas, b: LayoutBounds, radius: Float, kind: Kind, snap: PlaybackView.Snapshot) {
+    private fun drawSong(ctx: GuiCanvas, b: LayoutBounds, kind: Kind, snap: PlaybackView.Snapshot) {
         val track = snap.track ?: return
         val full = kind == Kind.FULL
         val cover = LayoutBounds(b.x + 10f, b.y + (b.height - kind.coverSize) / 2f, kind.coverSize, kind.coverSize)
         val texture = if (UiStyle.continuous) CoverCache.track(track) else CoverCache.trackRounded(track) ?: CoverCache.track(track)
-        drawCover(ctx, cover, texture, if (UiStyle.continuous) radius else cover.width * CoverCache.DEFAULT_CORNER_RATIO)
+        drawCover(ctx, cover, texture)
         val x = cover.right + 10f
         val right = songContentRight(b)
         val textWidth = right - x
@@ -456,7 +455,8 @@ class DynamicIslandModule : Module() {
         }
     }
 
-    private fun drawCover(ctx: GuiCanvas, b: LayoutBounds, tex: Texture?, radius: Float) {
+    private fun drawCover(ctx: GuiCanvas, b: LayoutBounds, tex: Texture?) {
+        val radius = b.width * CoverCache.DEFAULT_CORNER_RATIO
         CoverCache.upload()
         if (tex != null) {
             if(UiStyle.continuous) ctx.drawRoundedImage(b,tex,radius) else ctx.drawImage(b,tex)

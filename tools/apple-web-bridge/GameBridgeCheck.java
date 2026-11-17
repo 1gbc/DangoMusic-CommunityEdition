@@ -45,6 +45,14 @@ public class GameBridgeCheck {
             ack=play.getAsJsonObject("command").get("id").getAsLong();
             post(s,"/sync",key,"{\"ack\":"+ack+",\"state\":"+state+"}",200);
             check(s.snapshot()!=null,"Explicit play resumes");
+            long beforeSeek = s.snapshot().get("receivedAtNanos").getAsLong();
+            s.command("seek", 91.9);
+            JsonObject seek = post(s, "/sync", key, "{\"ack\":" + ack + ",\"state\":" + state + "}", 200).getAsJsonObject("command");
+            check(s.snapshot().get("seekSequence").getAsLong() == 0, "A pending seek must not mark the old snapshot");
+            ack = seek.get("id").getAsLong();
+            post(s, "/sync", key, "{\"ack\":" + ack + ",\"state\":" + state.replace("92000", "91900") + "}", 200);
+            check(s.snapshot().get("seekSequence").getAsLong() == ack, "A confirmed seek marks the next clock sample");
+            check(s.snapshot().get("receivedAtNanos").getAsLong() > beforeSeek, "Only new accepted samples update receipt time");
             final long beforeFavorite=ack;
             java.util.concurrent.FutureTask<JsonObject> favorite=new java.util.concurrent.FutureTask<>(()->s.request("favoriteAdd","123",0));
             Thread favoriteWorker=new Thread(favorite,"Favorite request test");

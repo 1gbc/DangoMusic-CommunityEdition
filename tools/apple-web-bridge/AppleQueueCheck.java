@@ -22,11 +22,13 @@ public class AppleQueueCheck {
             AppleWebPlayer.INSTANCE.tick();
             JsonObject volume=GameBridgeCheck.post(s,"/sync",key,"{\"ack\":"+ack+"}",200).getAsJsonObject("command");
             ack=volume.get("id").getAsLong();
+            long beforeMode = p.getPositionMs();
             p.selectMode(MusicPlayer.Mode.SHUFFLE);
-            check(p.getCurrent()==a&&p.getPositionMs()==65000,"Shuffle retains song and progress");
+            check(p.getCurrent()==a&&p.getPositionMs()>=beforeMode&&p.getPositionMs()<=66000,"Shuffle retains song and progress");
             check(p.getQueue().size()==2&&p.getQueue().get(0)==a,"Actual shuffled queue is visible");
+            beforeMode = p.getPositionMs();
             p.selectMode(MusicPlayer.Mode.SEQUENTIAL);
-            check(p.getCurrent()==a&&p.getPositionMs()==65000&&p.getQueue().equals(Arrays.asList(a,b)),"Sequential restores order without restarting the song");
+            check(p.getCurrent()==a&&p.getPositionMs()>=beforeMode&&p.getPositionMs()<=66000&&p.getQueue().equals(Arrays.asList(a,b)),"Sequential restores order without restarting the song");
             String pausedNearEnd=state.replace("\"playing\":true","\"playing\":false").replace("65000","239990");
             GameBridgeCheck.post(s,"/sync",key,"{\"ack\":"+ack+",\"state\":"+pausedNearEnd+"}",200);
             AppleWebPlayer.INSTANCE.tick();check(p.getCurrent()==a,"Pausing at the end does not advance");

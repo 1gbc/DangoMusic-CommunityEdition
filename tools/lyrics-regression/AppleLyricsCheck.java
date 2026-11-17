@@ -1,4 +1,5 @@
 import java.util.*;
+import com.google.gson.JsonParser;
 import me.sorihiko.dangomusicgtnh.music.*;
 import me.sorihiko.dangomusicgtnh.lyrics.*;
 
@@ -6,6 +7,18 @@ public class AppleLyricsCheck {
     static void check(boolean value, String message) { if(!value)throw new AssertionError(message); }
     static NeteaseTrack song(long id,String name,String artist,long duration) {
         return new NeteaseTrack(id,name,List.of(artist),duration,"",MusicSource.APPLE,"123");
+    }
+    private static void checkCatalogAliases(AppleLyrics provider) {
+        String version = "Blue Moon -Tales of ARISE ver.-";
+        NeteaseTrack apple = song(1583745986, version, "Ayaka", 341322);
+        NeteaseTrack catalog = NeteaseTrack.Companion.parse(new JsonParser().parse(
+            "{\"id\":1876388989,\"name\":\"Blue Moon -Tales of ARISE ver.-\",\"dt\":341321,"
+                + "\"ar\":[{\"id\":15990,\"name\":\"絢香\",\"alias\":[\"Ayaka\"]}]}").getAsJsonObject());
+        check(provider.selectMatch(apple, List.of(catalog)) == catalog, "Match the official catalog alias");
+        check(provider.selectMatch(song(1, "Blue Moon", "Ayaka", 341322), List.of(catalog)) == null,
+            "An artist alias cannot override the song version");
+        check(provider.selectMatch(song(1, version, "Ayaka & Other", 341322), List.of(catalog)) == null,
+            "An artist alias cannot replace the other credited artist");
     }
     public static void main(String[] args) {
         AppleLyrics provider=AppleLyrics.INSTANCE;
@@ -22,6 +35,7 @@ public class AppleLyricsCheck {
         check(provider.selectMatch(duet,List.of(song(6,"Duet","Singer A",200000)))==null,"Do not match a solo recording to a duet");
         NeteaseTrack band=song(7,"Song","AC/DC",200000);
         check(provider.selectMatch(band,List.of(song(8,"Song","AC/DC",200000)))!=null,"A slash in a band name still matches");
+        checkCatalogAliases(provider);
         Lyrics lrc=provider.parse("[00:01.00]first\n[00:05.00]second","lrc");
         check(lrc!=null&&lrc.indexAt(2000)==0&&lrc.indexAt(6000)==1,"Existing world lyric clock consumes Apple lines");
         Lyrics shifted=provider.shift(lrc,500);

@@ -73,12 +73,24 @@ object AppleLyrics {
         val valid = candidates.filter {
             it.durationMs > 0 && abs(it.durationMs - track.durationMs) <= 2000 && normalized(it.name) == title &&
                 (normalized(it.artists.joinToString("")) == artist ||
-                    (it.artists.size > 1 && it.artists.map(::normalized).sorted() == credits))
+                    (it.artists.size > 1 && it.artists.map(::normalized).sorted() == credits) ||
+                    matchesArtistAliases(credits, it))
         }
         val sameAlbum = valid.filter { track.albumName.isNotBlank() && normalized(it.albumName) == normalized(track.albumName) }
         val ranked = sameAlbum.ifEmpty { valid }.distinctBy { it.id }.sortedBy { abs(it.durationMs - track.durationMs) }
         if (ranked.size > 1 && abs(ranked[0].durationMs-track.durationMs) == abs(ranked[1].durationMs-track.durationMs)) return null
         return ranked.firstOrNull()
+    }
+
+    private fun matchesArtistAliases(credits: List<String>, candidate: NeteaseTrack): Boolean {
+        if (credits.isEmpty() || credits.size != candidate.artists.size ||
+            candidate.artistAliases.size != credits.size || candidate.artistAliases.all { it.isEmpty() }) return false
+        val names = candidate.artists.zip(candidate.artistAliases) { name, aliases ->
+            (aliases + name).mapTo(HashSet(), ::normalized)
+        }
+        // Every credited artist must map to a different catalog artist unambiguously.
+        val matched = credits.map { credit -> names.indices.singleOrNull { credit in names[it] } ?: return false }
+        return matched.toSet().size == credits.size
     }
 
     fun parse(text: String, extension: String): Lyrics? {

@@ -12,6 +12,7 @@ import me.sorihiko.dangomusicgtnh.music.PlaybackView
 import me.sorihiko.dangomusicgtnh.ui.LayoutBounds
 import me.sorihiko.dangomusicgtnh.ui.ShapeStyle
 import me.sorihiko.dangomusicgtnh.ui.Theme
+import me.sorihiko.dangomusicgtnh.ui.UiStyle
 import me.sorihiko.dangomusicgtnh.ui.VectorIcon
 import me.sorihiko.dangomusicgtnh.utils.Color
 
@@ -169,7 +170,9 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
             scrollPosition = 0f
         }
         track = song
-        val coverRadius = 0.08f // Same cover mask as the existing large-cover grid.
+        // The reference cover turns into the straight edge at about 18 px out of 600.
+        // The continuous-corner shader extends the nominal radius by 1.5.
+        val coverRadius = if (UiStyle.continuous) 0.02f else 0.03f
         val cover = song?.let(CoverCache::lyricsArtwork)
         val radius = frame.artwork.width * coverRadius
         if (cover != null) ui.ctx.drawRoundedImage(frame.artwork, cover, radius)
