@@ -103,7 +103,8 @@ public final class AppleWebServer implements AutoCloseable {
             incoming.has("available")&&incoming.get("available").getAsBoolean();
         boolean confirmedReplacement=id.equals(load.resolvedId)&&
             (!id.equals(load.previousId)||load.catalogId.equals(load.previousRequestedId));
-        if(available&&(load.catalogId.isEmpty()||load.catalogId.equals(id)||confirmedReplacement))return true;
+        if(available&&(load.catalogId.isEmpty()||load.catalogId.equals(id)||confirmedReplacement))
+            return incoming.has("playing")&&incoming.get("playing").getAsBoolean();
         if(load.mismatchSince==0&&available)load.mismatchSince=System.nanoTime();
         if(load.mismatchSince==0||elapsed(load.mismatchSince)<CATALOG_MATCH_TIMEOUT_MS)return false;
         failLoad("Apple Music did not confirm the requested song; try playing it again");

@@ -210,7 +210,7 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
         if (resumeAppleFollow) scrollPosition = target
         else if (!keptScroll) scrollPosition = ui.approach(scrollPosition, target, 95f)
         resumeAppleFollow = false
-        drawLyrics(active, size, null)
+        drawLyrics(active, size, null, centered = true)
     }
 
     private fun drawLyricsContent(area: LayoutBounds, close: () -> Unit) {
@@ -326,7 +326,7 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
         return true
     }
 
-    private fun drawLyrics(active: Int, size: Float, popup: LayoutBounds?) {
+    private fun drawLyrics(active: Int, size: Float, popup: LayoutBounds?, centered: Boolean = false) {
         val a = lyricArea
         val baseline = a.y + a.height / 2f - scrollPosition
         val first = rows.binarySearchBy(a.y - baseline) { it.top + it.height }
@@ -340,24 +340,25 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
             val edge = minOf(center - a.y, a.bottom - center).div(48f).coerceIn(0.22f, 1f)
             val color = white.copy(a = (if (i == active) 1f else 0.53f) * edge)
             for (text in row.text) {
-                lyricText(text, y, size, color, Theme.FONT_SEMIBOLD, popup)
+                lyricText(text, y, size, color, Theme.FONT_SEMIBOLD, popup, centered)
                 y += size * 1.32f
             }
             val annotationColor = color.copy(a = color.a * 0.85f)
             for (text in row.phonetic + row.translation) {
-                lyricText(text, y, size * 0.74f, annotationColor, Theme.FONT_REGULAR, popup)
+                lyricText(text, y, size * 0.74f, annotationColor, Theme.FONT_REGULAR, popup, centered)
                 y += size
             }
         }
         ui.endClip()
     }
 
-    private fun lyricText(text: String, y: Float, size: Float, color: Color, font: String, popup: LayoutBounds?) {
+    private fun lyricText(text: String, y: Float, size: Float, color: Color, font: String, popup: LayoutBounds?, centered: Boolean) {
         // 中文走延迟绘制，弹窗背后的文字也需要在提交时截断。
         val visible = if (popup != null && y + size >= popup.y && y <= popup.bottom) {
             ui.trim(text, popup.x - lyricArea.x - 10f, size, font)
         } else text
-        ui.text(visible, lyricArea.x, y, size, color, font)
+        val x = if (centered) lyricArea.x + (lyricArea.width - ui.width(visible, size, font)) / 2f else lyricArea.x
+        ui.text(visible, x, y, size, color, font)
     }
 
     private fun drawRecord(cx: Float, cy: Float, diameter: Float, song: NeteaseTrack?) {

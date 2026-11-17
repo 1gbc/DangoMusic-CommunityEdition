@@ -300,7 +300,7 @@ class DynamicIslandModule : Module() {
             ctx.pushOpacity(contentAlpha)
             when {
                 shown == Kind.IDLE -> drawIdle(ctx, cb)
-                shown == Kind.MINI -> drawMini(ctx, cb, snap, titleSize)
+                shown == Kind.MINI -> drawMini(ctx, cb, snap, titleSize, pill.x + pill.width / 2f)
                 continuous && shown == Kind.FULL -> drawDev6Song(ctx, cb, snap, titleSize)
                 else -> drawSong(ctx, cb, snap, titleSize)
             }
@@ -342,14 +342,14 @@ class DynamicIslandModule : Module() {
     private fun islandSourceLabel(snap: PlaybackView.Snapshot): String =
         if (!snap.remote && snap.track?.source == MusicSource.APPLE) "" else snap.sourceLabel
 
-    private fun drawMini(ctx: GuiCanvas, b: LayoutBounds, snap: PlaybackView.Snapshot, titleSize: Float) {
+    private fun drawMini(ctx: GuiCanvas, b: LayoutBounds, snap: PlaybackView.Snapshot, titleSize: Float, centerX: Float) {
         val track = snap.track ?: return
         val cover = LayoutBounds(b.x + COMPACT_COVER_LEFT, b.y + (b.height - COMPACT_COVER_SIZE) / 2f,
             COMPACT_COVER_SIZE, COMPACT_COVER_SIZE)
         drawCover(ctx, cover, CoverCache.track(track), mask = true)
         drawTrackTitle(ctx, track.name, b.x + COMPACT_TITLE_LEFT, b.right - COMPACT_END_PADDING,
             b.y + (b.height - titleSize) / 2f + 1f, titleSize,
-            if (snap.playing) Theme.TEXT_PRIMARY else Theme.TEXT_SECONDARY)
+            if (snap.playing) Theme.TEXT_PRIMARY else Theme.TEXT_SECONDARY, centerX)
     }
 
     private inline fun <T> withTitleFont(draw: () -> T): T {
@@ -362,22 +362,28 @@ class DynamicIslandModule : Module() {
         width(title, size, AppleLyricsLayout.TITLE_FONT)
     }
 
-    private fun drawTrackTitle(ctx: GuiCanvas, title: String, left: Float, right: Float, y: Float, size: Float, color: Color) = withTitleFont {
+    private fun drawTrackTitle(
+        ctx: GuiCanvas, title: String, left: Float, right: Float, y: Float, size: Float,
+        color: Color, centerX: Float? = null,
+    ) = withTitleFont {
         val titleArea = LayoutBounds(left, y - 2f, (right - left).coerceAtLeast(0f), size + 6f)
         if (titleArea.width <= 0f || title.isEmpty()) return
         if (abs(titleScrollWidth - titleArea.width) > 0.1f) {
             titleScrollWidth = titleArea.width
             titleScrollStartedAt = lastNanos
         }
-        val overflow = width(title, size, AppleLyricsLayout.TITLE_FONT) - titleArea.width
-        val offset = titleOffset(overflow, (lastNanos - titleScrollStartedAt) / 1e9)
+        val textWidth = width(title, size, AppleLyricsLayout.TITLE_FONT)
+        val overflow = textWidth - titleArea.width
+        val x = if (centerX != null && overflow <= 0f) {
+            (centerX - textWidth / 2f).coerceIn(left, left - overflow)
+        } else left - titleOffset(overflow, (lastNanos - titleScrollStartedAt) / 1e9)
         val previousClip = mt.clip
         val clip = previousClip?.intersect(titleArea) ?: titleArea
         if (clip.width <= 0f || clip.height <= 0f) return
         ctx.pushClip(clip)
         mt.clip = clip
         try {
-            text(ctx, title, left - offset, y, size, color, AppleLyricsLayout.TITLE_FONT)
+            text(ctx, title, x, y, size, color, AppleLyricsLayout.TITLE_FONT)
         } finally {
             mt.clip = previousClip
             ctx.popClip()

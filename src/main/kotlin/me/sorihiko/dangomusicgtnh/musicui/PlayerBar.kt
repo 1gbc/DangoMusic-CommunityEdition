@@ -738,7 +738,8 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         val titleSize = frame.titleSize
         val title = track?.name ?: I18n.text("Not playing")
         val artist = track?.artists.orEmpty().joinToString(" / ")
-        val metadata = listOf(artist, track?.albumName.orEmpty()).filter { it.isNotBlank() }.joinToString(" — ")
+        val metadata = if (snap.loading) I18n.text("Loading Apple Music song")
+            else listOf(artist, track?.albumName.orEmpty()).filter { it.isNotBlank() }.joinToString(" — ")
         val font = AppleLyricsLayout.TITLE_FONT
         ui.text(ui.trim(title, 514f * scale, titleSize, font), frame.x(396f), frame.y(886f), titleSize, primary, font)
         ui.text(ui.trim(metadata, 514f * scale, titleSize, font), frame.x(396f), frame.y(910f), titleSize, secondary, font)
@@ -756,7 +757,7 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
 
         progRect = frame.progress
         val duration = if (track == null) 0L else snap.durationMs.coerceAtLeast(0L)
-        progressHit = if (duration > 0L && !snap.remote) frame.bounds(390f, 936f, 612f, 24f) else LayoutBounds()
+        progressHit = if (duration > 0L && !snap.remote && !snap.loading) frame.bounds(390f, 936f, 612f, 24f) else LayoutBounds()
         val position = if (track != null && seekTrack == track.key) {
             (seekFraction.toDouble() * duration).toLong()
         } else snap.positionMs.coerceIn(0L, duration)
@@ -771,8 +772,11 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         PlayerIcons.mode(ctx, MusicPlayer.Mode.SHUFFLE, frame.x(568f), centerY, 21f * scale,
             if (mode == MusicPlayer.Mode.SHUFFLE) primary else secondary)
         PlayerIcons.draw(ctx, APPLE_PREVIOUS, frame.x(629f), centerY, 42f * scale, secondary)
-        val transportIcon = if (snap.playing) AppleLyricsIcons.pause else AppleLyricsIcons.play
-        PlayerIcons.draw(ctx, transportIcon, frame.x(696f), centerY, 42f * scale, primary)
+        if (snap.loading) PlayerIcons.loadingRing(ctx, frame.x(696f), centerY, null, 24f * scale)
+        else {
+            val transportIcon = if (snap.playing) AppleLyricsIcons.pause else AppleLyricsIcons.play
+            PlayerIcons.draw(ctx, transportIcon, frame.x(696f), centerY, 42f * scale, primary)
+        }
         PlayerIcons.draw(ctx, APPLE_NEXT, frame.x(762f), centerY, 42f * scale, secondary)
         val repeating = mode == MusicPlayer.Mode.REPEAT_ONE
         PlayerIcons.mode(ctx, if (repeating) mode else MusicPlayer.Mode.SEQUENTIAL,
@@ -780,7 +784,7 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         if (!snap.remote && track != null) {
             ui.hits += frame.bounds(548f, 980f, 40f, 46f) to { toggleAppleMode(MusicPlayer.Mode.SHUFFLE) }
             ui.hits += frame.bounds(603f, 978f, 52f, 50f) to { ClientMusic.control(PlaybackView::previous) }
-            ui.hits += frame.bounds(669f, 978f, 54f, 50f) to { ClientMusic.control(PlaybackView::togglePause) }
+            if (!snap.loading) ui.hits += frame.bounds(669f, 978f, 54f, 50f) to { ClientMusic.control(PlaybackView::togglePause) }
             ui.hits += frame.bounds(736f, 978f, 52f, 50f) to { ClientMusic.control(PlaybackView::next) }
             ui.hits += frame.bounds(803f, 980f, 40f, 46f) to { toggleAppleMode(MusicPlayer.Mode.REPEAT_ONE) }
         }

@@ -326,3 +326,59 @@ test('song details use the current storefront and accept library song IDs',async
   await assert.rejects(details('library:i../tracks'),/Invalid song identifier/);
   assert.deepEqual(paths,['/v1/catalog/cn/songs/123','/v1/me/library/songs/i.abc']);
 });
+
+test('Apple track changes pause the old song before a delayed queue and only play the replacement', async () => {
+  const vm = require('node:vm');
+  let releaseQueue;
+  const events = [];
+  const player = {
+    isAuthorized: true, isPlaying: true, nowPlayingItem: {id:'123', attributes:{name:'Old song'}},
+    async pause() { events.push('pause:' + this.nowPlayingItem.id); this.isPlaying = false; },
+    async setQueue({song}) {
+      events.push('queue:' + song);
+      await new Promise(resolve => { releaseQueue = resolve; });
+      this.nowPlayingItem = {id:song, attributes:{name:'New song'}};
+    },
+    async play() { events.push('play:' + this.nowPlayingItem.id); this.isPlaying = true; },
+  };
+  const context = vm.createContext({location:{origin:'https://music.apple.com'},
+    MusicKit:{getInstance:() => player}, URL, setTimeout, clearTimeout});
+  vm.runInContext(fs.readFileSync(__dirname+'/extension/adapter.js', 'utf8'), context);
+  const loading = context.appleAdapter({name:'load', value:{id:'456'}});
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(events, ['pause:123','queue:456']);
+  assert.equal(player.isPlaying, false, 'The old song remains silent throughout loading');
+  releaseQueue();
+  await loading;
+  assert.deepEqual(events, ['pause:123','queue:456','play:456']);
+});
+
+test('rapid track changes wait for a prior queue mutation and skip its playback', async () => {
+  const vm = require('node:vm');
+  const calls = [];
+  let releaseFirst;
+  const player = {
+    isAuthorized: true, isPlaying: true, nowPlayingItem: {id:'123',attributes:{name:'First'}},
+    async pause() { this.isPlaying = false; },
+    async setQueue({song}) {
+      calls.push('queue:' + song);
+      if (song === '456') await new Promise(resolve => { releaseFirst = resolve; });
+      this.nowPlayingItem = {id:song,attributes:{name:'New song'}};
+    },
+    async play() { calls.push('play:' + this.nowPlayingItem.id); this.isPlaying = true; },
+  };
+  const context = vm.createContext({location:{origin:'https://music.apple.com'},
+    MusicKit:{getInstance:() => player}, URL, setTimeout, clearTimeout});
+  vm.runInContext(fs.readFileSync(__dirname+'/extension/adapter.js', 'utf8'), context);
+  const turn = () => new Promise(resolve => setImmediate(resolve));
+  const first = context.appleAdapter({name:'load', value:{id:'456'}});
+  await turn();
+  const latest = context.appleAdapter({name:'load', value:{id:'789'}});
+  await turn();
+  assert.deepEqual(calls, ['queue:456']);
+  assert.equal(player.isPlaying, false);
+  releaseFirst();
+  assert.equal((await first).cancelled, true);
+  await latest;
+  assert.deepEqual(calls, ['queue:456','queue:789','play:789']);
+});

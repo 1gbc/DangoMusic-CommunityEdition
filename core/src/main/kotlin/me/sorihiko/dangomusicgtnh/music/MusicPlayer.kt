@@ -394,7 +394,8 @@ object MusicPlayer {
 
     @Synchronized fun togglePause() {
         if (MusicSources.selected == MusicSource.APPLE) {
-            AppleWebPlayer.command(if (state == State.PLAYING) "pause" else "play"); return
+            if (state != State.LOADING) AppleWebPlayer.command(if (state == State.PLAYING) "pause" else "play")
+            return
         }
         when (state) {
             State.PLAYING -> {
@@ -474,7 +475,10 @@ object MusicPlayer {
     }
 
     fun seek(ms: Long) {
-        if (current?.source == MusicSource.APPLE) { AppleWebPlayer.command("seek", ms.coerceIn(0L, durationMs).toDouble() / 1000); return }
+        if (current?.source == MusicSource.APPLE) {
+            if (state != State.LOADING) AppleWebPlayer.command("seek", ms.coerceIn(0L, durationMs).toDouble() / 1000)
+            return
+        }
         if (audio == null) {
             // 恢复后还没加载：只改记住的进度，按播放时从这里开始
             synchronized(this) {

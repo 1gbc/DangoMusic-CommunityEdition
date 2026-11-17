@@ -88,7 +88,9 @@ public class DynamicIslandCompactCheck {
             check(texts.equals(List.of("Short")),"Only title is displayed in compact: "+texts);
             check(shell.get(0).getWidth()>150 && shell.get(0).getWidth()<180,"Compact keeps a longer minimum width");
             check(Math.abs(radii.get(0)-shell.get(0).getHeight()/2)<.001f,"Use capsule radius");
-            check(Math.abs(textXs.get(0)-textClips.get(0).getX())<.001f,"Short title does not move");
+            float titleWidth = "Short".length() * titleSizes.get(0) / renderScale[0] * .58f;
+            float center = shell.get(0).getX() + shell.get(0).getWidth() / 2f;
+            check(Math.abs(textXs.get(0) + titleWidth / 2f - center) < .01f,"Short title is centered in the compact capsule");
             check(Math.abs(titleSizes.get(0) - 18f * 1280f / 2464f) < .001f,
                 "The island renders the Apple Music track title at the same screen size");
         }

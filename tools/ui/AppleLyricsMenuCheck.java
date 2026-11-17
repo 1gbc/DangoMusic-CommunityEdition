@@ -67,11 +67,13 @@ public class AppleLyricsMenuCheck {
     public static void main(String[] args) throws Exception {
         var labels = new ArrayList<String>();
         var icons = new ArrayList<VectorIcon>();
+        var textLeft = new java.util.HashMap<String,Float>();
         var clipboard = new AtomicReference<String>();
         var tempConfig = java.nio.file.Files.createTempDirectory(Path.of(args[0]), "apple-menu-");
         DangoMusic.start(proxy(Platform.class, (p,m,a) -> {
             if (m.getName().equals("getConfigDir")) return tempConfig;
             if (m.getName().equals("setClipboard")) clipboard.set((String)a[0]);
+            if (m.getName().equals("getWindowHeight")) return 1292;
             return null;
         }), List.of());
         field(DangoClient.INSTANCE, "gfx").set(null, proxy(Gfx.class, (p,m,a) -> {
@@ -85,7 +87,10 @@ public class AppleLyricsMenuCheck {
             };
         }));
         ScreenState.INSTANCE.setContext(proxy(GuiCanvas.class, (p,m,a) -> {
-            if (m.getName().equals("drawText")) labels.add((String)a[0]);
+            if (m.getName().equals("drawText")) {
+                labels.add((String)a[0]);
+                textLeft.put((String)a[0], (float)a[1]);
+            }
             if (m.getName().equals("drawIcon")) icons.add((VectorIcon)a[1]);
             return m.getName().equals("getOpacity") ? 1f : null;
         }));
@@ -95,8 +100,8 @@ public class AppleLyricsMenuCheck {
             .filter(method -> method.getName().startsWith("getAppleLyricsPageSize"))
             .findFirst().orElseThrow(() -> new AssertionError("Apple Music needs its own default text size"));
         var textSize = (me.sorihiko.dangomusicgtnh.module.values.IntValue)field(module, "lyricsPageSize").get(module);
-        check(textSize.getValue() == 22 && appleSize.invoke(module).equals(24),
-            "Apple Music defaults to 24 while the existing NetEase size remains 22");
+        check(textSize.getValue() == 22 && appleSize.invoke(module).equals(26),
+            "Apple Music defaults to 26 while the existing NetEase size remains 22");
         textSize.setValue(26);
         check(appleSize.invoke(module).equals(26), "Existing custom lyric size remains in effect");
         textSize.reset();
@@ -122,6 +127,17 @@ public class AppleLyricsMenuCheck {
         var lines = List.of(new LyricLine(0, "First line", null, "First translation", "First romanization"),
             new LyricLine(1000, "Second line", null, "Second translation", "Second romanization"));
         layout(page, lines);
+        field(page, "lyricArea").set(page, frame.getLyrics());
+        Method drawLyrics = LyricsPage.class.getDeclaredMethod("drawLyrics", int.class, float.class, LayoutBounds.class, boolean.class);
+        drawLyrics.setAccessible(true);
+        drawLyrics.invoke(page, 0, 22f, null, true);
+        float centerX = frame.getLyrics().getX() + frame.getLyrics().getWidth() / 2f;
+        check(Math.abs(textLeft.get("First line") + "First line".length() * 22f * .56f / 2f - centerX) < .01f,
+            "Lyrics center on the same axis as the no-lyrics message");
+        check(Math.abs(textLeft.get("First translation") + "First translation".length() * 22f * .74f * .56f / 2f - centerX) < .01f,
+            "Annotations use the same center");
+        drawLyrics.invoke(page, 0, 22f, null, false);
+        check(textLeft.get("First line").equals(frame.getLyrics().getX()), "NetEase retains left alignment");
         float anchor = rowTop(page, 1) + 5f;
         field(page, "manualPosition").set(page, anchor);
         field(page, "scrollPosition").setFloat(page, anchor);

@@ -40,6 +40,15 @@ public class AppleQueueCheck {
             AppleWebPlayer.INSTANCE.tick();check(p.getCurrent()==b,"The previous end cannot advance again while the next song loads");
             ack=load.get("id").getAsLong();
             String second=state.replace("123","456").replace("One","Two").replace("240000","0");
+            String buffering=second.replace("\"playing\":true","\"playing\":false");
+            GameBridgeCheck.post(s,"/sync",key,"{\"ack\":"+ack+",\"state\":"+buffering+"}",200);
+            AppleWebPlayer.INSTANCE.tick();
+            check(p.getCurrent()==b&&p.getState()==MusicPlayer.State.LOADING&&p.getPositionMs()==0,
+                "The selected song and loading state remain visible until playback starts");
+            p.togglePause();
+            p.seek(5000);
+            check(GameBridgeCheck.post(s,"/sync",key,"{\"ack\":"+ack+"}",200).get("command").isJsonNull(),
+                "Controls must not resume or seek the old song during the replacement load");
             GameBridgeCheck.post(s,"/sync",key,"{\"ack\":"+ack+",\"state\":"+second+"}",200);
             AppleWebPlayer.INSTANCE.tick();check(p.getCurrent()==b&&b.getDurationMs()==240000,"A transient zero duration keeps the catalog duration");
             GameBridgeCheck.post(s,"/sync",key,"{\"ack\":"+ack+",\"state\":"+ended.replace("}",",\"id\":\"123\"}")+"}",200);

@@ -96,15 +96,15 @@ internal object PlayerIcons {
     }
     private val loadingArcs = Array(101) { ringArc(it) }
 
-    fun loadingRing(ctx: RenderContext, x: Float, y: Float, percent: Int?) {
-        draw(ctx, loadingArcs[100], x, y, 18f, Theme.TEXT_TERTIARY)
+    fun loadingRing(ctx: RenderContext, x: Float, y: Float, percent: Int?, size: Float = 18f) {
+        draw(ctx, loadingArcs[100], x, y, size, Theme.TEXT_TERTIARY)
         if (percent != null) {
             val step = percent.coerceIn(0, 100)
-            if (step > 0) draw(ctx, loadingArcs[step], x, y, 18f, Theme.TEXT_PRIMARY)
+            if (step > 0) draw(ctx, loadingArcs[step], x, y, size, Theme.TEXT_PRIMARY)
         } else {
             ctx.pushTranslate(x, y, 0f)
             ctx.pushRotate((System.nanoTime() % 900_000_000L) / 2_500_000f, 0f, 0f, 1f)
-            draw(ctx, loadingArcs[30], 0f, 0f, 18f, Theme.TEXT_PRIMARY)
+            draw(ctx, loadingArcs[30], 0f, 0f, size, Theme.TEXT_PRIMARY)
             ctx.popTransform()
             ctx.popTransform()
         }
