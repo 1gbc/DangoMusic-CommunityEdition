@@ -105,7 +105,7 @@ internal class AppleLyricsMenu(
             if (index > 0) {
                 ui.card(LayoutBounds(bounds.x, bounds.y, bounds.width, scale), Theme.TEXT_PRIMARY.copy(a = 0.11f), 0f)
             }
-            row(bounds, I18n.text(label), icon, scale, checked, action)
+            row(bounds, I18n.text(label, "Apple Lyrics Menu"), icon, scale, checked, action)
         }
         item(0, "View Credits", INFO) {
             menuOpen = false
@@ -117,8 +117,8 @@ internal class AppleLyricsMenu(
             copyPending = true
             load(song)
         }
-        item(2, "Show Romanization", AppleLyricsIcons.romanization, romanization.get(), romanization::toggle)
-        item(3, "Show Translation", AppleLyricsIcons.translation, translation.get(), translation::toggle)
+        item(2, "Romanization", AppleLyricsIcons.romanization, romanization.get(), romanization::toggle)
+        item(3, "Translation", AppleLyricsIcons.translation, translation.get(), translation::toggle)
     }
 
     private fun row(

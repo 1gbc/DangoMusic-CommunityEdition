@@ -96,6 +96,8 @@ public class AppleLyricsMenuCheck {
         var page = (LyricsPage)field(screen, "lyricsPage").get(screen);
         var ui = (Ui)field(screen, "ui").get(screen);
         var frame = new AppleLyricsLayout(new LayoutBounds(0, 0, 2464, 1292), true);
+        check(frame.getLyrics().getX() == 1332f && frame.getLyrics().getWidth() == 714f,
+            "Lyrics start farther right without shifting the empty-state center");
         var track = new NeteaseTrack(1L, "Song", List.of("Singer"), 60_000L, "", MusicSource.APPLE);
         var romanization = (BooleanValue)field(module, "lyricsPageRomanization").get(module);
         var translation = (BooleanValue)field(module, "lyricsPageTranslation").get(module);
@@ -104,7 +106,7 @@ public class AppleLyricsMenuCheck {
         menu.draw(frame, track);
         menu.toggle();
         draw(menu, frame, track, ui, labels, icons);
-        check(labels.equals(List.of("View Credits", "Copy Link", "Show Romanization", "Show Translation")),
+        check(labels.equals(List.of("View Credits", "Copy Link", "Romanization", "Translation")),
             "Expected four English menu rows, got " + labels);
         check(icons.size() == 5, "One default checkbox plus four row icons");
 
@@ -127,9 +129,11 @@ public class AppleLyricsMenuCheck {
 
         menu.dismiss();
         I18n.INSTANCE.setLanguage(I18n.CHINESE);
+        check(I18n.INSTANCE.text("Translation").equals("歌词翻译"),
+            "The Apple menu must keep the existing world setting translation label");
         menu.toggle();
         draw(menu, frame, track, ui, labels, icons);
-        check(labels.equals(List.of("查看制作人员", "复制链接", "显示音译", "显示翻译")),
+        check(labels.equals(List.of("查看制作人员", "复制链接", "音译", "翻译")),
             "Expected four Chinese menu rows, got " + labels);
         var details = CompletableFuture.completedFuture(new AppleMusicSource.SongDetails("Singer", "Composer", "https://music.apple.com/us/song/1"));
         field(menu, "details").set(menu, details);

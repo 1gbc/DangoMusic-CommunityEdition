@@ -15,7 +15,8 @@ internal class AppleLyricsLayout(val viewport: LayoutBounds, val showLyrics: Boo
         LayoutBounds(this.x(x), this.y(y), width * scale, height * scale)
 
     val artwork = bounds(396f, 265f, 600f, 600f)
-    val lyrics = if (showLyrics) bounds(1220f, 265f, 938f, 780f) else LayoutBounds()
+    // Keep the reference empty-state center while moving the left-aligned lyric text to the right.
+    val lyrics = if (showLyrics) bounds(1332f, 265f, 714f, 780f) else LayoutBounds()
     val close = LayoutBounds(viewport.x + 7f * scale, viewport.y, 44f * scale, 42f * scale)
     val lyricsToggle = LayoutBounds(viewport.right - 54f * scale, viewport.bottom - 54f * scale, 44f * scale, 44f * scale)
     val moreButton = bounds(968f, 890f, 28f, 28f)
