@@ -425,4 +425,4 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
     }
 }
 
-private const val APPLE_LYRIC_IDLE_NANOS = 5_000_000_000L
+private const val APPLE_LYRIC_IDLE_NANOS = 3_000_000_000L
