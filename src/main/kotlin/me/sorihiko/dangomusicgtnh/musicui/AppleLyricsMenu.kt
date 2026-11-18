@@ -125,7 +125,12 @@ internal class AppleLyricsMenu(
         val rowHeight = minOf(24f, (viewport.height - 16f) / 5f)
         if (width < 80f || rowHeight < 14f) return
         val panel = menuBounds(viewport, width, rowHeight * 5f + 8f)
-        drawWhiteMenu(panel)
+        ui.ctx.pushOpacity(0.94f)
+        try {
+            ui.ctx.drawGlass(panel, BOTTOM_MENU_GLASS)
+        } finally {
+            ui.ctx.popOpacity()
+        }
         val canQueue = !AppleWebPlayer.stationActive && MusicPlayer.state != MusicPlayer.State.LOADING
         val favorite = Library.favoriteState(song)
         ui.popup(panel) {
@@ -133,13 +138,13 @@ internal class AppleLyricsMenu(
                 action: () -> Unit) {
                 val box = LayoutBounds(panel.x + 4f, panel.y + 4f + index * rowHeight, panel.width - 8f, rowHeight)
                 val hovered = enabled && ui.hover(box)
-                if (hovered) ui.card(box, MENU_HOVER, 3f)
-                if (index > 0) ui.card(box.copy(height = 1f), MENU_DIVIDER, 0f)
-                val color = if (enabled) MENU_TEXT else MENU_TEXT.copy(a = 0.40f)
+                if (hovered) ui.card(box, Theme.CARD_HOVER, 3f)
+                if (index > 0) ui.card(box.copy(height = 1f), Theme.HAIRLINE, 0f)
+                val color = if (enabled) Theme.TEXT_PRIMARY else Theme.TEXT_TERTIARY
                 ui.text(I18n.text(label, "Apple Player Menu"), box.x + 7f, box.y + (rowHeight - 11f) / 2f,
                     11f, color, Theme.FONT_MEDIUM)
                 PlayerIcons.draw(ui.ctx, icon, box.right - 13f, box.y + rowHeight / 2f, if (hovered) 14f else 12.5f,
-                    if (selected && enabled) MENU_ACCENT else color)
+                    if (selected && enabled) APPLE_CONTROL_BLUE else color)
                 if (enabled) ui.hits += box to action
             }
             item(0, "Play Next", PLAY_NEXT, canQueue) {
@@ -253,6 +258,11 @@ internal class AppleLyricsMenu(
     }
 
     private companion object {
+        val BOTTOM_MENU_GLASS = Theme.GLASS_SIDEBAR.copy(
+            radius = 5f, tint = Color(0.09f, 0.09f, 0.12f, 0.24f), maxLuma = 0.23f,
+            saturation = 1.12f, frost = 0.64f, refraction = 3f, bevel = 3f, highlight = 0.65f,
+            shadow = ShadowStyle(Color(0f, 0f, 0f, 0.25f), 10f, Vec2(0f, 2f), outside = true),
+        )
         val MENU_WHITE = Color(1f, 1f, 1f, 0.96f)
         val MENU_TEXT = Color.fromHex("#242329")
         val MENU_ACCENT = Color.fromHex("#0068D4")

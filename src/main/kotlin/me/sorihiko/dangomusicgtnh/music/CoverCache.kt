@@ -257,12 +257,9 @@ object CoverCache {
 
     /** Cover colours for the shared flowing lyrics backdrop. */
     fun trackBackdrop(track: NeteaseTrack): Texture? {
+        cachedTrackBackdrop(track)?.let { return it }
         val sourceKey = "t:${track.key}"
         val key = LARGE_PREFIX + sourceKey + LYRICS_BACKDROP_SUFFIX
-        textures[key]?.let {
-            lastUsed[key] = now
-            return it
-        }
         get(sourceKey, track.coverUrl)
         val source = sources[sourceKey] ?: return null
         if (roundQueued.add(key)) {
@@ -280,6 +277,12 @@ object CoverCache {
             }
         }
         return null
+    }
+
+    /** A transitioning window can keep using a palette without reloading an evicted cover. */
+    internal fun cachedTrackBackdrop(track: NeteaseTrack): Texture? {
+        val key = LARGE_PREFIX + "t:${track.key}" + LYRICS_BACKDROP_SUFFIX
+        return textures[key]?.also { lastUsed[key] = now }
     }
 
     internal fun sampleBackdropColours(source: BufferedImage): BufferedImage {

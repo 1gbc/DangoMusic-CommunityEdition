@@ -13,6 +13,7 @@ import me.sorihiko.dangomusicgtnh.font.MixedText;
 import me.sorihiko.dangomusicgtnh.gfx.CjkRun;
 import me.sorihiko.dangomusicgtnh.gfx.Gfx;
 import me.sorihiko.dangomusicgtnh.gfx.GuiCanvas;
+import me.sorihiko.dangomusicgtnh.gfx.Texture;
 import me.sorihiko.dangomusicgtnh.i18n.I18n;
 import me.sorihiko.dangomusicgtnh.lyrics.LyricLine;
 import me.sorihiko.dangomusicgtnh.module.impls.music.NeteaseMusicModule;
@@ -21,7 +22,10 @@ import me.sorihiko.dangomusicgtnh.music.*;
 import me.sorihiko.dangomusicgtnh.musicui.*;
 import me.sorihiko.dangomusicgtnh.platform.Platform;
 import me.sorihiko.dangomusicgtnh.ui.LayoutBounds;
+import me.sorihiko.dangomusicgtnh.ui.GlassStyle;
 import me.sorihiko.dangomusicgtnh.ui.ShapeStyle;
+import me.sorihiko.dangomusicgtnh.ui.Theme;
+import me.sorihiko.dangomusicgtnh.ui.UiStyle;
 import me.sorihiko.dangomusicgtnh.ui.VectorIcon;
 
 /** Run on the compiled client and core classpath, with core resources. No game or login needed. */
@@ -60,9 +64,9 @@ public class AppleLyricsMenuCheck {
     }
 
     private static void layout(LyricsPage page, List<LyricLine> lines) throws Exception {
-        Method layout = LyricsPage.class.getDeclaredMethod("layout", List.class, float.class, float.class, boolean.class);
+        Method layout = LyricsPage.class.getDeclaredMethod("layout", List.class, float.class, float.class, boolean.class, float.class);
         layout.setAccessible(true);
-        layout.invoke(page, lines, 938f, 22f, true);
+        layout.invoke(page, lines, 938f, 22f, true, 22f * .74f);
     }
 
     public static void main(String[] args) throws Exception {
@@ -70,8 +74,14 @@ public class AppleLyricsMenuCheck {
         var icons = new ArrayList<VectorIcon>();
         var textLeft = new java.util.HashMap<String,Float>();
         var clipboard = new AtomicReference<String>();
-        var whiteMenuBounds = new AtomicReference<LayoutBounds>();
-        var whiteMenuStyle = new AtomicReference<ShapeStyle>();
+        var glassMenuBounds = new AtomicReference<LayoutBounds>();
+        var glassMenuStyle = new AtomicReference<GlassStyle>();
+        var litRim = new AtomicReference<ShapeStyle>();
+        var flowingTextures = new ArrayList<Texture>();
+        var flowingRadii = new ArrayList<Float>();
+        var flowingAlpha = new ArrayList<Float>();
+        var opacity = new java.util.ArrayDeque<Float>();
+        opacity.push(1f);
         int[] glassDraws = {0};
         var tempConfig = java.nio.file.Files.createTempDirectory(Path.of(args[0]), "apple-menu-");
         DangoMusic.start(proxy(Platform.class, (p,m,a) -> {
@@ -96,12 +106,22 @@ public class AppleLyricsMenuCheck {
                 textLeft.put((String)a[0], (float)a[1]);
             }
             if (m.getName().equals("drawIcon")) icons.add((VectorIcon)a[1]);
-            if (m.getName().equals("drawGlass")) glassDraws[0]++;
-            if (m.getName().equals("drawShape") && ((ShapeStyle)a[1]).getFillColor().getA() == .96f) {
-                whiteMenuBounds.set((LayoutBounds)a[0]);
-                whiteMenuStyle.set((ShapeStyle)a[1]);
+            if (m.getName().equals("drawGlass")) {
+                glassDraws[0]++;
+                glassMenuBounds.set((LayoutBounds)a[0]);
+                glassMenuStyle.set((GlassStyle)a[1]);
             }
-            return m.getName().equals("getOpacity") ? 1f : null;
+            if (m.getName().equals("drawShape") && ((ShapeStyle)a[1]).getClipBounds() != null) {
+                litRim.set((ShapeStyle)a[1]);
+            }
+            if (m.getName().equals("pushOpacity")) opacity.push((float)a[0] * opacity.peek());
+            if (m.getName().equals("popOpacity")) opacity.pop();
+            if (m.getName().equals("drawFlowingBackdrop")) {
+                flowingTextures.add((Texture)a[1]);
+                flowingRadii.add((float)a[3]);
+                flowingAlpha.add(opacity.peek());
+            }
+            return m.getName().equals("getOpacity") ? opacity.peek() : null;
         }));
 
         var module = new NeteaseMusicModule();
@@ -139,15 +159,16 @@ public class AppleLyricsMenuCheck {
             new LyricLine(1000, "Second line", null, "Second translation", "Second romanization"));
         layout(page, lines);
         field(page, "lyricArea").set(page, frame.getLyrics());
-        Method drawLyrics = LyricsPage.class.getDeclaredMethod("drawLyrics", int.class, float.class, LayoutBounds.class, boolean.class);
+        Method drawLyrics = LyricsPage.class.getDeclaredMethod("drawLyrics", int.class, float.class, LayoutBounds.class,
+            boolean.class, float.class);
         drawLyrics.setAccessible(true);
-        drawLyrics.invoke(page, 0, 22f, null, true);
+        drawLyrics.invoke(page, 0, 22f, null, true, 22f * .74f);
         float centerX = frame.getLyrics().getX() + frame.getLyrics().getWidth() / 2f;
         check(Math.abs(textLeft.get("First line") + "First line".length() * 22f * .56f / 2f - centerX) < .01f,
             "Lyrics center on the same axis as the no-lyrics message");
         check(Math.abs(textLeft.get("First translation") + "First translation".length() * 22f * .74f * .56f / 2f - centerX) < .01f,
             "Annotations use the same center");
-        drawLyrics.invoke(page, 0, 22f, null, false);
+        drawLyrics.invoke(page, 0, 22f, null, false, 22f * .74f);
         check(textLeft.get("First line").equals(frame.getLyrics().getX()), "NetEase retains left alignment");
         float anchor = rowTop(page, 1) + 5f;
         field(page, "manualPosition").set(page, anchor);
@@ -199,11 +220,10 @@ public class AppleLyricsMenuCheck {
         check(labels.equals(List.of("插播", "最后播放", "个人收藏", "查看制作人员", "拷贝链接")),
             "Bottom menu contains only the five supported and localized actions: " + labels);
         check(icons.size() == 5, "All bottom menu actions have vector icons");
-        var bounds = whiteMenuBounds.get();
-        var style = whiteMenuStyle.get();
-        check(glassDraws[0] == beforeGlass && style.getRadius() == 5f
-            && style.getFillColor().getR() == 1f && style.getFillColor().getG() == 1f && style.getFillColor().getB() == 1f,
-            "Player menu uses a nearly opaque white fill and small corners without liquid glass");
+        var bounds = glassMenuBounds.get();
+        var style = glassMenuStyle.get();
+        check(glassDraws[0] == beforeGlass + 1 && style.getRadius() == 5f && style.getFrost() > .5f,
+            "Bottom menu uses frosted liquid glass with the existing small radius");
         check(bounds.getX() == 2242f && bounds.getY() == 1110f,
             "Menu flips left and up when necessary and stays anchored to the original click");
         var queue = (AppleQueuePanel)field(screen, "appleQueue").get(screen);
@@ -212,6 +232,80 @@ public class AppleLyricsMenuCheck {
         var fitted = queue.layoutIn(window);
         check(fitted.getWidth() == 226f && fitted.getBottom() == window.getBottom()
             && fitted.getRight() == window.getRight(), "Up Next is narrow and extends to the lower right edge");
-        System.out.println("Apple lyrics menu passes both languages, independent toggles, scroll anchoring, credits and copy link");
+
+        for (boolean continuous : new boolean[]{false, true}) {
+            UiStyle.INSTANCE.setContinuous(continuous);
+            for (float scale : new float[]{1f, .5f}) {
+                var viewport = new LayoutBounds(0f, 0f, 2464f * scale, 1292f * scale);
+                var lyricsFrame = new AppleLyricsLayout(viewport, true);
+                var centeredFrame = new AppleLyricsLayout(viewport, false);
+                float expectedRadius = (continuous ? 12f : 18f) * scale;
+                for (var layout : List.of(lyricsFrame, centeredFrame)) {
+                    page.drawApple(layout, new PlaybackView.Snapshot(), () -> Unit.INSTANCE, () -> Unit.INSTANCE);
+                    check(Math.abs(litRim.get().getClipRadius() - expectedRadius) < .001f
+                            && litRim.get().getClipBounds().equals(layout.getArtwork()),
+                        "Artwork and its rim use the Major 5 mask at both scales and in both layouts");
+                }
+                check(field(page, "layoutSize").getFloat(page) == 29f * scale, "Original lyrics are three sizes larger");
+                check(Math.abs(field(page, "layoutAnnotationSize").getFloat(page) - (26f * .74f + 3f) * scale) < .001f,
+                    "Translation and romanization each gain three sizes");
+            }
+        }
+        var player = (PlayerBar)field(screen, "bar").get(screen);
+        Method drawBar = PlayerBar.class.getDeclaredMethod("drawAppleBar", LayoutBounds.class, PlaybackView.Snapshot.class);
+        drawBar.setAccessible(true);
+        var snapshot = new PlaybackView.Snapshot(false, track, 5_000L, 60_000L, true, false, "", "");
+        bottom.dismiss();
+        MusicSources.INSTANCE.setSelected(MusicSource.APPLE);
+        MusicPlayer.INSTANCE.acceptAppleState(track, 5_000L, true);
+        for (float available : new float[]{900f, 420f}) {
+            float baseWidth = Math.min(540f, available - 12f);
+            var bar = PlayerBar.Companion.appleBarBounds(240f, available, 784f);
+            check(Math.abs(bar.getWidth() - .7f * baseWidth) < .001f && bar.getHeight() == .7f * 45f
+                    && Math.abs(bar.getX() + bar.getWidth() / 2f - (240f + available / 2f)) < .001f
+                    && bar.getBottom() == 784f, "Apple bar is 70% of Major 11 and retains its anchor");
+            ui.getHits().clear();
+            drawBar.invoke(player, bar, snapshot);
+            float unit = bar.getWidth() / 540f;
+            var moreHit = player.getAppleMenuAnchor();
+            check(moreHit.getWidth() == 24f * unit && ui.getHits().stream().anyMatch(hit -> hit.getFirst() == moreHit),
+                "The three-dot button uses a scaled clickable region");
+            var seekHit = (LayoutBounds)field(player, "progressHit").get(player);
+            check(seekHit.getWidth() > 0f && Math.abs(seekHit.getHeight() - 12f * unit) < .001f
+                    && seekHit.getX() > bar.getX() && seekHit.contains((int)(seekHit.getX() + seekHit.getWidth() / 2f),
+                        Math.round(bar.getBottom() - 5.5f * unit)),
+                "The progress track stays within the smaller bar and its hit area scales");
+            int trackY = Math.round(bar.getBottom() - 5.5f * unit);
+            check(!player.mouseDown((int)seekHit.getX() - 2, trackY), "The old hit area cannot start a drag outside the new bar");
+            check(player.mouseDown((int)(seekHit.getX() + seekHit.getWidth() / 4f), trackY), "Seek starts on the scaled track");
+            player.mouseDrag(Math.round(seekHit.getX() + seekHit.getWidth() * .75f), trackY);
+            check(Math.abs(field(player, "seekFraction").getFloat(player) - .75f) < .01f, "Drag uses the scaled track length");
+            player.mouseUp();
+        }
+
+        var backdrop = (FlowingCoverBackdrop)field(screen, "coverBackdrop").get(screen);
+        var firstTexture = proxy(Texture.class, (p,m,a) -> null);
+        var secondTexture = proxy(Texture.class, (p,m,a) -> null);
+        var nextTrack = new NeteaseTrack(2L, "Next song", List.of("Singer"), 60_000L, "", MusicSource.APPLE);
+        var cached = (java.util.Map<String, Texture>)field(CoverCache.INSTANCE, "textures").get(null);
+        cached.put("L|t:" + track.getKey() + "#r-lyrics-backdrop", firstTexture);
+        backdrop.drawWindow(window, track);
+        var start = field(backdrop, "transitionStartedAt");
+        start.setLong(backdrop, System.nanoTime() - 500_000_000L);
+        cached.put("L|t:" + nextTrack.getKey() + "#r-lyrics-backdrop", secondTexture);
+        backdrop.drawWindow(window, nextTrack);
+        flowingTextures.clear();
+        flowingRadii.clear();
+        flowingAlpha.clear();
+        start.setLong(backdrop, System.nanoTime() - 210_000_000L);
+        backdrop.drawWindow(window, nextTrack);
+        float lower = flowingAlpha.get(0);
+        float upper = flowingAlpha.get(1);
+        check(flowingTextures.size() == 2 && flowingTextures.get(0) == firstTexture
+                && flowingTextures.get(1) == secondTexture && Math.abs(upper + lower * (1f - upper) - .85f) < .001f
+                && flowingRadii.stream().allMatch(radius -> radius == Theme.INSTANCE.getGLASS_WINDOW().getRadius()),
+            "A cut blends the two cached cover palettes with constant translucency and a window mask");
+        check(opacity.size() == 1, "Opacity stack remains balanced");
+        System.out.println("Apple UI checks passed for menu actions, bar geometry, cover mask, lyric sizes and backdrop blending");
     }
 }

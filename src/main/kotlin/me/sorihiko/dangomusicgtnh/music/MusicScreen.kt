@@ -12,6 +12,7 @@ import me.sorihiko.dangomusicgtnh.musicui.ArtistPage
 import me.sorihiko.dangomusicgtnh.musicui.ArtistRef
 import me.sorihiko.dangomusicgtnh.musicui.GridPage
 import me.sorihiko.dangomusicgtnh.musicui.AppleDiscoverPage
+import me.sorihiko.dangomusicgtnh.musicui.FlowingCoverBackdrop
 import me.sorihiko.dangomusicgtnh.musicui.GroupPage
 import me.sorihiko.dangomusicgtnh.musicui.Library
 import me.sorihiko.dangomusicgtnh.musicui.LoginDialog
@@ -64,7 +65,8 @@ class MusicScreen(
     private val groupPage = GroupPage(this)
     private val settings = SettingsPage(this, module)
     internal val songComments = SongComments(ui)
-    private val lyricsPage = LyricsPage(ui, module, songComments)
+    private val coverBackdrop = FlowingCoverBackdrop(ui)
+    private val lyricsPage = LyricsPage(ui, module, songComments, coverBackdrop)
     private val appleLyricsMenu = AppleLyricsMenu(ui, module.lyricsPageRomanization, module.lyricsPageTranslation)
     private val appleBarMenu = AppleLyricsMenu(ui, module.lyricsPageRomanization, module.lyricsPageTranslation)
     private val appleQueue = AppleQueuePanel(ui)
@@ -484,14 +486,17 @@ class MusicScreen(
         val win = LayoutBounds(26f, 20f + (1f - alpha) * 12f, ui.lw - 52f, ui.lh - 40f)
         val pad = 10f
         val sideW = 224f
-        val barH = if (appleNavigation) 45f else 88f
         if (lyricsOpen) {
+            val barH = if (appleNavigation) 45f else 88f
             barRect = LayoutBounds(win.x, win.bottom - barH, win.width, barH)
             val content = LayoutBounds(win.x + pad, win.y + pad, win.width - 2f * pad, barRect.y - win.y - pad)
             lyricsPage.draw(content, win, ::closeLyrics)
             return
         }
-        ui.ctx.drawGlass(win, Theme.GLASS_WINDOW)
+        if (appleNavigation) {
+            val song = PlaybackView.snapshot().track?.takeIf { it.source == MusicSource.APPLE }
+            coverBackdrop.drawWindow(win, song)
+        } else ui.ctx.drawGlass(win, Theme.GLASS_WINDOW)
         val side = LayoutBounds(win.x + pad, win.y + pad, sideW, win.height - pad * 2)
         val mainX = side.right + pad + 8f
         appleQueueArea = if (appleNavigation) {
@@ -501,10 +506,9 @@ class MusicScreen(
         val mainW = mainRight - mainX
         // 播放栏浮在内容上面：左右和底部留出间距；内容延伸到播放栏底边为止，滚动时从播放栏后面经过，
         // 但不会在播放栏下面那道缝里露出来
-        val barWidth = if (appleNavigation) minOf(540f, mainW - 12f).coerceAtLeast(0f)
-            else win.right - pad - 14f - mainX
-        val barX = if (appleNavigation) mainX + (mainW - barWidth) / 2f else mainX + 2f
-        val barRect = LayoutBounds(barX, win.bottom - pad - 8f - barH, barWidth, barH)
+        val barBottom = win.bottom - pad - 8f
+        val barRect = if (appleNavigation) PlayerBar.appleBarBounds(mainX, mainW, barBottom)
+            else LayoutBounds(mainX + 2f, barBottom - 88f, win.right - pad - 14f - mainX, 88f)
         val content = LayoutBounds(mainX, win.y + pad + 14f, mainW, barRect.bottom - (win.y + pad + 14f))
         if (!appleNavigation) {
             appleQueue.close()
@@ -560,6 +564,10 @@ class MusicScreen(
         // 播放栏的空白处也要挡住点击，不然会点到底下那首歌
         ui.hits.addAll(0, barHits + listOf(barRect to {}))
         if (appleNavigation && !lyricsOpen) {
+            if (appleBarMenu.capturesInput) {
+                ui.mt.flush(ui.scale)
+                ui.ctx.recaptureBackdrop()
+            }
             val playback = PlaybackView.snapshot()
             appleBarMenu.draw(AppleLyricsLayout(LayoutBounds(0f, 0f, ui.lw, ui.lh)),
                 playback.track?.takeUnless { playback.remote }, bar.appleMenuAnchor)

@@ -31,12 +31,21 @@ import kotlin.math.roundToInt
 internal class PlayerBar(private val screen: MusicScreen, private val module: NeteaseMusicModule) {
     private val ui = screen.ui
 
-    private companion object {
+    companion object {
+        private const val APPLE_BAR_WIDTH = 540f
+        private const val APPLE_BAR_SCALE = 0.70f
+
+        fun appleBarBounds(left: Float, availableWidth: Float, bottom: Float): LayoutBounds {
+            val width = minOf(APPLE_BAR_WIDTH, availableWidth - 12f).coerceAtLeast(0f) * APPLE_BAR_SCALE
+            val height = 45f * APPLE_BAR_SCALE
+            return LayoutBounds(left + (availableWidth - width) / 2f, bottom - height, width, height)
+        }
+
         // Reopening the menu does not restart playback notices.
-        var lastPlaybackNotice = ""
-        var playbackNotice = TimedNotice("")
-        var lastSkipNotice = 0L
-        var lastAudibleAppleVolume = 0.2f
+        private var lastPlaybackNotice = ""
+        private var playbackNotice = TimedNotice("")
+        private var lastSkipNotice = 0L
+        private var lastAudibleAppleVolume = 0.2f
     }
 
     private var appleLyricsControls = false
@@ -98,7 +107,11 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         volumeMotion.step(volumeOpen,ui.frameDt/1000f)
         qualityMotion.step(qualityOpen,ui.frameDt/1000f)
         if (screen.appleNavigation && !lyricsOpen) {
-            drawAppleBar(bar, PlaybackView.snapshot())
+            if (bar.width > 0f) drawAppleBar(bar, PlaybackView.snapshot())
+            else {
+                progressHit = LayoutBounds()
+                seekTrack = null
+            }
             return
         }
         if (!lyricsOpen) drawPanel(bar)
@@ -314,7 +327,7 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
 
     private fun drawAppleBar(bar: LayoutBounds, snap: PlaybackView.Snapshot) {
         val ctx = ui.ctx
-        val unit = (bar.width / 540f).coerceAtMost(1f)
+        val unit = bar.width / APPLE_BAR_WIDTH
         val cy = bar.y + bar.height / 2f
         val track = snap.track
         val local = !snap.remote && track?.source == MusicSource.APPLE
@@ -333,7 +346,10 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         val position = if (seekTrack != null) (seekFraction.toDouble() * duration).toLong()
             else snap.positionMs.coerceIn(0L, duration)
 
-        ctx.drawGlass(bar, BAR_GLASS.copy(radius = bar.height / 2f))
+        ctx.drawGlass(bar, BAR_GLASS.copy(
+            radius = bar.height / 2f, refraction = BAR_GLASS.refraction * unit, bevel = BAR_GLASS.bevel * unit,
+            shadow = BAR_GLASS.shadow.copy(size = BAR_GLASS.shadow.size * unit, offset = Vec2(0f, -3f * unit)),
+        ))
         val coverSize = 27f * unit
         val cover = LayoutBounds(progressX, cy - coverSize / 2f, coverSize, coverSize)
         val canOpenCover = screen.canOpenLyrics && !expanded
