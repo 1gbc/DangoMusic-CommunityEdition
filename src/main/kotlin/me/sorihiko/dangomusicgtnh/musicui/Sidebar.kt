@@ -115,10 +115,12 @@ internal class Sidebar(private val screen: MusicScreen, private val hiddenLibrar
     fun drawAppleSearch(box: LayoutBounds) {
         searchRect = box
         ui.card(box, if (searchFocused) Theme.CARD_HOVER else Theme.CARD, box.height / 2f)
-        SidebarIcons.draw(ui.ctx, "search", box.x + 19f, box.y + box.height / 2f, Theme.TEXT_PRIMARY, 18f)
+        if (searchFocused) ui.ctx.drawShape(box, ShapeStyle(Color.TRANSPARENT, box.height / 2f, 1.8f, APPLE_CONTROL_BLUE))
+        SidebarIcons.draw(ui.ctx, "search", box.x + 19f, box.y + box.height / 2f,
+            if (searchFocused) APPLE_CONTROL_BLUE else Theme.TEXT_PRIMARY, 18f)
         val width = (box.width - 72f).coerceAtLeast(0f)
         val caret = if (searchFocused && caretVisible()) "|" else ""
-        val value = (searchText + caret).ifEmpty { I18n.text("Search songs...") }
+        val value = if (searchText.isEmpty()) caret + I18n.text("Search") else searchText + caret
         var visible = value
         if (searchText.isNotEmpty()) {
             while (visible.length > 1 && ui.width(visible, 12f) > width) visible = visible.drop(1)
@@ -131,7 +133,7 @@ internal class Sidebar(private val screen: MusicScreen, private val hiddenLibrar
             SidebarIcons.draw(ui.ctx, "clear", clear.x + 12f, clear.y + clear.height / 2f, Theme.TEXT_SECONDARY, 13f)
             ui.hits.add(ui.hits.lastIndex, clear to {
                 searchText = ""
-                ScreenState.lastQuery = ""
+                screen.appleSearchEdited()
                 searchFocused = true
             })
         }
@@ -701,6 +703,7 @@ internal class Sidebar(private val screen: MusicScreen, private val hiddenLibrar
             return true
         }
         if (!searchFocused) return false
+        val previous = searchText
         when {
             keyCode == Keys.ESCAPE -> searchFocused = false
             keyCode == Keys.RETURN || keyCode == Keys.NUMPADENTER -> {
@@ -716,6 +719,7 @@ internal class Sidebar(private val screen: MusicScreen, private val hiddenLibrar
             DangoClient.platform.ctrlDown && keyCode == Keys.A -> searchText = ""
             Keys.isAllowedChar(typedChar) -> searchText = (searchText + typedChar).take(80)
         }
+        if (previous != searchText) screen.appleSearchEdited()
         return true
     }
 }

@@ -79,6 +79,8 @@ void main() {
     float aa = max(fwidth(d), 1e-4);
     float mask = 1.0 - smoothstep(-aa, 0.0, d);
     if (u_EdgeWidth > 0.0) mask *= 1.0 - smoothstep(0.0, u_EdgeWidth, -d);
+    // Negative width feathers a sampled blur into the existing surface.
+    if (u_EdgeWidth < 0.0) mask *= smoothstep(0.0, -u_EdgeWidth, -d);
     if (mask <= 0.0) discard;
 
     // SDF 梯度 = 表面法线（指向外侧）

@@ -4,6 +4,12 @@ import me.sorihiko.dangomusicgtnh.ui.VectorIcon
 
 /** Artwork-page glyphs share the player's 24-unit path renderer. */
 internal object AppleLyricsIcons {
+    val expand = VectorIcon.path {
+        move(10.5, 10.5); line(4.5, 4.5)
+        move(4.5, 10.0); line(4.5, 4.5); line(10.0, 4.5)
+        move(13.5, 13.5); line(19.5, 19.5)
+        move(14.0, 19.5); line(19.5, 19.5); line(19.5, 14.0)
+    }
     val close = VectorIcon.path(strokeWidth = 2.1f) {
         move(5.0, 5.0); line(19.0, 19.0)
         move(19.0, 5.0); line(5.0, 19.0)

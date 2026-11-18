@@ -156,11 +156,11 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
         drawBackdrop(frame.viewport, song)
         val closeHit = frame.close
         PlayerIcons.draw(ui.ctx, AppleLyricsIcons.close, closeHit.x + closeHit.width / 2f,
-            closeHit.y + closeHit.height / 2f, 24f * frame.scale, white.copy(a = 0.72f))
+            closeHit.y + closeHit.height / 2f, (if (ui.hover(closeHit)) 20f else 18f) * frame.scale, white.copy(a = 0.72f))
         ui.hits += closeHit to close
         val toggleHit = frame.lyricsToggle
         PlayerIcons.draw(ui.ctx, AppleLyricsIcons.lyrics, toggleHit.x + toggleHit.width / 2f,
-            toggleHit.y + toggleHit.height / 2f, 26f * frame.scale,
+            toggleHit.y + toggleHit.height / 2f, (if (ui.hover(toggleHit)) 22f else 19.5f) * frame.scale,
             white.copy(a = if (ui.hover(toggleHit)) 1f else 0.72f))
         ui.hits += toggleHit to toggleLyrics
 
@@ -172,11 +172,11 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
         track = song
         // The reference cover turns into the straight edge at about 18 px out of 600.
         // The continuous-corner shader extends the nominal radius by 1.5.
-        val coverRadius = if (UiStyle.continuous) 0.02f else 0.03f
         val cover = song?.let(CoverCache::lyricsArtwork)
-        val radius = frame.artwork.width * coverRadius
-        if (cover != null) ui.ctx.drawRoundedImage(frame.artwork, cover, radius)
-        else ui.card(frame.artwork, Theme.TRACK, radius)
+        val radius = frame.artwork.width * APPLE_COVER_RADIUS_RATIO
+        ui.drawAppleCover(frame.artwork, cover)
+        if (song == null) SidebarIcons.draw(ui.ctx, "♫", frame.artwork.x + frame.artwork.width / 2f,
+            frame.artwork.y + frame.artwork.height / 2f, Theme.TEXT_TERTIARY, 70f * frame.scale)
         val rim = 0.75f * frame.scale
         ui.ctx.drawShape(frame.artwork.expand(-rim, -rim), ShapeStyle(
             radius = (radius - rim).coerceAtLeast(0f), borderWidth = rim,

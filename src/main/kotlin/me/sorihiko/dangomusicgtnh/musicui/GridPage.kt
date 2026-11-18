@@ -111,7 +111,8 @@ internal class GridPage(private val screen: MusicScreen) {
                         ui.card(tile, if (ui.hover(tile)) Theme.CARD_HOVER else Theme.CARD, 15f)
                         val coverSize = tile.height - 16f
                         val cover = LayoutBounds(x + 8f, y + 8f, coverSize, coverSize)
-                        ui.drawCover(cover, CoverCache.playlistRounded(p, 0.10f), 12f)
+                        if (screen.appleNavigation) ui.drawAppleCover(cover, CoverCache.playlist(p))
+                        else ui.drawCover(cover, CoverCache.playlistRounded(p, 0.10f), 12f)
                         val titleX = cover.right + 13f
                         for ((line, label) in ui.wrap2(p.name, tile.right - titleX - 12f, 15f).withIndex()) {
                             ui.text(label, titleX, y + tile.height / 2f - 10f + line * 18f, 15f,
@@ -124,12 +125,14 @@ internal class GridPage(private val screen: MusicScreen) {
                     val cell = LayoutBounds(x, y, cw, rowH - 6f)
                     val hov = ui.hover(cell) && clip.contains(ui.mx, ui.my)
                     if (hov) ui.ctx.drawShape(LayoutBounds(x - 5f, y - 5f, cw + 10f, rowH + 2f), ShapeStyle(Theme.CARD_HOVER, 14f))
-                    ui.drawCover(cover, CoverCache.playlistRoundedLarge(p, 0.08f), 12f)
+                    val radiusRatio = if (screen.appleNavigation) APPLE_COVER_RADIUS_RATIO else 0.08f
+                    ui.drawCover(cover, CoverCache.playlistRoundedLarge(p, radiusRatio),
+                        if (screen.appleNavigation) cover.width * radiusRatio else 12f)
                     if (hov) {
                         // 悬停：右下角一个播放按钮
                         val pb = LayoutBounds(cover.right - 40f, cover.bottom - 40f, 30f, 30f)
                         ui.ctx.drawShape(pb, ShapeStyle(RED, 15f))
-                        ui.icon("▶", pb.x + 16f, pb.y + 15f, 12f, Theme.TEXT_PRIMARY)
+                        PlayerIcons.draw(ui.ctx, PlayerIcons.play, pb.x + 15f, pb.y + 15f, 17f, Theme.TEXT_PRIMARY)
                     }
                     val lines = ui.wrap2(p.name, cw - 4f, 12f, Theme.FONT_MEDIUM)
                     lines.forEachIndexed { li, line ->

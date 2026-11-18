@@ -53,12 +53,57 @@ public class AppleQueueCheck {
             AppleWebPlayer.INSTANCE.tick();check(p.getCurrent()==b&&b.getDurationMs()==240000,"A transient zero duration keeps the catalog duration");
             GameBridgeCheck.post(s,"/sync",key,"{\"ack\":"+ack+",\"state\":"+ended.replace("}",",\"id\":\"123\"}")+"}",200);
             AppleWebPlayer.INSTANCE.tick();check(p.getCurrent()==b,"A stale end for the first song is ignored");
-            p.selectMode(MusicPlayer.Mode.REPEAT_ONE);
+            p.cycleAppleRepeat();
+            check(p.getAppleRepeatQueue(),"The first click enables list repeat and syncs the queue panel");
+            p.cycleAppleRepeat();
+            check(p.getAppleRepeat()==MusicPlayer.AppleRepeat.ONE&&!p.getAppleRepeatQueue(),
+                "The second click enables single-song repeat");
             GameBridgeCheck.post(s,"/sync",key,"{\"ack\":"+ack+",\"state\":"+ended.replace("}",",\"id\":\"456\"}")+"}",200);
             AppleWebPlayer.INSTANCE.tick();
             load=GameBridgeCheck.post(s,"/sync",key,"{\"ack\":"+ack+"}",200).getAsJsonObject("command");
-            check(p.getCurrent()==b&&load.getAsJsonObject("value").get("id").getAsString().equals("456"),"Repeat reloads the same song after completion");
+            check(load.getAsJsonObject("value").get("id").getAsString().equals("456"),"Single-song repeat reloads the current song");
             ack=load.get("id").getAsLong();
+            GameBridgeCheck.post(s,"/sync",key,"{\"ack\":"+ack+",\"state\":"+second+"}",200);
+            AppleWebPlayer.INSTANCE.tick();
+            p.cycleAppleRepeat();
+            check(p.getAppleRepeat()==MusicPlayer.AppleRepeat.OFF,"The third click turns repeat off");
+            GameBridgeCheck.post(s,"/sync",key,"{\"ack\":"+ack+",\"state\":"+ended.replace("}",",\"id\":\"456\"}")+"}",200);
+            AppleWebPlayer.INSTANCE.tick();
+            check(p.getCurrent()==b&&p.getState()==MusicPlayer.State.PAUSED,
+                "The last song does not wrap while list repeat is off");
+            check(GameBridgeCheck.post(s,"/sync",key,"{\"ack\":"+ack+"}",200).get("command").isJsonNull(),
+                "Finishing the list sends no replacement load");
+            GameBridgeCheck.post(s,"/sync",key,"{\"ack\":"+ack+",\"state\":"+second+"}",200);
+            AppleWebPlayer.INSTANCE.tick();
+            p.toggleAppleQueueRepeat();
+            GameBridgeCheck.post(s,"/sync",key,"{\"ack\":"+ack+",\"state\":"+ended.replace("}",",\"id\":\"456\"}")+"}",200);
+            AppleWebPlayer.INSTANCE.tick();
+            load=GameBridgeCheck.post(s,"/sync",key,"{\"ack\":"+ack+"}",200).getAsJsonObject("command");
+            check(p.getCurrent()==a&&load.getAsJsonObject("value").get("id").getAsString().equals("123"),
+                "Repeat restarts the original list after the last song");
+            ack=load.get("id").getAsLong();
+            GameBridgeCheck.post(s,"/sync",key,"{\"ack\":"+ack+",\"state\":"+state+"}",200);
+            AppleWebPlayer.INSTANCE.tick();
+            p.clearAppleUpcoming();
+            check(p.getCurrent()==a&&p.getState()==MusicPlayer.State.PAUSED&&p.appleUpcoming().isEmpty()
+                &&p.getPositionMs()>=65000&&p.getPositionMs()<66000,"Clear retains the song and timestamp while pausing");
+            AppleWebPlayer.INSTANCE.tick();
+            check(p.getState()==MusicPlayer.State.PAUSED&&p.getQueue().isEmpty(),"A stale bridge report cannot restore the cleared queue");
+            JsonObject pause=GameBridgeCheck.post(s,"/sync",key,"{\"ack\":"+ack+"}",200).getAsJsonObject("command");
+            check(pause.get("name").getAsString().equals("pause"),"Clear pauses without issuing a load or seek");
+            ack=pause.get("id").getAsLong();
+            String paused=state.replace("\"playing\":true","\"playing\":false");
+            GameBridgeCheck.post(s,"/sync",key,"{\"ack\":"+ack+",\"state\":"+paused+"}",200);
+            AppleWebPlayer.INSTANCE.tick();
+            p.togglePause();
+            JsonObject resume=GameBridgeCheck.post(s,"/sync",key,"{\"ack\":"+ack+"}",200).getAsJsonObject("command");
+            check(resume.get("name").getAsString().equals("play"),"Resuming a cleared queue continues the current player at the same position");
+            ack=resume.get("id").getAsLong();
+            GameBridgeCheck.post(s,"/sync",key,"{\"ack\":"+ack+",\"state\":"+state+"}",200);
+            AppleWebPlayer.INSTANCE.tick();
+            check(p.getCurrent()==a&&p.appleUpcoming().isEmpty()&&p.getState()==MusicPlayer.State.PLAYING,"Resume leaves the queue empty");
+            p.enqueueApple(b,true);
+            check(p.getCurrent()==a&&p.appleUpcoming().equals(Collections.singletonList(b)),"Enqueue changes the upcoming list without skipping");
             NeteaseTrack station=new NeteaseTrack(-3,"Pop Radio",Collections.emptyList(),0,"",MusicSource.APPLE,"ra.test","station:ra.test");
             p.playQueue(Collections.singletonList(station),0);
             load=GameBridgeCheck.post(s,"/sync",key,"{\"ack\":"+ack+"}",200).getAsJsonObject("command");
