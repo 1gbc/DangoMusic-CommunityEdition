@@ -53,6 +53,20 @@ public class AppleQueueCheck {
             AppleWebPlayer.INSTANCE.tick();check(p.getCurrent()==b&&b.getDurationMs()==240000,"A transient zero duration keeps the catalog duration");
             GameBridgeCheck.post(s,"/sync",key,"{\"ack\":"+ack+",\"state\":"+ended.replace("}",",\"id\":\"123\"}")+"}",200);
             AppleWebPlayer.INSTANCE.tick();check(p.getCurrent()==b,"A stale end for the first song is ignored");
+            p.cycleAppleRepeat();
+            check(p.getAppleRepeatQueue(),"The first click enables list repeat and syncs the queue panel");
+            p.cycleAppleRepeat();
+            check(p.getAppleRepeat()==MusicPlayer.AppleRepeat.ONE&&!p.getAppleRepeatQueue(),
+                "The second click enables single-song repeat");
+            GameBridgeCheck.post(s,"/sync",key,"{\"ack\":"+ack+",\"state\":"+ended.replace("}",",\"id\":\"456\"}")+"}",200);
+            AppleWebPlayer.INSTANCE.tick();
+            load=GameBridgeCheck.post(s,"/sync",key,"{\"ack\":"+ack+"}",200).getAsJsonObject("command");
+            check(load.getAsJsonObject("value").get("id").getAsString().equals("456"),"Single-song repeat reloads the current song");
+            ack=load.get("id").getAsLong();
+            GameBridgeCheck.post(s,"/sync",key,"{\"ack\":"+ack+",\"state\":"+second+"}",200);
+            AppleWebPlayer.INSTANCE.tick();
+            p.cycleAppleRepeat();
+            check(p.getAppleRepeat()==MusicPlayer.AppleRepeat.OFF,"The third click turns repeat off");
             GameBridgeCheck.post(s,"/sync",key,"{\"ack\":"+ack+",\"state\":"+ended.replace("}",",\"id\":\"456\"}")+"}",200);
             AppleWebPlayer.INSTANCE.tick();
             check(p.getCurrent()==b&&p.getState()==MusicPlayer.State.PAUSED,

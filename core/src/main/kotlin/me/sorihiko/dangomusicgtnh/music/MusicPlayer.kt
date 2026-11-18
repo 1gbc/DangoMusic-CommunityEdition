@@ -39,8 +39,10 @@ object MusicPlayer {
     @Volatile var shuffle = false
     /** 歌曲自然播完时重播当前曲目；手动切歌仍按队列 / Shuffle 工作。 */
     @Volatile var repeatOne = false
-    @Volatile var appleRepeatQueue = false
+    enum class AppleRepeat { OFF, QUEUE, ONE }
+    @Volatile var appleRepeat = AppleRepeat.OFF
         private set
+    val appleRepeatQueue get() = appleRepeat == AppleRepeat.QUEUE
     @Volatile var appleQueueCleared = false
         private set
     private var appleQueuePausePending = false
@@ -571,15 +573,26 @@ object MusicPlayer {
     }
 
     @Synchronized fun toggleAppleQueueRepeat() {
-        if (current?.source == MusicSource.APPLE && !AppleWebPlayer.stationActive && !appleQueueCleared &&
-            queue.isNotEmpty()) appleRepeatQueue = !appleRepeatQueue
+        if (canSetAppleRepeat()) appleRepeat = if (appleRepeatQueue) AppleRepeat.OFF else AppleRepeat.QUEUE
     }
+
+    @Synchronized fun cycleAppleRepeat() {
+        if (!canSetAppleRepeat()) return
+        appleRepeat = when (appleRepeat) {
+            AppleRepeat.OFF -> AppleRepeat.QUEUE
+            AppleRepeat.QUEUE -> AppleRepeat.ONE
+            AppleRepeat.ONE -> AppleRepeat.OFF
+        }
+    }
+
+    private fun canSetAppleRepeat() = current?.source == MusicSource.APPLE && state != State.LOADING &&
+        !AppleWebPlayer.stationActive && !appleQueueCleared && index in queue.indices
 
     @Synchronized fun clearAppleUpcoming() {
         if (current?.source != MusicSource.APPLE || AppleWebPlayer.stationActive || state == State.LOADING ||
             appleUpcoming().isEmpty()) return
         appleQueueCleared = true
-        appleRepeatQueue = false
+        appleRepeat = AppleRepeat.OFF
         queue = emptyList()
         originalQueue = emptyList()
         index = -1
@@ -646,11 +659,13 @@ object MusicPlayer {
 
     @Synchronized fun finishAppleTrack() {
         if (AppleWebPlayer.stationActive || current?.source != MusicSource.APPLE || appleQueuePausePending) return
-        if (!appleQueueCleared && (index < queue.lastIndex || appleRepeatQueue && queue.isNotEmpty())) {
-            playIndex(index + 1)
-        } else {
-            pausedAtMs = durationMs
-            state = State.PAUSED
+        when {
+            !appleQueueCleared && index in queue.indices && appleRepeat == AppleRepeat.ONE -> playIndex(index)
+            !appleQueueCleared && (index < queue.lastIndex || appleRepeatQueue && queue.isNotEmpty()) -> playIndex(index + 1)
+            else -> {
+                pausedAtMs = durationMs
+                state = State.PAUSED
+            }
         }
     }
 

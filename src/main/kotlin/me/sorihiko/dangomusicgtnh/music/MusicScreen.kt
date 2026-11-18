@@ -484,7 +484,7 @@ class MusicScreen(
         val win = LayoutBounds(26f, 20f + (1f - alpha) * 12f, ui.lw - 52f, ui.lh - 40f)
         val pad = 10f
         val sideW = 224f
-        val barH = if (appleNavigation) 59f else 88f
+        val barH = if (appleNavigation) 45f else 88f
         if (lyricsOpen) {
             barRect = LayoutBounds(win.x, win.bottom - barH, win.width, barH)
             val content = LayoutBounds(win.x + pad, win.y + pad, win.width - 2f * pad, barRect.y - win.y - pad)
@@ -497,7 +497,7 @@ class MusicScreen(
         val mainW = win.right - pad - 8f - mainX
         // 播放栏浮在内容上面：左右和底部留出间距；内容延伸到播放栏底边为止，滚动时从播放栏后面经过，
         // 但不会在播放栏下面那道缝里露出来
-        val barWidth = if (appleNavigation) minOf(670f, mainW - 12f).coerceAtLeast(0f)
+        val barWidth = if (appleNavigation) minOf(540f, mainW - 12f).coerceAtLeast(0f)
             else win.right - pad - 14f - mainX
         val barX = if (appleNavigation) mainX + (mainW - barWidth) / 2f else mainX + 2f
         val barRect = LayoutBounds(barX, win.bottom - pad - 8f - barH, barWidth, barH)

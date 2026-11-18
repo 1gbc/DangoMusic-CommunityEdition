@@ -156,11 +156,11 @@ internal class LyricsPage(private val ui: Ui, private val module: NeteaseMusicMo
         drawBackdrop(frame.viewport, song)
         val closeHit = frame.close
         PlayerIcons.draw(ui.ctx, AppleLyricsIcons.close, closeHit.x + closeHit.width / 2f,
-            closeHit.y + closeHit.height / 2f, 24f * frame.scale, white.copy(a = 0.72f))
+            closeHit.y + closeHit.height / 2f, (if (ui.hover(closeHit)) 20f else 18f) * frame.scale, white.copy(a = 0.72f))
         ui.hits += closeHit to close
         val toggleHit = frame.lyricsToggle
         PlayerIcons.draw(ui.ctx, AppleLyricsIcons.lyrics, toggleHit.x + toggleHit.width / 2f,
-            toggleHit.y + toggleHit.height / 2f, 26f * frame.scale,
+            toggleHit.y + toggleHit.height / 2f, (if (ui.hover(toggleHit)) 22f else 19.5f) * frame.scale,
             white.copy(a = if (ui.hover(toggleHit)) 1f else 0.72f))
         ui.hits += toggleHit to toggleLyrics
 

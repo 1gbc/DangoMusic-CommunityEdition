@@ -141,7 +141,7 @@ public class AppleLyricsMenuCheck {
         float anchor = rowTop(page, 1) + 5f;
         field(page, "manualPosition").set(page, anchor);
         field(page, "scrollPosition").setFloat(page, anchor);
-        click(ui, 1000, 988);
+        click(ui, 1000, 973);
         check(romanization.get() && translation.get(), "Romanization toggles independently");
         layout(page, lines);
         float shifted = rowTop(page, 1) + 5f;
@@ -149,7 +149,7 @@ public class AppleLyricsMenuCheck {
             && field(page, "scrollPosition").getFloat(page) == shifted, "Keep the displayed original line anchored");
         draw(menu, frame, track, ui, labels, icons);
         check(icons.size() == 6, "Both toggles are marked on");
-        click(ui, 1000, 1020);
+        click(ui, 1000, 999);
         check(romanization.get() && !translation.get(), "Translation toggles independently");
 
         menu.dismiss();

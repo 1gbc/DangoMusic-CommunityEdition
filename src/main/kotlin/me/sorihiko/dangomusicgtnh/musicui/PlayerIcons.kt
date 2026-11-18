@@ -9,13 +9,13 @@ import me.sorihiko.dangomusicgtnh.utils.Color
 
 /** Original 24px paths; one consistent stroke and one coverage mask per icon. */
 internal object PlayerIcons {
-    private val repeat = VectorIcon.path {
+    val repeat = VectorIcon.path {
         move(4.0,10.0); line(4.0,9.0); curve(4.0,6.8,5.8,5.0,8.0,5.0); line(20.0,5.0)
         move(16.5,1.5); line(20.0,5.0); line(16.5,8.5)
         move(20.0,14.0); line(20.0,15.0); curve(20.0,17.2,18.2,19.0,16.0,19.0); line(4.0,19.0)
         move(7.5,15.5); line(4.0,19.0); line(7.5,22.5)
     }
-    private val repeatOne = VectorIcon.path {
+    val repeatOne = VectorIcon.path {
         move(4.0,10.0); line(4.0,9.0); curve(4.0,6.8,5.8,5.0,8.0,5.0); line(20.0,5.0)
         move(16.5,1.5); line(20.0,5.0); line(16.5,8.5)
         move(20.0,14.0); line(20.0,15.0); curve(20.0,17.2,18.2,19.0,16.0,19.0); line(4.0,19.0)

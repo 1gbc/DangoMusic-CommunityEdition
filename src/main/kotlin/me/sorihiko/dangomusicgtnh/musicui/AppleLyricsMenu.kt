@@ -96,10 +96,10 @@ internal class AppleLyricsMenu(
     }
 
     private fun drawBottomMenu(viewport: LayoutBounds, anchor: LayoutBounds, song: NeteaseTrack) {
-        val width = minOf(218f, viewport.width - 16f)
-        val rowHeight = minOf(31f, (anchor.y - 26f) / 5f)
+        val width = minOf(186f, viewport.width - 16f)
+        val rowHeight = minOf(24f, (anchor.y - 22f) / 5f)
         if (width < 80f || rowHeight < 14f) return
-        val height = rowHeight * 5f + 12f
+        val height = rowHeight * 5f + 8f
         val panel = LayoutBounds((anchor.right - width).coerceAtLeast(viewport.x + 8f),
             anchor.y - height - 9f, width, height)
         PopupLook.panel(ui.ctx, panel)
@@ -108,13 +108,14 @@ internal class AppleLyricsMenu(
         ui.popup(panel) {
             fun item(index: Int, label: String, icon: VectorIcon, enabled: Boolean = true, selected: Boolean = false,
                 action: () -> Unit) {
-                val box = LayoutBounds(panel.x + 6f, panel.y + 6f + index * rowHeight, panel.width - 12f, rowHeight)
-                if (enabled && ui.hover(box)) ui.card(box, PopupLook.hover, 7f)
+                val box = LayoutBounds(panel.x + 4f, panel.y + 4f + index * rowHeight, panel.width - 8f, rowHeight)
+                val hovered = enabled && ui.hover(box)
+                if (hovered) ui.card(box, PopupLook.hover, 4f)
                 if (index > 0) ui.card(box.copy(height = 1f), PopupLook.divider, 0f)
                 val color = if (enabled) Theme.TEXT_PRIMARY else Theme.TEXT_TERTIARY
-                ui.text(I18n.text(label, "Apple Player Menu"), box.x + 9f, box.y + (rowHeight - 12f) / 2f,
-                    12f, color, Theme.FONT_MEDIUM)
-                PlayerIcons.draw(ui.ctx, icon, box.right - 15f, box.y + rowHeight / 2f, 16f,
+                ui.text(I18n.text(label, "Apple Player Menu"), box.x + 7f, box.y + (rowHeight - 11f) / 2f,
+                    11f, color, Theme.FONT_MEDIUM)
+                PlayerIcons.draw(ui.ctx, icon, box.right - 13f, box.y + rowHeight / 2f, if (hovered) 14f else 12.5f,
                     if (selected && enabled) APPLE_CONTROL_BLUE else color)
                 if (enabled) ui.hits += box to action
             }
@@ -143,8 +144,8 @@ internal class AppleLyricsMenu(
 
     private fun drawMenu(frame: AppleLyricsLayout, song: NeteaseTrack) {
         val scale = frame.scale
-        val rowHeight = 32f * scale
-        val panel = frame.bounds(984f, 908f, 185f, 128f)
+        val rowHeight = 26f * scale
+        val panel = frame.bounds(984f, 908f, 169f, 104f)
         ui.ctx.pushOpacity(0.74f)
         ui.ctx.drawGlass(panel, Theme.GLASS_SIDEBAR.copy(radius = 6f * scale,
             tint = Color(0.06f, 0.04f, 0.05f, 0.22f), maxLuma = 0.58f, saturation = 1.12f,
@@ -178,12 +179,13 @@ internal class AppleLyricsMenu(
         bounds: LayoutBounds, text: String, icon: VectorIcon, scale: Float, checked: Boolean, action: () -> Unit,
     ) {
         if (ui.hover(bounds)) ui.card(bounds, Color(1f, 1f, 1f, 0.10f), 5f * scale)
-        val fontSize = 13f * scale
-        ui.text(text, bounds.x + 10f * scale, bounds.y + 9f * scale, fontSize, Theme.TEXT_PRIMARY, Theme.FONT_MEDIUM)
+        val fontSize = 11.5f * scale
+        ui.text(text, bounds.x + 9f * scale, bounds.y + (bounds.height - fontSize) / 2f, fontSize,
+            Theme.TEXT_PRIMARY, Theme.FONT_MEDIUM)
         val centerY = bounds.y + bounds.height / 2f
-        PlayerIcons.draw(ui.ctx, icon, bounds.right - 17f * scale, centerY, 17f * scale, Theme.TEXT_PRIMARY)
-        if (checked) PlayerIcons.draw(ui.ctx, PlayerIcons.check, bounds.right - 39f * scale,
-            centerY, 12f * scale, Theme.TEXT_PRIMARY)
+        PlayerIcons.draw(ui.ctx, icon, bounds.right - 15f * scale, centerY, 13.5f * scale, Theme.TEXT_PRIMARY)
+        if (checked) PlayerIcons.draw(ui.ctx, PlayerIcons.check, bounds.right - 33f * scale,
+            centerY, 10f * scale, Theme.TEXT_PRIMARY)
         ui.hits += bounds to action
     }
 
@@ -202,7 +204,7 @@ internal class AppleLyricsMenu(
         val close = frame.bounds(1474f, 491f, 44f, 44f)
         ui.text(I18n.text("View Credits"), x, panel.y + 24f * scale, 22f * scale, Theme.TEXT_PRIMARY, font)
         PlayerIcons.draw(ui.ctx, AppleLyricsIcons.close, close.x + close.width / 2f,
-            close.y + close.height / 2f, 18f * scale, Theme.TEXT_PRIMARY)
+            close.y + close.height / 2f, (if (ui.hover(close)) 15f else 13.5f) * scale, Theme.TEXT_PRIMARY)
         ui.hits += close to { dismiss() }
         ui.hits += panel to {}
         ui.text(ui.trim(song.name, 540f * scale, 17f * scale, font), x, panel.y + 72f * scale, 17f * scale, Theme.TEXT_PRIMARY, font)
