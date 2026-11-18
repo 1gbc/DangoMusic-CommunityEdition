@@ -6,7 +6,7 @@ plugins {
     id("com.gtnewhorizons.gtnhconvention")
 }
 
-version = "0.5.1-next-major.11-ui-preview.6"
+version = "0.5.1-next-major.11-ui-preview.7"
 // Keep the generated Forge version tag in sync with the JAR version.
 extra["modVersion"] = version.toString()
 
