@@ -27,6 +27,7 @@ import me.sorihiko.dangomusicgtnh.ui.ShapeStyle;
 import me.sorihiko.dangomusicgtnh.ui.Theme;
 import me.sorihiko.dangomusicgtnh.ui.UiStyle;
 import me.sorihiko.dangomusicgtnh.ui.VectorIcon;
+import me.sorihiko.dangomusicgtnh.utils.Color;
 
 /** Run on the compiled client and core classpath, with core resources. No game or login needed. */
 public class AppleLyricsMenuCheck {
@@ -80,6 +81,7 @@ public class AppleLyricsMenuCheck {
         var flowingTextures = new ArrayList<Texture>();
         var flowingRadii = new ArrayList<Float>();
         var flowingAlpha = new ArrayList<Float>();
+        var flowingPhase = new ArrayList<Float>();
         var opacity = new java.util.ArrayDeque<Float>();
         opacity.push(1f);
         int[] glassDraws = {0};
@@ -120,6 +122,7 @@ public class AppleLyricsMenuCheck {
                 flowingTextures.add((Texture)a[1]);
                 flowingRadii.add((float)a[3]);
                 flowingAlpha.add(opacity.peek());
+                flowingPhase.add((float)a[2]);
             }
             return m.getName().equals("getOpacity") ? opacity.peek() : null;
         }));
@@ -261,9 +264,9 @@ public class AppleLyricsMenuCheck {
         for (float available : new float[]{900f, 420f}) {
             float baseWidth = Math.min(540f, available - 12f);
             var bar = PlayerBar.Companion.appleBarBounds(240f, available, 784f);
-            check(Math.abs(bar.getWidth() - .7f * baseWidth) < .001f && bar.getHeight() == .7f * 45f
+            check(Math.abs(bar.getWidth() - .8f * baseWidth) < .001f && bar.getHeight() == .8f * 45f
                     && Math.abs(bar.getX() + bar.getWidth() / 2f - (240f + available / 2f)) < .001f
-                    && bar.getBottom() == 784f, "Apple bar is 70% of Major 11 and retains its anchor");
+                    && bar.getBottom() == 784f, "Apple bar is 80% of Major 11 and retains its anchor");
             ui.getHits().clear();
             drawBar.invoke(player, bar, snapshot);
             float unit = bar.getWidth() / 540f;
@@ -280,6 +283,10 @@ public class AppleLyricsMenuCheck {
             check(player.mouseDown((int)(seekHit.getX() + seekHit.getWidth() / 4f), trackY), "Seek starts on the scaled track");
             player.mouseDrag(Math.round(seekHit.getX() + seekHit.getWidth() * .75f), trackY);
             check(Math.abs(field(player, "seekFraction").getFloat(player) - .75f) < .01f, "Drag uses the scaled track length");
+            int glassBeforeSeek = glassDraws[0];
+            drawBar.invoke(player, bar, snapshot);
+            check(glassDraws[0] == glassBeforeSeek && field(player, "appleTimeReveal").getFloat(player) > 0f,
+                "Seek reveals the time without drawing a separate blur panel");
             player.mouseUp();
         }
 
@@ -289,22 +296,30 @@ public class AppleLyricsMenuCheck {
         var nextTrack = new NeteaseTrack(2L, "Next song", List.of("Singer"), 60_000L, "", MusicSource.APPLE);
         var cached = (java.util.Map<String, Texture>)field(CoverCache.INSTANCE, "textures").get(null);
         cached.put("L|t:" + track.getKey() + "#r-lyrics-backdrop", firstTexture);
-        backdrop.drawWindow(window, track);
+        backdrop.prepareMenuFrame(track);
         var start = field(backdrop, "transitionStartedAt");
         start.setLong(backdrop, System.nanoTime() - 500_000_000L);
         cached.put("L|t:" + nextTrack.getKey() + "#r-lyrics-backdrop", secondTexture);
-        backdrop.drawWindow(window, nextTrack);
+        backdrop.prepareMenuFrame(nextTrack);
         flowingTextures.clear();
         flowingRadii.clear();
         flowingAlpha.clear();
+        flowingPhase.clear();
         start.setLong(backdrop, System.nanoTime() - 210_000_000L);
-        backdrop.drawWindow(window, nextTrack);
+        backdrop.prepareMenuFrame(nextTrack);
+        float windowRadius = Theme.INSTANCE.getGLASS_WINDOW().getRadius();
+        backdrop.drawMenuPanel(window, windowRadius, Color.Companion.getTRANSPARENT(), 1f);
+        var narrowerBar = PlayerBar.Companion.appleBarBounds(240f, 800f, 784f);
+        backdrop.drawMenuPanel(narrowerBar, narrowerBar.getHeight() / 2f, Color.Companion.getTRANSPARENT(), 1f);
         float lower = flowingAlpha.get(0);
         float upper = flowingAlpha.get(1);
-        check(flowingTextures.size() == 2 && flowingTextures.get(0) == firstTexture
-                && flowingTextures.get(1) == secondTexture && Math.abs(upper + lower * (1f - upper) - .85f) < .001f
-                && flowingRadii.stream().allMatch(radius -> radius == Theme.INSTANCE.getGLASS_WINDOW().getRadius()),
-            "A cut blends the two cached cover palettes with constant translucency and a window mask");
+        check(flowingTextures.size() == 4 && flowingTextures.get(0) == firstTexture
+                && flowingTextures.get(1) == secondTexture && Math.abs(upper + lower * (1f - upper) - 1f) < .001f,
+            "The window stays opaque throughout a palette transition");
+        check(flowingTextures.subList(0, 2).equals(flowingTextures.subList(2, 4))
+                && flowingPhase.stream().allMatch(phase -> phase.equals(flowingPhase.get(0)))
+                && flowingRadii.get(0) == windowRadius && flowingRadii.get(2) == narrowerBar.getHeight() / 2f,
+            "Window and bar use the same cover transition and phase with separate masks");
         check(opacity.size() == 1, "Opacity stack remains balanced");
         System.out.println("Apple UI checks passed for menu actions, bar geometry, cover mask, lyric sizes and backdrop blending");
     }

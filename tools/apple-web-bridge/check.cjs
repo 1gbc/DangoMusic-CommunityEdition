@@ -56,6 +56,21 @@ test('home cards preserve resource types and playback errors remain useful witho
   assert.match(playback.error,/play failed \[NotAllowedError UNKNOWN\]/);assert.ok(!playback.error.includes('PRIVATE'));
   await assert.rejects(context.appleAdapter({name:'query',value:{op:'resourceTracks',id:'albums:../../outside',offset:0}}));
 });
+test('playlist cards carry optional descriptions from the existing library response', async()=>{
+  const vm = require('node:vm');
+  const player = {isAuthorized: true, api: {music: async path => {
+    assert.equal(path, '/v1/me/library/playlists');
+    return {data: {data: [
+      {id: 'p.described', type: 'library-playlists', attributes: {name: 'Described', description: {standard: 'A real description'}}},
+      {id: 'p.empty', type: 'library-playlists', attributes: {name: 'Empty'}}
+    ]}};
+  }}};
+  const context = vm.createContext({location: {origin: 'https://music.apple.com'}, MusicKit: {getInstance: () => player}, URL, setTimeout, clearTimeout});
+  vm.runInContext(fs.readFileSync(__dirname + '/extension/adapter.js', 'utf8'), context);
+  const result = await context.appleAdapter({name: 'query', value: {op: 'playlists', offset: 0}});
+  assert.equal(result.items[0].description, 'A real description');
+  assert.equal(result.items[1].description ?? '', '');
+});
 test('pagination follows only the server cursor, including full final and filtered pages',async()=>{
   const vm=require('node:vm');let response;
   const player={isAuthorized:true,storefrontId:'cn',api:{music:async()=>response}};

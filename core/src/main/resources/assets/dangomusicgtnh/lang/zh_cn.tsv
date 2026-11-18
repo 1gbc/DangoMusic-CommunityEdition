@@ -136,6 +136,9 @@ List	列表
 Covers	封面墙
 Locate	定位当前歌曲
 Filter this list...	筛选当前列表…
+Song	歌曲
+Album	专辑
+Time	时长
 TITLE	歌曲
 TIME	时长
 Play the same song in sync with friends who also have this mod	和同样安装本模组的朋友同步听歌
@@ -666,6 +669,7 @@ Recently played stations	最近播放的电台
 Recently played	最近播放
 Recommended for you	为你推荐
 Heavy rotation	常听内容
+Shortcuts	常用入口
 Restoring login or checking library access	正在恢复登录或检查媒体库权限
 Group takes over	进群自动切换
 Joining or listening to a group pauses your own music and plays the group's song	加入或收听房间时，暂停自己的音乐，改放听歌房正在放的歌

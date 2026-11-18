@@ -2,7 +2,6 @@ package me.sorihiko.dangomusicgtnh.musicui
 
 import me.sorihiko.dangomusicgtnh.ui.LayoutBounds
 import me.sorihiko.dangomusicgtnh.ui.Theme
-import me.sorihiko.dangomusicgtnh.ui.UiStyle
 
 /** Positions are measured in the 2464 × 1292 reference viewport. */
 internal class AppleLyricsLayout(val viewport: LayoutBounds, val showLyrics: Boolean = true) {
@@ -19,7 +18,7 @@ internal class AppleLyricsLayout(val viewport: LayoutBounds, val showLyrics: Boo
 
     val artwork = bounds(396f, 265f, 600f, 600f)
     // Continuous corners extend the nominal radius by 1.5, so both styles turn at about 3%.
-    val artworkRadius get() = artwork.width * if (UiStyle.continuous) 0.02f else 0.03f
+    val artworkRadius get() = appleCoverRadius(artwork)
     // Keep the reference empty-state center while moving the left-aligned lyric text to the right.
     val lyrics = if (showLyrics) bounds(1332f, 265f, 714f, 780f) else LayoutBounds()
     val close = LayoutBounds(viewport.x + 7f * scale, viewport.y, 44f * scale, 42f * scale)

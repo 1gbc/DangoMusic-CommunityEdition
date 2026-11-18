@@ -122,7 +122,7 @@ internal class AppleDiscoverPage(private val screen: MusicScreen) {
                 if (lines.size <= 1 && item.artist.isNotBlank())
                     ui.text(ui.trim(item.artist, cell.width, 13f), cell.x, cell.y + 36f, 13f, Theme.TEXT_SECONDARY)
                 val art = LayoutBounds(cell.x, cell.y + 61f, cell.width, cell.height - 61f)
-                drawArtwork(art, CoverCache.featuredPlaylist(item.card, item.featuredCover), 13f)
+                ui.drawAppleCover(art, CoverCache.featuredPlaylist(item.card, item.featuredCover))
             }
             link -> {
                 val button = cell.copy(height = 37f)
@@ -133,7 +133,7 @@ internal class AppleDiscoverPage(private val screen: MusicScreen) {
             else -> {
                 val size = if (row) 48f else cell.width
                 val art = LayoutBounds(cell.x, cell.y, size, size)
-                drawArtwork(art, CoverCache.playlist(item.card), if (row) 6f else 9f)
+                ui.drawAppleCover(art, CoverCache.playlist(item.card))
                 val textX = if (row) art.right + 10f else cell.x
                 val textY = if (row) cell.y + 8f else art.bottom + 5f
                 val width = cell.right - textX
@@ -199,7 +199,7 @@ internal class AppleDiscoverPage(private val screen: MusicScreen) {
                     if (lines.size <= 1 && artist.isNotEmpty())
                         ui.text(ui.trim(artist, heroWidth - 4f, 13f), x, y + 36f, 13f, Theme.TEXT_SECONDARY)
                     val artwork = LayoutBounds(x, y + 61f, heroWidth, heroHeight)
-                    drawArtwork(artwork, CoverCache.featuredPlaylist(album, AppleMusicSource.featuredCover(album.id)), 14f)
+                    ui.drawAppleCover(artwork, CoverCache.featuredPlaylist(album, AppleMusicSource.featuredCover(album.id)))
                     hit(card) { screen.openGridCard(album) }
                 }
                 y += heroBlock
@@ -234,7 +234,7 @@ internal class AppleDiscoverPage(private val screen: MusicScreen) {
                     val artwork = LayoutBounds(x, y + 29f, albumWidth, albumWidth)
                     val card = artwork.copy(height = albumWidth + 36f)
                     if (!visible(card)) continue
-                    drawArtwork(artwork, CoverCache.playlist(album), 9f)
+                    ui.drawAppleCover(artwork, CoverCache.playlistArtwork(album))
                     val artist = AppleMusicSource.cardArtist(album.id)
                     ui.text(ui.trim(album.name, albumWidth, 12f), x, artwork.bottom + 6f, 12f, Theme.TEXT_PRIMARY)
                     if (artist.isNotEmpty())
@@ -260,18 +260,13 @@ internal class AppleDiscoverPage(private val screen: MusicScreen) {
     private fun drawSong(row: LayoutBounds, song: NeteaseTrack, queue: List<NeteaseTrack>, index: Int, separator: Boolean) {
         if (ui.hover(row.intersect(area))) ui.card(row, Theme.CARD_HOVER, 7f)
         val artwork = LayoutBounds(row.x, row.y + 4f, 34f, 34f)
-        drawArtwork(artwork, CoverCache.track(song), 5f)
+        ui.drawAppleCover(artwork, CoverCache.track(song))
         val x = artwork.right + 11f
         val width = row.right - x - 8f
         ui.text(ui.trim(song.name, width, 13f), x, row.y + 6f, 13f, Theme.TEXT_PRIMARY)
         ui.text(ui.trim(song.artists.joinToString(" / "), width, 11f), x, row.y + 22f, 11f, Theme.TEXT_SECONDARY)
         if (separator) ui.card(LayoutBounds(x, row.bottom - 0.5f, row.right - x, 0.5f), Color(1f, 1f, 1f, 0.14f), 0f)
         hit(row) { ClientMusic.control { MusicPlayer.playQueue(queue, index) } }
-    }
-
-    private fun drawArtwork(bounds: LayoutBounds, texture: me.sorihiko.dangomusicgtnh.gfx.Texture?, radius: Float) {
-        if (texture == null) ui.card(bounds, Theme.CARD, radius)
-        else ui.ctx.drawRoundedImage(bounds, texture, radius)
     }
 
     private fun railLimit(count: Int, cardWidth: Float, viewport: Float) =

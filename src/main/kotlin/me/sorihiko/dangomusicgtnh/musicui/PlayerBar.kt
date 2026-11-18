@@ -33,7 +33,7 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
 
     companion object {
         private const val APPLE_BAR_WIDTH = 540f
-        private const val APPLE_BAR_SCALE = 0.70f
+        private const val APPLE_BAR_SCALE = 0.80f
 
         fun appleBarBounds(left: Float, availableWidth: Float, bottom: Float): LayoutBounds {
             val width = minOf(APPLE_BAR_WIDTH, availableWidth - 12f).coerceAtLeast(0f) * APPLE_BAR_SCALE
@@ -49,6 +49,7 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
     }
 
     private var appleLyricsControls = false
+    private var appleTimeReveal = 0f
     var appleMenuAnchor = LayoutBounds()
         private set
     private var progressHit = LayoutBounds()
@@ -342,27 +343,23 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         val progressY = bar.bottom - 5.5f * unit
         progRect = LayoutBounds(progressX, progressY - 2.5f * unit, progressRight - progressX, 5f * unit)
         progressHit = if (canSeek) progRect.expand(0f, 3.5f * unit) else LayoutBounds()
-        val expanded = seekTrack != null || ui.hover(progressHit) && !menuContains(ui.mx, ui.my)
+        val expanded = seekTrack != null || ui.hover(progressHit) && !menuContains(ui.mx, ui.my) && !screen.appleBarMenuOpen
+        appleTimeReveal = ui.approach(appleTimeReveal, if (expanded) 1f else 0f, 55f)
+        val metadataAlpha = 1f - appleTimeReveal
         val position = if (seekTrack != null) (seekFraction.toDouble() * duration).toLong()
             else snap.positionMs.coerceIn(0L, duration)
 
-        ctx.drawGlass(bar, BAR_GLASS.copy(
-            radius = bar.height / 2f, refraction = BAR_GLASS.refraction * unit, bevel = BAR_GLASS.bevel * unit,
-            shadow = BAR_GLASS.shadow.copy(size = BAR_GLASS.shadow.size * unit, offset = Vec2(0f, -3f * unit)),
-        ))
+        val radius = bar.height / 2f
+        val shadow = BAR_GLASS.shadow.copy(size = BAR_GLASS.shadow.size * unit, offset = Vec2(0f, -3f * unit), outside = true)
+        ctx.drawShape(bar, ShapeStyle(radius = radius, shadow = shadow))
+        screen.coverBackdrop.drawMenuPanel(bar, radius, Color(0.03f, 0.035f, 0.045f, 0.20f))
+        ctx.drawShape(bar, ShapeStyle(radius = radius, borderWidth = 0.65f * unit, borderColor = Theme.HAIRLINE))
         val coverSize = 27f * unit
         val cover = LayoutBounds(progressX, cy - coverSize / 2f, coverSize, coverSize)
         val canOpenCover = screen.canOpenLyrics && !expanded
         val hoverCover = advanceAppleHover(appleCoverHover, canOpenCover && ui.hover(cover))
         val artwork = cover.scaled(1f + 0.095f * hoverCover)
-        ui.drawAppleCover(artwork, track?.let(CoverCache::track))
         val coverCenterX = cover.x + coverSize / 2f
-        if (track == null) SidebarIcons.draw(ctx, "♫", coverCenterX, cy, Theme.TEXT_SECONDARY, 17f * unit)
-        if (hoverCover > 0.01f) {
-            ui.card(artwork, Color(0f, 0f, 0f, 0.42f * hoverCover), artwork.width * APPLE_COVER_RADIUS_RATIO)
-            PlayerIcons.draw(ctx, AppleLyricsIcons.expand, coverCenterX, cy, 18f * unit,
-                Theme.TEXT_PRIMARY.copy(a = hoverCover))
-        }
         val titleX = cover.right + 8f * unit
         val titleW = (progressRight - titleX - 3f * unit).coerceAtLeast(0f)
         val titleSize = 11.4f * unit
@@ -370,30 +367,36 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         val title = ui.trim(track?.name ?: I18n.text("Not playing"), titleW, titleSize, Theme.FONT_SEMIBOLD)
         val details = listOf(track?.artists.orEmpty().joinToString(" / "), track?.albumName.orEmpty())
             .filter(String::isNotBlank).joinToString(" / ")
-        ui.text(title, titleX, cy - 11f * unit, titleSize, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
-        ui.text(ui.trim(details, titleW, detailSize), titleX, cy + 2.5f * unit, detailSize, Theme.TEXT_SECONDARY)
-        if (canOpenCover) ui.hits += cover to screen::toggleLyrics
-        if (expanded) {
-            // Capture the rendered metadata before placing clear time labels and controls over it.
-            ui.mt.flush(ui.scale)
-            ctx.recaptureBackdrop()
-            val pad = 12f * unit
-            val blur = LayoutBounds(cover.x - pad, bar.y, progressRight - cover.x + 2f * pad, bar.height)
-            ctx.drawGlass(blur, GlassStyle(radius = 8f * unit, tint = Color.TRANSPARENT, maxLuma = 1f,
-                saturation = 1f, frost = 0.62f, refraction = 0f, dispersion = 0f, bevel = 0f,
-                highlight = 0f, fallback = Color.TRANSPARENT, edgeWidth = -8f * unit))
+        // Fade only the metadata. A second glass rectangle would create visible edges at both ends.
+        if (metadataAlpha > 0.005f) {
+            ctx.pushOpacity(metadataAlpha)
+            try {
+                ui.drawAppleCover(artwork, track?.let(CoverCache::track))
+                if (track == null) SidebarIcons.draw(ctx, "♫", coverCenterX, cy, Theme.TEXT_SECONDARY, 17f * unit)
+                if (hoverCover > 0.01f) {
+                    ui.card(artwork, Color(0f, 0f, 0f, 0.42f * hoverCover), appleCoverRadius(artwork))
+                    PlayerIcons.draw(ctx, AppleLyricsIcons.expand, coverCenterX, cy, 18f * unit,
+                        Theme.TEXT_PRIMARY.copy(a = hoverCover))
+                }
+                ui.text(title, titleX, cy - 11f * unit, titleSize, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
+                ui.text(ui.trim(details, titleW, detailSize), titleX, cy + 2.5f * unit, detailSize, Theme.TEXT_SECONDARY)
+            } finally {
+                ctx.popOpacity()
+            }
         }
-        val laneHeight = (if (expanded) 4.5f else 1.5f) * unit
+        if (canOpenCover) ui.hits += cover to screen::toggleLyrics
+        val laneHeight = (1.5f + 3f * appleTimeReveal) * unit
         val lane = progRect.copy(y = progressY - laneHeight / 2f, height = laneHeight)
         ui.card(lane, Theme.TEXT_PRIMARY.copy(a = 0.19f), laneHeight / 2f)
         val fill = if (duration > 0L) (lane.width * position / duration).coerceAtMost(lane.width) else 0f
         if (fill > 0f) ui.card(lane.copy(width = fill), Theme.TEXT_PRIMARY, minOf(laneHeight, fill) / 2f)
-        if (expanded) {
+        if (appleTimeReveal > 0.005f) {
             val timeSize = 9f * unit
             val remaining = "-${fmtTime(duration - position)}"
             val timeY = progressY - 13f * unit
-            ui.text(fmtTime(position), lane.x, timeY, timeSize, Theme.TEXT_PRIMARY)
-            ui.text(remaining, lane.right - ui.width(remaining, timeSize), timeY, timeSize, Theme.TEXT_PRIMARY)
+            val timeColor = Theme.TEXT_PRIMARY.copy(a = Theme.TEXT_PRIMARY.a * appleTimeReveal)
+            ui.text(fmtTime(position), lane.x, timeY, timeSize, timeColor)
+            ui.text(remaining, lane.right - ui.width(remaining, timeSize), timeY, timeSize, timeColor)
         }
 
         fun hit(x: Float) = LayoutBounds(x - 12f * unit, cy - 12f * unit, 24f * unit, 24f * unit)

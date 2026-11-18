@@ -237,8 +237,11 @@ object CoverCache {
     }
 
     /** Upload full square art so both resolutions use the same on-screen antialiased mask. */
-    fun lyricsArtwork(track: NeteaseTrack): Texture? {
-        val sourceKey = "t:${track.key}"
+    fun lyricsArtwork(track: NeteaseTrack): Texture? = squareArtwork("t:${track.key}", track.coverUrl)
+
+    fun playlistArtwork(playlist: NeteasePlaylist): Texture? = squareArtwork("p:${playlist.id}", playlist.coverUrl)
+
+    private fun squareArtwork(sourceKey: String, url: String): Texture? {
         val largeKey = LARGE_PREFIX + sourceKey
         for (key in listOf(largeKey, sourceKey)) {
             val textureKey = key + LYRICS_ARTWORK_SUFFIX
@@ -246,8 +249,8 @@ object CoverCache {
                 lastUsed[textureKey] = now
                 return it
             }
-            val img = if (key == largeKey) largeSource(key, track.coverUrl) else {
-                get(key, track.coverUrl)
+            val img = if (key == largeKey) largeSource(key, url) else {
+                get(key, url)
                 sources[key]
             }
             if (img != null && roundQueued.add(textureKey)) ready.add(textureKey to img)

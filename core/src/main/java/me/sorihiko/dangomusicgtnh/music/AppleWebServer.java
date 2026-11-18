@@ -233,6 +233,7 @@ public final class AppleWebServer implements AutoCloseable {
                         if(result.has("items")&&result.get("items").isJsonArray())for(JsonElement item:result.getAsJsonArray("items")){if(items.size()>=40)break;if(!item.isJsonObject())continue;JsonObject raw=item.getAsJsonObject(),row=sanitize(raw);row.addProperty("playId",text(raw,"playId",100));row.addProperty("genre",text(raw,"genre",100));for(String k:Arrays.asList("library","compilation","favoriteList"))row.addProperty(k,raw.has(k)&&raw.get(k).getAsBoolean());
                             if(raw.has("featuredCover"))row.addProperty("featuredCover",artwork(raw,"featuredCover"));
                             if(raw.has("releaseDate"))row.addProperty("releaseDate",text(raw,"releaseDate",10));
+                            if(raw.has("description"))row.addProperty("description",text(raw,"description",300));
                             if(raw.has("sectionTitle"))row.addProperty("sectionTitle",text(raw,"sectionTitle",300));
                             if(raw.has("sectionIndex")){
                                 int index=raw.get("sectionIndex").getAsInt();

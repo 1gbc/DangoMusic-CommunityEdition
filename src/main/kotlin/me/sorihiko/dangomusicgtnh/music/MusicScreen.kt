@@ -65,7 +65,7 @@ class MusicScreen(
     private val groupPage = GroupPage(this)
     private val settings = SettingsPage(this, module)
     internal val songComments = SongComments(ui)
-    private val coverBackdrop = FlowingCoverBackdrop(ui)
+    internal val coverBackdrop = FlowingCoverBackdrop(ui)
     private val lyricsPage = LyricsPage(ui, module, songComments, coverBackdrop)
     private val appleLyricsMenu = AppleLyricsMenu(ui, module.lyricsPageRomanization, module.lyricsPageTranslation)
     private val appleBarMenu = AppleLyricsMenu(ui, module.lyricsPageRomanization, module.lyricsPageTranslation)
@@ -493,11 +493,12 @@ class MusicScreen(
             lyricsPage.draw(content, win, ::closeLyrics)
             return
         }
+        val side = LayoutBounds(win.x + pad, win.y + pad, sideW, win.height - pad * 2)
         if (appleNavigation) {
             val song = PlaybackView.snapshot().track?.takeIf { it.source == MusicSource.APPLE }
-            coverBackdrop.drawWindow(win, song)
+            coverBackdrop.prepareMenuFrame(song)
+            drawAppleWindowBackground(win, side.right)
         } else ui.ctx.drawGlass(win, Theme.GLASS_WINDOW)
-        val side = LayoutBounds(win.x + pad, win.y + pad, sideW, win.height - pad * 2)
         val mainX = side.right + pad + 8f
         appleQueueArea = if (appleNavigation) {
             appleQueue.layoutIn(LayoutBounds(mainX, win.y + 6f, win.right - 6f - mainX, win.height - 12f))
@@ -515,12 +516,38 @@ class MusicScreen(
             appleBarMenu.reset()
         }
 
-        sidebar.draw(side)
-        ui.occluder = barRect
-        ui.bottomInset = content.bottom - barRect.y + 10f
-        drawContent(content)
-        ui.occluder = null
+        ui.compactAppleText = appleNavigation
+        try {
+            sidebar.draw(side)
+            ui.occluder = barRect
+            ui.bottomInset = content.bottom - barRect.y + 10f
+            drawContent(content)
+        } finally {
+            ui.occluder = null
+            ui.compactAppleText = false
+        }
         this.barRect = barRect
+    }
+
+    private fun drawAppleWindowBackground(win: LayoutBounds, divider: Float) {
+        val radius = Theme.GLASS_WINDOW.radius
+        // Keep the old underlay and initial scene capture on the sidebar side of the window.
+        // Round the two edges at the same pixel to avoid a gap at fractional GUI scales.
+        val scale = ui.scale
+        val left = (win.x * scale).toInt()
+        val separator = (divider * scale).toInt()
+        val right = (win.right * scale).toInt()
+        val bottom = platform.windowHeight - (win.bottom * scale).toInt()
+        val height = ((win.bottom * scale).toInt() - (win.y * scale).toInt()).coerceAtLeast(0)
+        val ctx = ui.ctx
+        ctx.scissor(left, bottom, (separator - left).coerceAtLeast(0), height)
+        try {
+            coverBackdrop.drawMenuPanel(win, radius, Color(0.03f, 0.035f, 0.045f, 0.25f), alpha = 0.85f)
+            ctx.scissor(separator, bottom, (right - separator).coerceAtLeast(0), height)
+            coverBackdrop.drawMenuPanel(win, radius, Color(0.03f, 0.035f, 0.045f, 0.34f))
+        } finally {
+            ctx.noScissor()
+        }
     }
 
     /** 这一帧播放栏的位置（[drawWindow] 里算好，内容画完之后再画播放栏） */
@@ -549,7 +576,14 @@ class MusicScreen(
             return
         }
         // 播放栏画在最上面，点击也要先轮到它（点到的是第一个命中的区域）
-        if (appleNavigation && !lyricsOpen) appleQueue.draw(appleQueueArea)
+        if (appleNavigation && !lyricsOpen) {
+            ui.compactAppleText = true
+            try {
+                appleQueue.draw(appleQueueArea)
+            } finally {
+                ui.compactAppleText = false
+            }
+        }
         val before = ui.hits.size
         bar.draw(barRect, lyricsOpen)
         val notice = Library.notice
@@ -606,10 +640,10 @@ class MusicScreen(
                     libraryPullOffset = distance ?: ui.approach(libraryPullOffset, 0f, 85f)
                     if (libraryPullOffset < 0.5f) libraryPullOffset = 0f
                 }
-                grid.draw(body, if (apple) I18n.text("Home") else I18n.text("Welcome to Dango Music!"),
-                    if (apple) AppleMusicSource.homeWarning.ifEmpty { if (pull) "" else "最近播放、推荐歌单与专辑" } else "$label · ${items.size}", items, Library.recommendLoading && items.isEmpty(),
-                    if (apple) me.sorihiko.dangomusicgtnh.music.AppleMusicSource::homeSection else null,
+                if (apple) grid.drawAppleHome(body, items, Library.recommendLoading, AppleMusicSource.homeWarning,
                     if (pull) libraryPullOffset else 0f)
+                else grid.draw(body, I18n.text("Welcome to Dango Music!"), "$label · ${items.size}",
+                    items, Library.recommendLoading && items.isEmpty())
                 if (pull && libraryPullOffset > 18f) {
                     val label = I18n.text(if (Library.recommendLoading) "Loading..."
                         else if (libraryPullOffset >= libraryPullThreshold) "Release to refresh" else "Pull to refresh")
