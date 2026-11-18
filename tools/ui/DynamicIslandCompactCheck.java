@@ -36,13 +36,14 @@ public class DynamicIslandCompactCheck {
         float[] renderScale = {1f};
         var shell = new ArrayList<LayoutBounds>();
         var shapes = new ArrayList<LayoutBounds>();
+        var shapeRadii = new ArrayList<Float>();
         var textClips = new ArrayList<LayoutBounds>();
         var radii = new ArrayList<Float>();
         int[] width={1280};
         int[] height={800};
         var canvas = proxy(GuiCanvas.class,(p,m,a)->{
             switch(m.getName()) {
-                case "drawShape": shapes.add((LayoutBounds)a[0]); break;
+                case "drawShape": shapes.add((LayoutBounds)a[0]); shapeRadii.add(((ShapeStyle)a[1]).getRadius()); break;
                 case "drawGlass": shell.add((LayoutBounds)a[0]); radii.add(((GlassStyle)a[1]).getRadius()); break;
                 case "drawText": texts.add((String)a[0]); textXs.add((float)a[1]); textClips.add(clipStack.peek());
                     titleSizes.add(((FontStyle)a[3]).getFontSize() * renderScale[0]);
@@ -83,7 +84,7 @@ public class DynamicIslandCompactCheck {
         Field previous=field(DynamicIslandModule.class,"lastNanos");
         Runnable draw=()->{
             try {
-                texts.clear();textXs.clear();textClips.clear();shell.clear();shapes.clear();radii.clear();titleSizes.clear();fonts.clear();cjkRuns.clear();
+                texts.clear();textXs.clear();textClips.clear();shell.clear();shapes.clear();shapeRadii.clear();radii.clear();titleSizes.clear();fonts.clear();cjkRuns.clear();
                 previous.setLong(island,System.nanoTime()-16_000_000L);
                 render.invoke(island,new Object[]{null});
                 check(clipStack.isEmpty(),"Islands must restore scissor");
@@ -144,21 +145,27 @@ public class DynamicIslandCompactCheck {
             MusicPlayer.INSTANCE.acceptAppleState(track("5", "Blue Moon"),65000,false);
             for(int i=0;i<100;i++)draw.run();
             var full = shell.get(0);
-            check(Math.round(full.getWidth()*renderScale[0])==322 && Math.round(full.getHeight()*renderScale[0])==65,
-                "Full island B measures 322 x 65 at 1920 x 1080");
+            check(Math.abs(full.getWidth()-270f)<.01f && Math.abs(full.getHeight()-70f)<.01f,
+                "Full island A uses the reference card proportions");
             check(Math.abs((full.getX()+full.getWidth()/2)*renderScale[0]-960f)<.05f
-                && Math.abs(radii.get(0)-5.5f)<.001f,"Full island B is centered and has small rounded corners");
+                && Math.abs(radii.get(0)-10f)<.001f,"Full island A is centered with the reference card radius");
             check(texts.equals(List.of("Blue Moon", "Extra artist / Afterglow")),
-                "Full island B displays a title and an artist/album line: "+texts);
-            check(fonts.get(0).equals(Theme.FONT_SEMIBOLD) && Math.abs(titleSizes.get(0)-12.5f*renderScale[0])<.001f,
-                "The smaller full title keeps the Apple Music title font");
-            check(shapes.stream().anyMatch(b -> b.getWidth()==37f && b.getHeight()==37f),
-                "The cover fits in the shorter full layout");
-            check(shapes.stream().anyMatch(b -> b.getHeight()==2f && b.getWidth()>100f),
-                "The full layout places a thin progress track under the text");
+                "Full island A displays a title and an artist/album line: "+texts);
+            check(fonts.get(0).equals(Theme.FONT_SEMIBOLD) && Math.abs(titleSizes.get(0)-16f*renderScale[0])<.001f,
+                "The full title keeps the Apple Music title font");
+            check(textXs.stream().allMatch(x -> Math.abs(x-full.getX()-65f)<.01f),
+                "Both text rows left align 12 px after the cover");
+            var cover = shapes.get(0);
+            check(cover.getWidth()==41f && cover.getHeight()==41f && shapeRadii.get(0)==6.5f
+                && Math.abs(cover.getX()-full.getX()-12f)<.01f && Math.abs(cover.getY()-full.getY()-10f)<.01f,
+                "The cover keeps its reference size, radius, and insets");
+            var progress = shapes.get(1);
+            check(progress.getHeight()==2.5f && Math.abs(progress.getWidth()-246f)<.01f
+                && Math.abs(progress.getX()-cover.getX())<.01f && Math.abs(progress.getY()-full.getY()-57f)<.01f,
+                "The bottom progress track aligns with the cover and has equal side insets");
             MusicPlayer.INSTANCE.acceptAppleState(track("6",longTitle),0,true);
             for(int i=0;i<90;i++)draw.run();
-            check(Math.abs(shell.get(0).getWidth()-238.5f)<.05f,"Long titles keep the full island width");
+            check(Math.abs(shell.get(0).getWidth()-270f)<.05f,"Long titles keep the full island width");
             width[0]=70;
             for(int i=0;i<90;i++)draw.run();
             check(shell.get(0).getWidth()<=174.01f,"The full island fits a narrow window");

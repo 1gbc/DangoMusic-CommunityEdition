@@ -59,7 +59,7 @@ class DynamicIslandModule : Module() {
 
     private enum class Kind(val height: Float, val coverSize: Float) {
         IDLE(32f, 0f),
-        FULL(29f / 0.6f, 37f),
+        FULL(70f, 41f),
         MINI(32f, COMPACT_COVER_SIZE),
     }
 
@@ -390,14 +390,18 @@ class DynamicIslandModule : Module() {
     private fun drawFull(ctx: GuiCanvas, b: LayoutBounds, snap: PlaybackView.Snapshot) {
         val track = snap.track ?: return
         val coverSize = Kind.FULL.coverSize
-        val cover = LayoutBounds(b.x + FULL_COVER_LEFT, b.y + (b.height - coverSize) / 2f, coverSize, coverSize)
-        drawCover(ctx, cover, CoverCache.track(track))
+        val cover = LayoutBounds(b.x + FULL_INSET, b.y + 10f, coverSize, coverSize)
+        drawCover(ctx, cover, CoverCache.track(track), FULL_COVER_RADIUS)
+
+        val duration = snap.durationMs.coerceAtLeast(0L)
+        val position = snap.positionMs.coerceIn(0L, duration)
+        drawSongProgress(ctx, b.x + FULL_INSET, b.y + 57f, b.width - 2f * FULL_INSET, position, duration)
+
         val x = cover.right + FULL_TITLE_GAP
-        val right = b.right - fullEndPadding()
+        val right = b.right - if (islandAnimations.get()) 38f else FULL_INSET
         val textWidth = right - x
         if (textWidth <= 0f) return
-        val center = x + textWidth / 2f
-        drawTrackTitle(ctx, track.name, x, right, b.y + 7f, FULL_TITLE_SIZE, Theme.TEXT_PRIMARY, center)
+        drawTrackTitle(ctx, track.name, x, right, b.y + 14.5f, FULL_TITLE_SIZE, Theme.TEXT_PRIMARY)
 
         val artists = track.artists.joinToString(" / ")
         val album = track.albumName.trim()
@@ -410,25 +414,19 @@ class DynamicIslandModule : Module() {
             val artistLabel = trim(artists, available - albumWidth, FULL_ARTIST_SIZE)
             artistLabel + separator + trim(album, available - width(artistLabel, FULL_ARTIST_SIZE), FULL_ARTIST_SIZE)
         }
-        val detailsWidth = width(details, FULL_ARTIST_SIZE)
-        if (detailsWidth <= textWidth) {
-            text(ctx, details, center - detailsWidth / 2f, b.y + 25f, FULL_ARTIST_SIZE, Theme.TEXT_SECONDARY)
+        if (width(details, FULL_ARTIST_SIZE) <= textWidth) {
+            text(ctx, details, x, b.y + 34f, FULL_ARTIST_SIZE, Theme.TEXT_SECONDARY)
         }
-
-        val duration = snap.durationMs.coerceAtLeast(0L)
-        val position = snap.positionMs.coerceIn(0L, duration)
-        drawSongProgress(ctx, x, b.bottom - 7f, textWidth, position, duration)
     }
-
-    private fun fullEndPadding(): Float = if (islandAnimations.get()) 38f else 10f
 
     private fun drawSongProgress(ctx: GuiCanvas, x: Float, y: Float, width: Float, position: Long, duration: Long) {
         if (width <= 0f) return
-        val bar = LayoutBounds(x, y, width, 2f)
-        ctx.drawShape(bar, ShapeStyle(Theme.TRACK, 1f))
+        val bar = LayoutBounds(x, y, width, 2.5f)
+        val radius = bar.height / 2f
+        ctx.drawShape(bar, ShapeStyle(Theme.TRACK, radius))
         if (position > 0L) {
             val fill = (bar.width * (position.toDouble() / duration)).toFloat()
-            ctx.drawShape(LayoutBounds(bar.x, bar.y, fill, bar.height), ShapeStyle(Theme.TEXT_PRIMARY, min(1f, fill / 2f)))
+            ctx.drawShape(LayoutBounds(bar.x, bar.y, fill, bar.height), ShapeStyle(Theme.TEXT_PRIMARY, min(radius, fill / 2f)))
         }
     }
 
@@ -458,12 +456,11 @@ class DynamicIslandModule : Module() {
         }
     }
 
-    private fun drawCover(ctx: GuiCanvas, b: LayoutBounds, tex: Texture?) {
-        val radius = b.width * CoverCache.DEFAULT_CORNER_RATIO
+    private fun drawCover(ctx: GuiCanvas, b: LayoutBounds, tex: Texture?, radius: Float = b.width * CoverCache.DEFAULT_CORNER_RATIO) {
         CoverCache.upload()
         if (tex != null) {
             ctx.drawRoundedImage(b, tex, radius)
-        } else ctx.drawShape(b,ShapeStyle(Theme.TRACK,radius))
+        } else ctx.drawShape(b, ShapeStyle(Theme.TRACK, radius))
     }
 
     // ---------------------------------------------------------------- 文字（拉丁用菜单字体，中文用 MC 字体），y 是文字顶部
@@ -478,12 +475,13 @@ class DynamicIslandModule : Module() {
     private companion object {
         const val COMPACT_MIN_WIDTH = 164f
         const val COMPACT_MAX_WIDTH = 256f
-        const val FULL_WIDTH = 238.5f
-        const val FULL_CORNER_RADIUS = 5.5f
-        const val FULL_COVER_LEFT = 7f
-        const val FULL_TITLE_GAP = 10f
-        const val FULL_TITLE_SIZE = 12.5f
-        const val FULL_ARTIST_SIZE = 11.5f
+        const val FULL_WIDTH = 270f
+        const val FULL_CORNER_RADIUS = 10f
+        const val FULL_INSET = 12f
+        const val FULL_COVER_RADIUS = 6.5f
+        const val FULL_TITLE_GAP = 12f
+        const val FULL_TITLE_SIZE = 16f
+        const val FULL_ARTIST_SIZE = 11f
         const val COMPACT_COVER_LEFT = 10f
         const val COMPACT_COVER_SIZE = 22f
         const val COMPACT_COVER_GAP = 15f
