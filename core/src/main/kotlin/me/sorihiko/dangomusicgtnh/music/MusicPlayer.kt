@@ -39,6 +39,11 @@ object MusicPlayer {
     @Volatile var shuffle = false
     /** 歌曲自然播完时重播当前曲目；手动切歌仍按队列 / Shuffle 工作。 */
     @Volatile var repeatOne = false
+    @Volatile var appleRepeatQueue = false
+        private set
+    @Volatile var appleQueueCleared = false
+        private set
+    private var appleQueuePausePending = false
     /** 0..1 */
     @Volatile var volume = 0.2f
     @Volatile var playbackFades = true
@@ -187,6 +192,8 @@ object MusicPlayer {
     }
 
     @Synchronized @JvmOverloads fun playQueue(tracks: List<NeteaseTrack>, startIndex: Int, radio: (() -> List<NeteaseTrack>)? = null) {
+        appleQueueCleared = false
+        appleQueuePausePending = false
         heartMode = false
         originalQueue = tracks
         this.radio = radio
@@ -208,6 +215,8 @@ object MusicPlayer {
 
     @Synchronized fun playShuffled(tracks: List<NeteaseTrack>) {
         if (tracks.isEmpty()) return
+        appleQueueCleared = false
+        appleQueuePausePending = false
         heartMode = false
         originalQueue = tracks
         radio = null
@@ -363,6 +372,7 @@ object MusicPlayer {
     }
 
     @Synchronized fun next() {
+        if (MusicSources.selected == MusicSource.APPLE && appleQueueCleared) return
         if (MusicSources.selected == MusicSource.APPLE && (AppleWebPlayer.stationActive || queue.none { it.source == MusicSource.APPLE })) {
             AppleWebPlayer.command("next")
             return
@@ -375,13 +385,14 @@ object MusicPlayer {
             else { val from = index; extendRadio { if (index == from) playIndex(from + 1) } }
             return
         }
-        playIndex(index + 1)
+        if (current?.source != MusicSource.APPLE || index < q.lastIndex || appleRepeatQueue) playIndex(index + 1)
     }
 
     @Synchronized fun prev() {
         if (MusicSources.selected == MusicSource.APPLE) {
+            if (appleQueueCleared) return
             if (AppleWebPlayer.stationActive || queue.none { it.source == MusicSource.APPLE }) AppleWebPlayer.command("previous")
-            else if (mode != Mode.SHUFFLE && positionMs > 3000) AppleWebPlayer.command("seek", 0.0)
+            else if ((!shuffle && positionMs > 3000) || index <= 0 && !appleRepeatQueue) AppleWebPlayer.command("seek", 0.0)
             else playIndex(index - 1)
             return
         }
@@ -394,6 +405,7 @@ object MusicPlayer {
 
     @Synchronized fun togglePause() {
         if (MusicSources.selected == MusicSource.APPLE) {
+            appleQueuePausePending = false
             if (state != State.LOADING) AppleWebPlayer.command(if (state == State.PLAYING) "pause" else "play")
             return
         }
@@ -512,6 +524,8 @@ object MusicPlayer {
     @Synchronized fun stop(clearResume: Boolean) {
         if (MusicSources.selected == MusicSource.APPLE || current?.source == MusicSource.APPLE) AppleWebPlayer.command("stop")
         heartMode = false
+        appleQueueCleared = false
+        appleQueuePausePending = false
         radio = null
         ++generation
         stopLine()
@@ -545,6 +559,56 @@ object MusicPlayer {
 
     @Volatile private var appleClock = ApplePlaybackClock()
 
+    /** Only ordinary Apple Music songs use DangoMusic's editable queue. */
+    @Synchronized fun appleUpcoming(): List<NeteaseTrack> =
+        if (current?.source == MusicSource.APPLE && !appleQueueCleared) queue.drop((index + 1).coerceAtLeast(0)) else emptyList()
+
+    @Synchronized fun playAppleUpcoming(track: NeteaseTrack) {
+        if (current?.source != MusicSource.APPLE || AppleWebPlayer.stationActive || appleQueueCleared) return
+        val slot = (index + 1).coerceAtLeast(0)
+        val offset = queue.drop(slot).indexOfFirst { it === track }
+        if (offset >= 0) playIndex(slot + offset)
+    }
+
+    @Synchronized fun toggleAppleQueueRepeat() {
+        if (current?.source == MusicSource.APPLE && !AppleWebPlayer.stationActive && !appleQueueCleared &&
+            queue.isNotEmpty()) appleRepeatQueue = !appleRepeatQueue
+    }
+
+    @Synchronized fun clearAppleUpcoming() {
+        if (current?.source != MusicSource.APPLE || AppleWebPlayer.stationActive || state == State.LOADING ||
+            appleUpcoming().isEmpty()) return
+        appleQueueCleared = true
+        appleRepeatQueue = false
+        queue = emptyList()
+        originalQueue = emptyList()
+        index = -1
+        if (state == State.PLAYING) {
+            pausedAtMs = positionMs
+            state = State.PAUSED
+            appleQueuePausePending = true
+            AppleWebPlayer.command("pause")
+        }
+    }
+
+    @Synchronized fun enqueueApple(track: NeteaseTrack, next: Boolean) {
+        val activeTrack = current?.takeIf { it.source == MusicSource.APPLE } ?: return
+        if (track.source != MusicSource.APPLE || AppleWebPlayer.stationActive || state == State.LOADING) return
+        if (appleQueueCleared || index !in queue.indices) {
+            queue = listOf(activeTrack, track)
+            originalQueue = queue
+            index = 0
+        } else {
+            val after = if (next) index + 1 else queue.size
+            queue = queue.take(after) + track + queue.drop(after)
+            val originalIndex = originalQueue.indexOfFirst { it === activeTrack }.takeIf { it >= 0 }
+                ?: originalQueue.indexOfFirst { it.key == activeTrack.key }
+            val originalAfter = if (next && originalIndex >= 0) originalIndex + 1 else originalQueue.size
+            originalQueue = originalQueue.take(originalAfter) + track + originalQueue.drop(originalAfter)
+        }
+        appleQueueCleared = false
+    }
+
     @JvmOverloads @Synchronized fun acceptAppleState(
         track: NeteaseTrack,
         position: Long,
@@ -561,10 +625,17 @@ object MusicPlayer {
             audio = null
             neteaseStream = null
         }
+        val sameTrack = current?.key == track.key
+        if (appleQueueCleared && !sameTrack) {
+            appleQueueCleared = false
+            appleQueuePausePending = false
+        }
+        if (appleQueuePausePending && playing) return
+        appleQueuePausePending = false
         if (stationQueue != null) {
             val items = if (stationQueue.none { it.key == track.key }) listOf(track) else stationQueue.distinctBy { it.key }
             if (queue != items) { queue = items; originalQueue = items }
-        } else if (queue.none { it.key == track.key }) { queue = listOf(track); originalQueue = queue }
+        } else if (!appleQueueCleared && queue.none { it.key == track.key }) { queue = listOf(track); originalQueue = queue }
         if (queue.getOrNull(index)?.key != track.key) index = queue.indexOfFirst { it.key == track.key }
         current = track
         appleClock = appleClock.report(position, receivedAtNanos, seekSequence, continuing)
@@ -574,12 +645,19 @@ object MusicPlayer {
     }
 
     @Synchronized fun finishAppleTrack() {
-        if (AppleWebPlayer.stationActive || current?.source != MusicSource.APPLE || queue.isEmpty()) return
-        playIndex(if (repeatOne) index else index + 1)
+        if (AppleWebPlayer.stationActive || current?.source != MusicSource.APPLE || appleQueuePausePending) return
+        if (!appleQueueCleared && (index < queue.lastIndex || appleRepeatQueue && queue.isNotEmpty())) {
+            playIndex(index + 1)
+        } else {
+            pausedAtMs = durationMs
+            state = State.PAUSED
+        }
     }
 
     @Synchronized fun clearAppleState() {
         if (current?.source != MusicSource.APPLE) return
+        appleQueueCleared = false
+        appleQueuePausePending = false
         current = null
         state = State.STOPPED
         message = AppleWebPlayer.message

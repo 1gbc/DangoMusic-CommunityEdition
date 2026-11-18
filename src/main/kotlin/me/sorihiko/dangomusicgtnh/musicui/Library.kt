@@ -318,7 +318,9 @@ internal object Library {
         loadRecommend()
         if (ScreenState.page == Page.CHARTS) loadCharts()
         if (ScreenState.page == Page.APPLE_BROWSE) loadApplePage(ScreenState.appleSection)
-        if (ScreenState.page == Page.SEARCH && source == MusicSource.APPLE) loadCatalogGenres()
+        if (ScreenState.page == Page.SEARCH && source == MusicSource.APPLE) {
+            if (ScreenState.appleLibrarySearch) loadApplePage(AppleMusicSource.Section.GENRES) else loadCatalogGenres()
+        }
     }
 
     fun appleSongDetails(track: NeteaseTrack): CompletableFuture<AppleMusicSource.SongDetails> =

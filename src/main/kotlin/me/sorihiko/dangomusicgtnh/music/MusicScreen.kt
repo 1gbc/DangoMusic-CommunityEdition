@@ -7,6 +7,7 @@ import me.sorihiko.dangomusicgtnh.DangoClient
 import me.sorihiko.dangomusicgtnh.module.impls.music.NeteaseMusicModule
 import me.sorihiko.dangomusicgtnh.musicui.AppleLyricsLayout
 import me.sorihiko.dangomusicgtnh.musicui.AppleLyricsMenu
+import me.sorihiko.dangomusicgtnh.musicui.AppleQueuePanel
 import me.sorihiko.dangomusicgtnh.musicui.ArtistPage
 import me.sorihiko.dangomusicgtnh.musicui.ArtistRef
 import me.sorihiko.dangomusicgtnh.musicui.GridPage
@@ -65,6 +66,13 @@ class MusicScreen(
     internal val songComments = SongComments(ui)
     private val lyricsPage = LyricsPage(ui, module, songComments)
     private val appleLyricsMenu = AppleLyricsMenu(ui, module.lyricsPageRomanization, module.lyricsPageTranslation)
+    private val appleBarMenu = AppleLyricsMenu(ui, module.lyricsPageRomanization, module.lyricsPageTranslation)
+    private val appleQueue = AppleQueuePanel(ui)
+    private var appleQueueArea = LayoutBounds()
+    internal val appleQueueOpen get() = appleQueue.open
+    internal val appleBarMenuOpen get() = appleBarMenu.capturesInput
+    internal fun toggleAppleQueue() = appleQueue.toggle()
+    internal fun toggleAppleBarMenu() = appleBarMenu.toggle()
     private var appleLyricsFrame: AppleLyricsLayout? = null
     private var showAppleLyrics = true
     private var appleLyricsTrack: NeteaseTrack? = null
@@ -239,15 +247,16 @@ class MusicScreen(
         Library.loadTracks(p.id)
     }
 
-    internal fun doSearch() {
+    internal fun doSearch(live: Boolean = false) {
+        appleSearchAt = 0L
         val q = sidebar.searchText.trim()
         if (q.isEmpty()) return
-        if (appleNavigation) {
+        if (appleNavigation && !live) {
             appleSearchHistory.remove(q)
             appleSearchHistory.add(0, q)
             if (appleSearchHistory.size > 8) appleSearchHistory.removeAt(8)
         }
-        sidebar.searchFocused = false
+        if (!live) sidebar.searchFocused = false
         tracks.clearFilter()
         if (ScreenState.page != Page.SEARCH) ScreenState.backPage = ScreenState.page
         ScreenState.page = Page.SEARCH
@@ -257,8 +266,25 @@ class MusicScreen(
         Library.search(q, appleNavigation && ScreenState.appleLibrarySearch)
     }
 
-    internal val appleNavigation get() = UiStyle.continuous && MusicSources.selected == MusicSource.APPLE
+    internal val appleNavigation get() = MusicSources.selected == MusicSource.APPLE
     private val appleSearchHistory = mutableListOf<String>()
+    private var appleSearchAt = 0L
+
+    internal fun appleSearchEdited() {
+        if (!appleNavigation || ScreenState.page != Page.SEARCH) return
+        if (sidebar.searchText.isBlank()) {
+            appleSearchAt = 0L
+            ScreenState.lastQuery = ""
+            loadAppleSearchCategories()
+        } else {
+            appleSearchAt = System.nanoTime() + 350_000_000L
+        }
+    }
+
+    private fun loadAppleSearchCategories() {
+        if (ScreenState.appleLibrarySearch) Library.loadApplePage(AppleMusicSource.Section.GENRES)
+        else Library.loadCatalogGenres()
+    }
 
     internal fun openAppleSearch() {
         if (ScreenState.page != Page.SEARCH) {
@@ -267,7 +293,7 @@ class MusicScreen(
             sidebar.searchText = ""
         }
         sidebar.searchFocused = true
-        Library.loadCatalogGenres()
+        loadAppleSearchCategories()
     }
 
     internal fun openAppleSection(section: AppleMusicSource.Section) {
@@ -316,6 +342,8 @@ class MusicScreen(
         if (lyricsOpen) {
             closeLyrics()
         } else if (canOpenLyrics) {
+            appleBarMenu.dismiss()
+            appleQueue.close()
             settings.commitEdit()
             settings.bindingKey = null
             sidebar.menuOpen = false
@@ -382,6 +410,10 @@ class MusicScreen(
         ctx.begin(true, ui.mx, ui.my)
         try {
             val now = System.nanoTime()
+            if (appleSearchAt != 0L && now >= appleSearchAt) {
+                appleSearchAt = 0L
+                if (appleNavigation && !lyricsOpen && ScreenState.page == Page.SEARCH) doSearch(live = true)
+            }
             ui.frameDt = if (lastNanos == 0L) 16f else ((now - lastNanos) / 1e6f).coerceAtMost(50f)
             lastNanos = now
             grid.tick()
@@ -452,7 +484,7 @@ class MusicScreen(
         val win = LayoutBounds(26f, 20f + (1f - alpha) * 12f, ui.lw - 52f, ui.lh - 40f)
         val pad = 10f
         val sideW = 224f
-        val barH = 88f
+        val barH = if (appleNavigation) 59f else 88f
         if (lyricsOpen) {
             barRect = LayoutBounds(win.x, win.bottom - barH, win.width, barH)
             val content = LayoutBounds(win.x + pad, win.y + pad, win.width - 2f * pad, barRect.y - win.y - pad)
@@ -465,9 +497,16 @@ class MusicScreen(
         val mainW = win.right - pad - 8f - mainX
         // 播放栏浮在内容上面：左右和底部留出间距；内容延伸到播放栏底边为止，滚动时从播放栏后面经过，
         // 但不会在播放栏下面那道缝里露出来
-        val barX = mainX + 2f
-        val barRect = LayoutBounds(barX, win.bottom - pad - 8f - barH, win.right - pad - 12f - barX, barH)
+        val barWidth = if (appleNavigation) minOf(670f, mainW - 12f).coerceAtLeast(0f)
+            else win.right - pad - 14f - mainX
+        val barX = if (appleNavigation) mainX + (mainW - barWidth) / 2f else mainX + 2f
+        val barRect = LayoutBounds(barX, win.bottom - pad - 8f - barH, barWidth, barH)
         val content = LayoutBounds(mainX, win.y + pad + 14f, mainW, barRect.bottom - (win.y + pad + 14f))
+        appleQueueArea = content.copy(height = (barRect.y - content.y - 8f).coerceAtLeast(0f))
+        if (!appleNavigation) {
+            appleQueue.close()
+            appleBarMenu.reset()
+        }
 
         sidebar.draw(side)
         ui.occluder = barRect
@@ -503,6 +542,7 @@ class MusicScreen(
             return
         }
         // 播放栏画在最上面，点击也要先轮到它（点到的是第一个命中的区域）
+        if (appleNavigation && !lyricsOpen) appleQueue.draw(appleQueueArea)
         val before = ui.hits.size
         bar.draw(barRect, lyricsOpen)
         val notice = Library.notice
@@ -516,6 +556,11 @@ class MusicScreen(
         repeat(barHits.size) { ui.hits.removeAt(ui.hits.size - 1) }
         // 播放栏的空白处也要挡住点击，不然会点到底下那首歌
         ui.hits.addAll(0, barHits + listOf(barRect to {}))
+        if (appleNavigation && !lyricsOpen) {
+            val playback = PlaybackView.snapshot()
+            appleBarMenu.draw(AppleLyricsLayout(LayoutBounds(0f, 0f, ui.lw, ui.lh)),
+                playback.track?.takeUnless { playback.remote }, bar.appleMenuAnchor)
+        }
     }
 
     private fun drawContent(area: LayoutBounds) {
@@ -550,7 +595,7 @@ class MusicScreen(
                     libraryPullOffset = distance ?: ui.approach(libraryPullOffset, 0f, 85f)
                     if (libraryPullOffset < 0.5f) libraryPullOffset = 0f
                 }
-                grid.draw(body, if (pull) I18n.text("Home") else if (apple) "Apple Music" else I18n.text("Welcome to Dango Music!"),
+                grid.draw(body, if (apple) I18n.text("Home") else I18n.text("Welcome to Dango Music!"),
                     if (apple) AppleMusicSource.homeWarning.ifEmpty { if (pull) "" else "最近播放、推荐歌单与专辑" } else "$label · ${items.size}", items, Library.recommendLoading && items.isEmpty(),
                     if (apple) me.sorihiko.dangomusicgtnh.music.AppleMusicSource::homeSection else null,
                     if (pull) libraryPullOffset else 0f)
@@ -600,13 +645,14 @@ class MusicScreen(
                 scope.y + 3f, scope.width / 2f - 6f, scope.height - 6f)
             val selected = ScreenState.appleLibrarySearch == library
             if (selected) ui.card(tab, Theme.CARD_HOVER, tab.height / 2f)
-            val label = I18n.text(if (library) "LIBRARY" else "Apple Music")
-            ui.text(ui.trim(label, tab.width - 8f, 12f), tab.x + (tab.width - ui.width(label, 12f)) / 2f,
+            val label = ui.trim(I18n.text(if (library) "Your Library" else "Apple Music"), tab.width - 8f, 12f)
+            ui.text(label, tab.x + (tab.width - ui.width(label, 12f)) / 2f,
                 tab.y + 9f, 12f, if (selected) Theme.TEXT_PRIMARY else Theme.TEXT_SECONDARY, Theme.FONT_SEMIBOLD)
             ui.hits += tab to {
                 if (ScreenState.appleLibrarySearch != library) {
                     ScreenState.appleLibrarySearch = library
-                    if (ScreenState.lastQuery.isNotBlank()) doSearch()
+                    if (sidebar.searchText.isNotBlank()) doSearch(live = true)
+                    else loadAppleSearchCategories()
                 }
             }
         }
@@ -635,11 +681,13 @@ class MusicScreen(
             }
             y += 51f
         }
-        if (!ScreenState.appleLibrarySearch) {
-            grid.draw(LayoutBounds(body.x, y, body.width, (body.bottom - y).coerceAtLeast(0f)),
-                I18n.text("Browse categories"), "", Library.catalogGenres.orEmpty(), Library.catalogGenresLoading,
-                categoryTiles = true)
-        }
+        val genres = AppleMusicSource.Section.GENRES
+        val library = ScreenState.appleLibrarySearch
+        grid.draw(LayoutBounds(body.x, y, body.width, (body.bottom - y).coerceAtLeast(0f)),
+            I18n.text("Browse categories"), "",
+            if (library) Library.applePage(genres).orEmpty() else Library.catalogGenres.orEmpty(),
+            if (library) Library.applePageLoading(genres) else Library.catalogGenresLoading,
+            categoryTiles = true)
     }
 
     // ---------------------------------------------------------------- 鼠标
@@ -654,6 +702,10 @@ class MusicScreen(
         }
         bar.closeMenuOutside(mx, my)
         if (mouseButton == 0 && bar.menuContains(mx, my)) {
+            ui.hits.firstOrNull { it.first.contains(mx, my) }?.second?.invoke()
+            return
+        }
+        if (mouseButton == 0 && !lyricsOpen && (appleBarMenu.capturesInput || appleQueue.contains(mx, my))) {
             ui.hits.firstOrNull { it.first.contains(mx, my) }?.second?.invoke()
             return
         }
@@ -741,7 +793,7 @@ class MusicScreen(
         if (wheel == 0 || login.visible) return
         val lx = (x / ui.scale).toInt()
         val ly = (y / ui.scale).toInt()
-        if (bar.menuContains(lx, ly)) return
+        if (bar.menuContains(lx, ly) || appleBarMenu.capturesInput || appleQueue.scroll(wheel, lx, ly)) return
         if (lyricsOpen) {
             if (appleLyricsMenu.capturesInput) return
             lyricsPage.scroll(wheel, lx, ly)
@@ -772,7 +824,7 @@ class MusicScreen(
             login.keyTyped(keyCode)
             return
         }
-        if (keyCode == Keys.ESCAPE && bar.dismissMenu()) return
+        if (keyCode == Keys.ESCAPE && (bar.dismissMenu() || appleBarMenu.dismiss() || appleQueue.close())) return
         // 正在输入 / 录按键的地方先拿走按键
         if (!lyricsOpen) {
             // With SDL text input active, text arrives in KEY_NONE events (committed text).
@@ -797,7 +849,9 @@ class MusicScreen(
         if (!lyricsOpen && tracks.shortcutBefore(keyCode)) return
         when {
             // 其它页面 Ctrl+F 是全网搜索
-            !lyricsOpen && platform.ctrlDown && keyCode == Keys.F -> sidebar.searchFocused = true
+            !lyricsOpen && platform.ctrlDown && keyCode == Keys.F -> {
+                if (appleNavigation) openAppleSearch() else sidebar.searchFocused = true
+            }
             keyCode == Keys.SPACE -> PlaybackView.togglePause()
             keyCode == Keys.BACK -> goBack()
             !lyricsOpen && tracks.coverflowKey(keyCode) -> {}

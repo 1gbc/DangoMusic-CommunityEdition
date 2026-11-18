@@ -22,7 +22,7 @@ internal object PlayerIcons {
         move(7.5,15.5); line(4.0,19.0); line(7.5,22.5)
         move(10.5,10.0); line(12.5,8.5); line(12.5,15.5)
     }
-    private val shuffle = VectorIcon.path {
+    val shuffle = VectorIcon.path {
         move(3.0,6.0); line(5.0,6.0); curve(9.0,6.0,15.0,18.0,19.0,18.0); line(21.0,18.0)
         move(17.5,14.5); line(21.0,18.0); line(17.5,21.5)
         move(3.0,18.0); line(5.0,18.0); curve(6.8,18.0,8.2,15.8,9.5,14.0)

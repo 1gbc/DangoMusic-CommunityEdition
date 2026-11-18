@@ -16,6 +16,8 @@ import kotlin.math.min
 
 /** 网易云红（和菜单里 Music 分类同色） */
 internal val RED = Color.fromHex("#FF375F")
+internal val APPLE_CONTROL_BLUE = Color.fromHex("#56A9FF")
+internal const val APPLE_COVER_RADIUS_RATIO = 0.065f
 
 /** 一块可点击区域和点下去要做的事 */
 internal typealias Hit = Pair<LayoutBounds, () -> Unit>
@@ -141,6 +143,12 @@ internal class Ui {
 
     fun drawCover(b: LayoutBounds, tex: Texture?, radius: Float = 8f) {
         if (tex != null) ctx.drawImage(b, tex) else card(b, Theme.TRACK, radius)
+    }
+
+    fun drawAppleCover(bounds: LayoutBounds, texture: Texture?) {
+        val radius = minOf(bounds.width, bounds.height) * APPLE_COVER_RADIUS_RATIO
+        if (texture == null) card(bounds, Theme.TRACK, radius)
+        else ctx.drawRoundedImage(bounds, texture, radius)
     }
 
     /** 胶囊按钮：可选左侧图标 */

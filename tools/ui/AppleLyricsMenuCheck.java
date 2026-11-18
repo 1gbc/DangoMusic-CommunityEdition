@@ -171,6 +171,18 @@ public class AppleLyricsMenuCheck {
         click(ui, 1000, 956);
         draw(menu, frame, track, ui, labels, icons);
         check(details.join().getLink().equals(clipboard.get()), "Copy Link still writes the official URL");
+        var bottom = (AppleLyricsMenu)field(screen, "appleBarMenu").get(screen);
+        var barAnchor = new LayoutBounds(1500f, 1200f, 30f, 30f);
+        bottom.draw(frame, track, barAnchor);
+        bottom.toggle();
+        ui.getHits().clear();
+        labels.clear();
+        icons.clear();
+        bottom.draw(frame, track, barAnchor);
+        ui.getMt().flush(1f);
+        check(labels.equals(List.of("插播", "最后播放", "个人收藏", "查看制作人员", "拷贝链接")),
+            "Bottom menu contains only the five supported and localized actions: " + labels);
+        check(icons.size() == 5, "All bottom menu actions have vector icons");
         System.out.println("Apple lyrics menu passes both languages, independent toggles, scroll anchoring, credits and copy link");
     }
 }

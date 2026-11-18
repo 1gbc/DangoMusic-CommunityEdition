@@ -1,9 +1,12 @@
 package me.sorihiko.dangomusicgtnh.musicui
 
 import me.sorihiko.dangomusicgtnh.DangoClient
+import me.sorihiko.dangomusicgtnh.client.ClientMusic
 import me.sorihiko.dangomusicgtnh.i18n.I18n
 import me.sorihiko.dangomusicgtnh.module.values.BooleanValue
 import me.sorihiko.dangomusicgtnh.music.AppleMusicSource
+import me.sorihiko.dangomusicgtnh.music.AppleWebPlayer
+import me.sorihiko.dangomusicgtnh.music.MusicPlayer
 import me.sorihiko.dangomusicgtnh.music.MusicSource
 import me.sorihiko.dangomusicgtnh.music.NeteaseTrack
 import me.sorihiko.dangomusicgtnh.ui.LayoutBounds
@@ -46,7 +49,8 @@ internal class AppleLyricsMenu(
         notice = TimedNotice("")
     }
 
-    fun draw(frame: AppleLyricsLayout, track: NeteaseTrack?) {
+    @JvmOverloads
+    fun draw(frame: AppleLyricsLayout, track: NeteaseTrack?, bottomAnchor: LayoutBounds? = null) {
         if (frame.scale <= 0f) return
         val song = track?.takeIf { it.source == MusicSource.APPLE }
         if (trackKey != song?.key) {
@@ -66,13 +70,16 @@ internal class AppleLyricsMenu(
 
         val alpha = notice.opacity()
         if (alpha > 0f) {
-            ui.text(notice.text, frame.artwork.x, frame.y(1073f), 13f * frame.scale,
+            ui.text(notice.text, bottomAnchor?.let { (it.right - ui.width(notice.text, 11f)).coerceAtLeast(16f) } ?: frame.artwork.x,
+                bottomAnchor?.let { it.y - 47f } ?: frame.y(1073f), if (bottomAnchor != null) 11f else 13f * frame.scale,
                 Theme.TEXT_SECONDARY.copy(a = alpha))
         }
         if (song == null) return
 
         val hitStart = ui.hits.size
-        if (menuOpen) drawMenu(frame, song)
+        if (menuOpen) {
+            if (bottomAnchor == null) drawMenu(frame, song) else drawBottomMenu(frame.viewport, bottomAnchor, song)
+        }
         if (creditsOpen) drawCredits(frame, song, metadata, complete)
         if (capturesInput) {
             ui.hits += frame.viewport to { dismiss() }
@@ -85,6 +92,52 @@ internal class AppleLyricsMenu(
     private fun load(track: NeteaseTrack) {
         if (details == null || details?.isCompletedExceptionally == true) {
             details = Library.appleSongDetails(track)
+        }
+    }
+
+    private fun drawBottomMenu(viewport: LayoutBounds, anchor: LayoutBounds, song: NeteaseTrack) {
+        val width = minOf(218f, viewport.width - 16f)
+        val rowHeight = minOf(31f, (anchor.y - 26f) / 5f)
+        if (width < 80f || rowHeight < 14f) return
+        val height = rowHeight * 5f + 12f
+        val panel = LayoutBounds((anchor.right - width).coerceAtLeast(viewport.x + 8f),
+            anchor.y - height - 9f, width, height)
+        PopupLook.panel(ui.ctx, panel)
+        val canQueue = !AppleWebPlayer.stationActive && MusicPlayer.state != MusicPlayer.State.LOADING
+        val favorite = Library.favoriteState(song)
+        ui.popup(panel) {
+            fun item(index: Int, label: String, icon: VectorIcon, enabled: Boolean = true, selected: Boolean = false,
+                action: () -> Unit) {
+                val box = LayoutBounds(panel.x + 6f, panel.y + 6f + index * rowHeight, panel.width - 12f, rowHeight)
+                if (enabled && ui.hover(box)) ui.card(box, PopupLook.hover, 7f)
+                if (index > 0) ui.card(box.copy(height = 1f), PopupLook.divider, 0f)
+                val color = if (enabled) Theme.TEXT_PRIMARY else Theme.TEXT_TERTIARY
+                ui.text(I18n.text(label, "Apple Player Menu"), box.x + 9f, box.y + (rowHeight - 12f) / 2f,
+                    12f, color, Theme.FONT_MEDIUM)
+                PlayerIcons.draw(ui.ctx, icon, box.right - 15f, box.y + rowHeight / 2f, 16f,
+                    if (selected && enabled) APPLE_CONTROL_BLUE else color)
+                if (enabled) ui.hits += box to action
+            }
+            item(0, "Play Next", PLAY_NEXT, canQueue) {
+                ClientMusic.control { MusicPlayer.enqueueApple(song, next = true) }
+                menuOpen = false
+            }
+            item(1, "Play Last", PLAY_LAST, canQueue) {
+                ClientMusic.control { MusicPlayer.enqueueApple(song, next = false) }
+                menuOpen = false
+            }
+            item(2, "Personal Favorite", STAR, favorite?.selected != null && !favorite.pending,
+                favorite?.selected == true) { Library.toggleAppleFavorite(song) }
+            item(3, "View Credits", INFO) {
+                menuOpen = false
+                creditsOpen = true
+                load(song)
+            }
+            item(4, "Copy Link", LINK) {
+                menuOpen = false
+                copyPending = true
+                load(song)
+            }
         }
     }
 
@@ -182,6 +235,23 @@ internal class AppleLyricsMenu(
     }
 
     private companion object {
+        val PLAY_NEXT = VectorIcon.path {
+            move(3.0, 4.0); line(9.0, 8.0); line(3.0, 12.0); close()
+            move(13.0, 8.0); line(21.0, 8.0)
+            move(3.0, 16.0); line(21.0, 16.0)
+            move(3.0, 21.0); line(21.0, 21.0)
+        }
+        val PLAY_LAST = VectorIcon.path {
+            move(3.0, 4.0); line(21.0, 4.0)
+            move(3.0, 9.0); line(21.0, 9.0)
+            move(3.0, 13.0); line(9.0, 17.0); line(3.0, 21.0); close()
+            move(13.0, 17.0); line(21.0, 17.0)
+        }
+        val STAR = VectorIcon.path {
+            move(12.0, 2.5); line(15.0, 8.7); line(21.8, 9.7)
+            line(16.9, 14.5); line(18.0, 21.5); line(12.0, 18.2)
+            line(6.0, 21.5); line(7.1, 14.5); line(2.2, 9.7); line(9.0, 8.7); close()
+        }
         val INFO = VectorIcon.path {
             circle(12.0, 12.0, 9.0)
             move(12.0, 10.0); line(12.0, 16.0)
