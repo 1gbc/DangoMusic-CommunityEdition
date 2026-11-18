@@ -18,7 +18,9 @@ public class DynamicIslandCompactCheck {
         return type.cast(Proxy.newProxyInstance(type.getClassLoader(),new Class<?>[]{type},handler));
     }
     static NeteaseTrack track(String id,String title) {
-        return new NeteaseTrack(1,title,List.of("Extra artist"),120000,"",MusicSource.APPLE,id);
+        var track = new NeteaseTrack(1,title,List.of("Extra artist"),120000,"",MusicSource.APPLE,id);
+        track.setAlbumName("Afterglow");
+        return track;
     }
     public static void main(String[] args)throws Exception {
         var island = new DynamicIslandModule();
@@ -29,6 +31,7 @@ public class DynamicIslandCompactCheck {
         var texts = new ArrayList<String>();
         var textXs = new ArrayList<Float>();
         var titleSizes = new ArrayList<Float>();
+        var fonts = new ArrayList<String>();
         var cjkRuns = new ArrayList<CjkRun>();
         float[] renderScale = {1f};
         var shell = new ArrayList<LayoutBounds>();
@@ -36,12 +39,14 @@ public class DynamicIslandCompactCheck {
         var textClips = new ArrayList<LayoutBounds>();
         var radii = new ArrayList<Float>();
         int[] width={1280};
+        int[] height={800};
         var canvas = proxy(GuiCanvas.class,(p,m,a)->{
             switch(m.getName()) {
                 case "drawShape": shapes.add((LayoutBounds)a[0]); break;
                 case "drawGlass": shell.add((LayoutBounds)a[0]); radii.add(((GlassStyle)a[1]).getRadius()); break;
                 case "drawText": texts.add((String)a[0]); textXs.add((float)a[1]); textClips.add(clipStack.peek());
-                    titleSizes.add(((FontStyle)a[3]).getFontSize() * renderScale[0]); break;
+                    titleSizes.add(((FontStyle)a[3]).getFontSize() * renderScale[0]);
+                    fonts.add(((FontStyle)a[3]).getFont()); break;
                 case "pushScale": renderScale[0]=(float)a[0]; break;
                 case "pushClip": clipStack.push((LayoutBounds)a[0]); break;
                 case "popClip": clipStack.pop(); break;
@@ -65,7 +70,7 @@ public class DynamicIslandCompactCheck {
             return switch(m.getName()){
                 case "getConfigDir" -> cfg;
                 case "getWindowWidth" -> width[0];
-                case "getWindowHeight" -> 800;
+                case "getWindowHeight" -> height[0];
                 case "getMouseX","getMouseY" -> 0;
                 default -> null;
             };
@@ -78,7 +83,7 @@ public class DynamicIslandCompactCheck {
         Field previous=field(DynamicIslandModule.class,"lastNanos");
         Runnable draw=()->{
             try {
-                texts.clear();textXs.clear();textClips.clear();shell.clear();shapes.clear();radii.clear();titleSizes.clear();cjkRuns.clear();
+                texts.clear();textXs.clear();textClips.clear();shell.clear();shapes.clear();radii.clear();titleSizes.clear();fonts.clear();cjkRuns.clear();
                 previous.setLong(island,System.nanoTime()-16_000_000L);
                 render.invoke(island,new Object[]{null});
                 check(clipStack.isEmpty(),"Islands must restore scissor");
@@ -130,23 +135,30 @@ public class DynamicIslandCompactCheck {
             "Chinese titles use the Apple lyrics page font fallback");
         check(Math.abs(cjkRuns.get(0).getSize()*renderScale[0] - 18f*800f/1292f*.96f)<.001f,
             "The title also matches the lyrics page in a height-limited viewport");
-        width[0]=1280;
         layout.setValue(0);
+        animations.set(false);
         for (boolean continuous : new boolean[]{false, true}) {
             UiStyle.INSTANCE.setContinuous(continuous);
+            width[0]=1920;
+            height[0]=1080;
             MusicPlayer.INSTANCE.acceptAppleState(track("5", "Blue Moon"),65000,false);
             for(int i=0;i<100;i++)draw.run();
-            check(Math.abs(shell.get(0).getWidth()-208f)<.05f && Math.abs(shell.get(0).getHeight()-54f)<.05f,
-                "Full island B uses the approved 208 x 54 dimensions");
-            check(texts.contains("Extra artist") && texts.contains("1:05") && texts.contains("-0:55"),
-                "The reduced full layout retains artist, elapsed time and remaining time");
-            check(shapes.stream().anyMatch(b -> b.getWidth()==36f && b.getHeight()==36f),
-                "The full layout shrinks its cover to 36 pixels");
-            check(shapes.stream().anyMatch(b -> b.getHeight()==3f && b.getWidth()>40f),
-                "The progress track still has enough room with optional animations");
+            var full = shell.get(0);
+            check(Math.round(full.getWidth()*renderScale[0])==322 && Math.round(full.getHeight()*renderScale[0])==65,
+                "Full island B measures 322 x 65 at 1920 x 1080");
+            check(Math.abs((full.getX()+full.getWidth()/2)*renderScale[0]-960f)<.05f
+                && Math.abs(radii.get(0)-5.5f)<.001f,"Full island B is centered and has small rounded corners");
+            check(texts.equals(List.of("Blue Moon", "Extra artist / Afterglow")),
+                "Full island B displays a title and an artist/album line: "+texts);
+            check(fonts.get(0).equals(Theme.FONT_SEMIBOLD) && Math.abs(titleSizes.get(0)-12.5f*renderScale[0])<.001f,
+                "The smaller full title keeps the Apple Music title font");
+            check(shapes.stream().anyMatch(b -> b.getWidth()==37f && b.getHeight()==37f),
+                "The cover fits in the shorter full layout");
+            check(shapes.stream().anyMatch(b -> b.getHeight()==2f && b.getWidth()>100f),
+                "The full layout places a thin progress track under the text");
             MusicPlayer.INSTANCE.acceptAppleState(track("6",longTitle),0,true);
             for(int i=0;i<90;i++)draw.run();
-            check(Math.abs(shell.get(0).getWidth()-270f)<.05f,"Long full titles are capped at 270 pixels");
+            check(Math.abs(shell.get(0).getWidth()-238.5f)<.05f,"Long titles keep the full island width");
             width[0]=70;
             for(int i=0;i<90;i++)draw.run();
             check(shell.get(0).getWidth()<=174.01f,"The full island fits a narrow window");
