@@ -71,6 +71,7 @@ internal class Sidebar(private val screen: MusicScreen, private val hiddenLibrar
     private val ROW_TEXT = Theme.TEXT_PRIMARY.copy(a = 0.86f)
     private val ROW_SELECTION = Color(1f, 1f, 1f, 0.105f)
     private val APPLE_CHECK_MARK = Color.fromHex("#23303B")
+    private val appleAccent get() = if (screen.appleSidebarUsesDarkGlass) RED else APPLE_SIDEBAR_BLUE
 
     /** 音源菜单的液态玻璃：比侧栏更暗、更磨砂，保证上面的字看得清 */
     private val MENU_GLASS = GlassStyle(
@@ -152,8 +153,9 @@ internal class Sidebar(private val screen: MusicScreen, private val hiddenLibrar
         val page = ScreenState.page
         val modern = UiStyle.continuous
         val apple = screen.appleNavigation
-        val glassStyle = if (modern) SIDEBAR_GLASS else Theme.GLASS_SIDEBAR
-        if (apple) screen.coverBackdrop.drawControlBackground(side, glassStyle.radius)
+        val darkGlass = screen.appleSidebarUsesDarkGlass
+        val glassStyle = if (modern || darkGlass) SIDEBAR_GLASS else Theme.GLASS_SIDEBAR
+        if (apple && !darkGlass) screen.coverBackdrop.drawControlBackground(side, glassStyle.radius)
         else ctx.drawGlass(side, glassStyle)
         drawSelectionPill(side, apple)
         var newKey = ""
@@ -420,14 +422,14 @@ internal class Sidebar(private val screen: MusicScreen, private val hiddenLibrar
         if (checked != null) {
             val box = LayoutBounds(row.x + 9f, center - 5.5f, 11f, 11f)
             if (checked) {
-                ui.card(box, APPLE_SIDEBAR_BLUE, 3f)
+                ui.card(box, appleAccent, 3f)
                 SidebarIcons.drawApple(ui.ctx, "check", box.x + 5.5f, center, APPLE_CHECK_MARK, 10f)
             } else {
                 ui.ctx.drawShape(box, ShapeStyle(Color.TRANSPARENT, 3f, 1f, Theme.TEXT_SECONDARY))
             }
         }
         SidebarIcons.drawApple(ui.ctx, glyph, row.x + 17f + offset, center,
-            APPLE_SIDEBAR_BLUE.copy(a = if (active) 1f else 0.93f))
+            appleAccent.copy(a = if (active) 1f else 0.93f))
         val textX = row.x + 31f + offset
         val font = if (active) Theme.FONT_SEMIBOLD else Theme.FONT_MEDIUM
         val text = ui.trim(label, (row.right - textX - 8f).coerceAtLeast(0f), APPLE_MENU_TEXT_SIZE, font)
@@ -496,7 +498,7 @@ internal class Sidebar(private val screen: MusicScreen, private val hiddenLibrar
             if (ui.hover(b)) ui.card(appleRowHighlight(b), APPLE_ROW_HOVER, APPLE_ROW_RADIUS)
             val av = LayoutBounds(b.x + 5f, b.y + 8f, 24f, 24f)
             ui.card(av, Color(1f, 1f, 1f, 0.07f), av.width / 2f)
-            SidebarIcons.drawApple(ui.ctx, "♫", av.x + av.width / 2f, b.y + b.height / 2f, APPLE_SIDEBAR_BLUE)
+            SidebarIcons.drawApple(ui.ctx, "♫", av.x + av.width / 2f, b.y + b.height / 2f, appleAccent)
             ui.text("Apple Music", b.x + 36f, b.y + 8f, APPLE_MENU_TEXT_SIZE, Theme.TEXT_PRIMARY, Theme.FONT_MEDIUM)
             val status = I18n.text(if (loggedIn(MusicSource.APPLE)) "Signed in" else "Log in")
             ui.text(status, b.x + 36f, b.y + 23f, 10f, Theme.TEXT_SECONDARY)
@@ -505,7 +507,7 @@ internal class Sidebar(private val screen: MusicScreen, private val hiddenLibrar
             chipRect = chip
             menuRects += chip
             SidebarIcons.drawApple(ui.ctx, if (menuOpen) "up" else "down", chip.x + chip.width / 2f, chip.y + 20f,
-                if (menuOpen) APPLE_SIDEBAR_BLUE else Theme.TEXT_SECONDARY, 11f)
+                if (menuOpen) appleAccent else Theme.TEXT_SECONDARY, 11f)
             ui.hits += chip to { menuOpen = !menuOpen }
             ui.hits += LayoutBounds(b.x, b.y, chip.x - b.x, b.height) to { screen.login.open() }
             return

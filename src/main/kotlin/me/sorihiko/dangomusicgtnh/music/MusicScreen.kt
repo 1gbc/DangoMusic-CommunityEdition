@@ -269,6 +269,7 @@ class MusicScreen(
     }
 
     internal val appleNavigation get() = MusicSources.selected == MusicSource.APPLE
+    internal val appleSidebarUsesDarkGlass get() = appleNavigation && module.appleSidebarUsesDarkGlass
     private val appleSearchHistory = mutableListOf<String>()
     private var appleSearchAt = 0L
 
@@ -494,12 +495,13 @@ class MusicScreen(
             return
         }
         val side = LayoutBounds(win.x + pad, win.y + pad, sideW, win.height - pad * 2)
+        val sampleContent = appleNavigation && (ScreenState.page == Page.GROUP || ScreenState.page == Page.PLAYLIST)
         if (appleNavigation) {
             val song = PlaybackView.snapshot().track?.takeIf { it.source == MusicSource.APPLE }
             coverBackdrop.prepareMenuFrame(song)
             coverBackdrop.drawMenuPanel(win, Theme.GLASS_WINDOW.radius, Color(0.03f, 0.035f, 0.045f, 0.34f))
             // Room cards and playlist highlights sample the opaque cover backdrop.
-            if (ScreenState.page == Page.GROUP || ScreenState.page == Page.PLAYLIST) ui.ctx.recaptureBackdrop()
+            if (sampleContent && !appleSidebarUsesDarkGlass) ui.ctx.recaptureBackdrop()
         } else ui.ctx.drawGlass(win, Theme.GLASS_WINDOW)
         val mainX = side.right + pad + 8f
         appleQueueArea = if (appleNavigation) {
@@ -521,6 +523,8 @@ class MusicScreen(
         ui.compactAppleText = appleNavigation
         try {
             sidebar.draw(side)
+            // Dark glass uses the original game sample before the room or playlist captures the menu.
+            if (sampleContent && appleSidebarUsesDarkGlass) ui.ctx.recaptureBackdrop()
             ui.occluder = barRect
             ui.bottomInset = content.bottom - barRect.y + 10f
             drawContent(content)

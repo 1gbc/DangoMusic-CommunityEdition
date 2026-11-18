@@ -137,6 +137,11 @@ class NeteaseMusicModule : Module() {
     @ModuleValue("Interface style", "Classic: rounded corners, capsule switches with round knobs. Continuous corners: smoother squircle corners everywhere")
     private val uiStyle = IntValue(0, 1, 0)
 
+    @ModuleValue("Apple Music sidebar style", "Choose between blue icons with flowing cover colors and red icons with dark glass")
+    private val appleSidebarStyle = IntValue(0, 1, 0)
+
+    internal val appleSidebarUsesDarkGlass get() = appleSidebarStyle.value == 1
+
     @ModuleValue("Resume last session", "Restore the last queue and song position (paused) when you start the game")
     private val resumeSession = BooleanValue(true)
 
