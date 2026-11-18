@@ -485,7 +485,7 @@ class MusicScreen(
         if (lyricsOpen && !canOpenLyrics) closeLyrics()
         val win = LayoutBounds(26f, 20f + (1f - alpha) * 12f, ui.lw - 52f, ui.lh - 40f)
         val pad = 10f
-        val sideW = 224f
+        val sideW = if (appleNavigation) 224f * 0.9f else 224f
         if (lyricsOpen) {
             val barH = if (appleNavigation) 45f else 88f
             barRect = LayoutBounds(win.x, win.bottom - barH, win.width, barH)

@@ -92,8 +92,8 @@ public class DynamicIslandCompactCheck {
             } catch(ReflectiveOperationException e){throw new RuntimeException(e);}
         };
         for (int i=0;i<100;i++) draw.run();
-        check(Math.abs(shell.get(0).getHeight()-70f)<.01f && radii.get(0)==10f,
-            "The first rendered track uses the large-cover card");
+        check(Math.abs(shell.get(0).getHeight()-29f/.6f)<.01f && radii.get(0)==10f,
+            "The default style C keeps card corners at style B's height");
         layout.setValue(1);
         for(boolean continuous:new boolean[]{false,true}) {
             UiStyle.INSTANCE.setContinuous(continuous);
@@ -150,10 +150,13 @@ public class DynamicIslandCompactCheck {
             layout.setValue(2);
             for (int i=0;i<100;i++) draw.run();
             var slim = shell.get(0);
+            float expectedTitleSize = 18f * Math.min(width[0] / 2464f,height[0] / 1292f);
             check(Math.abs(slim.getWidth()-238.5f)<.01f && Math.abs(slim.getHeight()-29f/.6f)<.01f
                 && radii.get(0)==5.5f, "Style B restores the slim card and its original corners");
             check(texts.equals(List.of("Blue Moon", "Extra artist / Afterglow")) && shapes.get(1).getHeight()==2f,
                 "Style B renders both text lines and the thin progress bar");
+            check(Math.abs(titleSizes.get(0)-expectedTitleSize)<.001f && titleSizes.get(1)<titleSizes.get(0),
+                "Style B title matches style A and metadata is smaller");
             var slimProgress = shapes.get(1);
             for (int i=0;i<texts.size();i++) {
                 float textWidth = texts.get(i).length()*titleSizes.get(i)/renderScale[0]*.58f;
@@ -165,27 +168,25 @@ public class DynamicIslandCompactCheck {
             check(layout.getValue()==0, "Resetting the layout restores style C");
             for(int i=0;i<100;i++)draw.run();
             var full = shell.get(0);
-            check(Math.abs(full.getWidth()-270f)<.01f && Math.abs(full.getHeight()-70f)<.01f,
-                "Style C uses the reference card proportions");
+            check(Math.abs(full.getWidth()-slim.getWidth())<.01f && Math.abs(full.getHeight()-slim.getHeight())<.01f,
+                "Style C matches style B's width and height");
             check(Math.abs((full.getX()+full.getWidth()/2)*renderScale[0]-960f)<.05f
                 && Math.abs(radii.get(0)-10f)<.001f,"Style C is centered with the reference card radius");
             check(texts.equals(List.of("Blue Moon", "Extra artist / Afterglow")),
                 "Style C displays a title and an artist/album line: "+texts);
-            check(fonts.get(0).equals(Theme.FONT_SEMIBOLD) && Math.abs(titleSizes.get(0)-16f*renderScale[0])<.001f,
-                "The full title keeps the Apple Music title font");
-            check(textXs.stream().allMatch(x -> Math.abs(x-full.getX()-65f)<.01f),
-                "Both text rows left align 12 px after the cover");
+            check(fonts.get(0).equals(Theme.FONT_SEMIBOLD) && Math.abs(titleSizes.get(0)-expectedTitleSize)<.001f
+                && titleSizes.get(1)<titleSizes.get(0), "Style C title matches style A and metadata is smaller");
             var cover = shapes.get(0);
-            check(cover.getWidth()==41f && cover.getHeight()==41f && shapeRadii.get(0)==6.5f
-                && Math.abs(cover.getX()-full.getX()-12f)<.01f && Math.abs(cover.getY()-full.getY()-10f)<.01f,
-                "The cover keeps its reference size, radius, and insets");
+            check(textXs.stream().allMatch(x -> Math.abs(x-cover.getRight()-12f)<.01f),
+                "Both text rows left align 12 px after the cover");
             var progress = shapes.get(1);
-            check(progress.getHeight()==2.5f && Math.abs(progress.getWidth()-246f)<.01f
-                && Math.abs(progress.getX()-cover.getX())<.01f && Math.abs(progress.getY()-full.getY()-57f)<.01f,
-                "The bottom progress track aligns with the cover and has equal side insets");
+            check(cover.getWidth()==cover.getHeight() && cover.getBottom()<progress.getY()
+                && Math.abs(progress.getWidth()-(full.getWidth()-24f))<.01f
+                && Math.abs(progress.getX()-cover.getX())<.01f,
+                "Style C retains a square cover and separate track with equal side insets");
             MusicPlayer.INSTANCE.acceptAppleState(track("6",longTitle),0,true);
             for(int i=0;i<90;i++)draw.run();
-            check(Math.abs(shell.get(0).getWidth()-270f)<.05f,"Long titles keep the full island width");
+            check(Math.abs(shell.get(0).getWidth()-slim.getWidth())<.05f,"Long titles keep the full island width");
             width[0]=70;
             for(int i=0;i<90;i++)draw.run();
             check(shell.get(0).getWidth()<=174.01f,"The full island fits a narrow window");

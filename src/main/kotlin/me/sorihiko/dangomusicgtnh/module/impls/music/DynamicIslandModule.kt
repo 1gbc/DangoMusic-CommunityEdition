@@ -65,8 +65,8 @@ class DynamicIslandModule : Module() {
     ) {
         IDLE(32f, 0f),
         MINI(32f, COMPACT_COVER_SIZE, COMPACT_MAX_WIDTH),
-        SLIM(29f / 0.6f, 37f, 238.5f, 5.5f),
-        CARD(70f, 41f, 270f, 10f),
+        SLIM(FULL_HEIGHT, 37f, FULL_WIDTH, 5.5f),
+        CARD(FULL_HEIGHT, 32f, FULL_WIDTH, 10f),
     }
 
     private var context: GuiCanvas? = null
@@ -294,7 +294,7 @@ class DynamicIslandModule : Module() {
             when {
                 shown == Kind.IDLE -> drawIdle(ctx, cb)
                 shown == Kind.MINI -> drawMini(ctx, cb, snap, titleSize, pill.x + pill.width / 2f)
-                else -> drawFull(ctx, cb, snap, shown)
+                else -> drawFull(ctx, cb, snap, shown, titleSize)
             }
             if (animations && (shown == Kind.SLIM || shown == Kind.CARD)) {
                 val cover = snap.track?.let(CoverCache::trackImage)
@@ -389,14 +389,14 @@ class DynamicIslandModule : Module() {
             .coerceAtLeast(0f)
     }
 
-    private fun drawFull(ctx: GuiCanvas, b: LayoutBounds, snap: PlaybackView.Snapshot, kind: Kind) {
+    private fun drawFull(ctx: GuiCanvas, b: LayoutBounds, snap: PlaybackView.Snapshot, kind: Kind, titleSize: Float) {
         val track = snap.track ?: return
         val slim = kind == Kind.SLIM
         val coverSize = kind.coverSize
         val cover = if (slim) {
             LayoutBounds(b.x + 7f, b.y + (b.height - coverSize) / 2f, coverSize, coverSize)
         } else {
-            LayoutBounds(b.x + CARD_INSET, b.y + 10f, coverSize, coverSize)
+            LayoutBounds(b.x + CARD_INSET, b.y + 7f, coverSize, coverSize)
         }
         val coverRadius = if (slim) coverSize * CoverCache.DEFAULT_CORNER_RATIO else 6.5f
         drawCover(ctx, cover, CoverCache.track(track), coverRadius)
@@ -407,17 +407,18 @@ class DynamicIslandModule : Module() {
         val progress = if (slim) {
             LayoutBounds(x, b.bottom - 7f, textWidth, 2f)
         } else {
-            LayoutBounds(b.x + CARD_INSET, b.y + 57f, b.width - 2f * CARD_INSET, 2.5f)
+            LayoutBounds(b.x + CARD_INSET, b.bottom - 7f, b.width - 2f * CARD_INSET, 2.5f)
         }
         drawSongProgress(ctx, progress, snap.positionMs, snap.durationMs)
         if (textWidth <= 0f) return
 
         val center = if (slim) x + textWidth / 2f else null
-        val titleY = b.y + if (slim) 7f else 14.5f
-        val titleSize = if (slim) 12.5f else 16f
+        val artistSize = titleSize * 0.82f
+        val lineGap = 3f
+        val labelHeight = titleSize + lineGap + artistSize
+        val titleY = b.y + ((progress.y - b.y - labelHeight) / 2f).coerceAtLeast(0f)
         drawTrackTitle(ctx, track.name, x, right, titleY, titleSize, Theme.TEXT_PRIMARY, center)
 
-        val artistSize = if (slim) 11.5f else 11f
         val artists = track.artists.joinToString(" / ")
         val album = track.albumName.trim()
         val separator = " / "
@@ -432,7 +433,7 @@ class DynamicIslandModule : Module() {
         val detailsWidth = width(details, artistSize)
         if (detailsWidth <= textWidth) {
             val detailsX = if (center != null) center - detailsWidth / 2f else x
-            text(ctx, details, detailsX, b.y + if (slim) 25f else 34f, artistSize, Theme.TEXT_SECONDARY)
+            text(ctx, details, detailsX, titleY + titleSize + lineGap, artistSize, Theme.TEXT_SECONDARY)
         }
     }
 
@@ -495,6 +496,8 @@ class DynamicIslandModule : Module() {
         const val STYLE_B = 2
         const val COMPACT_MIN_WIDTH = 164f
         const val COMPACT_MAX_WIDTH = 256f
+        const val FULL_WIDTH = 238.5f
+        const val FULL_HEIGHT = 29f / 0.6f
         const val CARD_INSET = 12f
         const val COMPACT_COVER_LEFT = 10f
         const val COMPACT_COVER_SIZE = 22f
