@@ -31,6 +31,8 @@ import me.sorihiko.dangomusicgtnh.utils.Color;
 
 /** Run on the compiled client and core classpath, with core resources. No game or login needed. */
 public class AppleLyricsMenuCheck {
+    private static final float MENU_SCALE = .85f;
+
     private static Field field(Object object, String name) throws Exception {
         Field field = object.getClass().getDeclaredField(name);
         field.setAccessible(true);
@@ -57,6 +59,11 @@ public class AppleLyricsMenuCheck {
     private static void click(Ui ui, int x, int y) {
         ui.getHits().stream().filter(hit -> hit.getFirst().contains(x, y)).findFirst()
             .orElseThrow().getSecond().invoke();
+    }
+
+    private static void clickMenuRow(Ui ui, LayoutBounds panel, int index) {
+        click(ui, (int)(panel.getX() + 18f),
+            Math.round(panel.getY() + (4f + 24f * (index + .5f)) * MENU_SCALE));
     }
 
     private static float rowTop(LyricsPage page, int index) throws Exception {
@@ -157,6 +164,11 @@ public class AppleLyricsMenuCheck {
         check(labels.equals(List.of("View Credits", "Copy Link", "Romanization", "Translation")),
             "Expected four English menu rows, got " + labels);
         check(icons.size() == 5, "One default checkbox plus four row icons");
+        var lyricsBounds = glassMenuBounds.get();
+        var lyricsGlass = glassMenuStyle.get();
+        check(lyricsBounds != null && Math.abs(lyricsBounds.getWidth() - 186f * MENU_SCALE) < .001f
+                && Math.abs(lyricsBounds.getHeight() - 104f * MENU_SCALE) < .001f,
+            "Lyrics popup uses the shared compact panel width and four compact rows");
 
         var lines = List.of(new LyricLine(0, "First line", null, "First translation", "First romanization"),
             new LyricLine(1000, "Second line", null, "Second translation", "Second romanization"));
@@ -176,7 +188,7 @@ public class AppleLyricsMenuCheck {
         float anchor = rowTop(page, 1) + 5f;
         field(page, "manualPosition").set(page, anchor);
         field(page, "scrollPosition").setFloat(page, anchor);
-        click(ui, 1000, 973);
+        clickMenuRow(ui, glassMenuBounds.get(), 2);
         check(romanization.get() && translation.get(), "Romanization toggles independently");
         layout(page, lines);
         float shifted = rowTop(page, 1) + 5f;
@@ -184,7 +196,7 @@ public class AppleLyricsMenuCheck {
             && field(page, "scrollPosition").getFloat(page) == shifted, "Keep the displayed original line anchored");
         draw(menu, frame, track, ui, labels, icons);
         check(icons.size() == 6, "Both toggles are marked on");
-        click(ui, 1000, 999);
+        clickMenuRow(ui, glassMenuBounds.get(), 3);
         check(romanization.get() && !translation.get(), "Translation toggles independently");
 
         menu.dismiss();
@@ -197,13 +209,13 @@ public class AppleLyricsMenuCheck {
             "Expected four Chinese menu rows, got " + labels);
         var details = CompletableFuture.completedFuture(new AppleMusicSource.SongDetails("Singer", "Composer", "https://music.apple.com/us/song/1"));
         field(menu, "details").set(menu, details);
-        click(ui, 1000, 924);
+        clickMenuRow(ui, glassMenuBounds.get(), 0);
         draw(menu, frame, track, ui, labels, icons);
         check(labels.contains("查看制作人员") && labels.contains("Singer"), "Credits still show localized title and metadata");
         menu.dismiss();
         menu.toggle();
         draw(menu, frame, track, ui, labels, icons);
-        click(ui, 1000, 956);
+        clickMenuRow(ui, glassMenuBounds.get(), 1);
         draw(menu, frame, track, ui, labels, icons);
         check(details.join().getLink().equals(clipboard.get()), "Copy Link still writes the official URL");
         var bottom = (AppleLyricsMenu)field(screen, "appleBarMenu").get(screen);
@@ -225,9 +237,12 @@ public class AppleLyricsMenuCheck {
         check(icons.size() == 5, "All bottom menu actions have vector icons");
         var bounds = glassMenuBounds.get();
         var style = glassMenuStyle.get();
-        check(glassDraws[0] == beforeGlass + 1 && style.getRadius() == 5f && style.getFrost() > .5f,
-            "Bottom menu uses frosted liquid glass with the existing small radius");
-        check(bounds.getX() == 2242f && bounds.getY() == 1110f,
+        check(glassDraws[0] == beforeGlass + 1 && style.equals(lyricsGlass) && style.getRadius() == 5f * MENU_SCALE
+                && Math.abs(bounds.getWidth() - lyricsBounds.getWidth()) < .001f
+                && Math.abs(bounds.getHeight() - 128f * MENU_SCALE) < .001f,
+            "Bottom popup uses the same frosted glass and width with five compact rows");
+        check(Math.abs(bounds.getRight() - (2430f - 2f * MENU_SCALE)) < .001f
+                && Math.abs(bounds.getBottom() - (1240f - 2f * MENU_SCALE)) < .001f,
             "Menu flips left and up when necessary and stays anchored to the original click");
         var queue = (AppleQueuePanel)field(screen, "appleQueue").get(screen);
         queue.toggle();
