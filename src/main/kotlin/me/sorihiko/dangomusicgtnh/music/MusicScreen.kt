@@ -494,7 +494,11 @@ class MusicScreen(
         ui.ctx.drawGlass(win, Theme.GLASS_WINDOW)
         val side = LayoutBounds(win.x + pad, win.y + pad, sideW, win.height - pad * 2)
         val mainX = side.right + pad + 8f
-        val mainW = win.right - pad - 8f - mainX
+        appleQueueArea = if (appleNavigation) {
+            appleQueue.layoutIn(LayoutBounds(mainX, win.y + 6f, win.right - 6f - mainX, win.height - 12f))
+        } else LayoutBounds()
+        val mainRight = if (appleQueueArea.width > 0f) appleQueueArea.x - 12f else win.right - pad - 8f
+        val mainW = mainRight - mainX
         // 播放栏浮在内容上面：左右和底部留出间距；内容延伸到播放栏底边为止，滚动时从播放栏后面经过，
         // 但不会在播放栏下面那道缝里露出来
         val barWidth = if (appleNavigation) minOf(540f, mainW - 12f).coerceAtLeast(0f)
@@ -502,7 +506,6 @@ class MusicScreen(
         val barX = if (appleNavigation) mainX + (mainW - barWidth) / 2f else mainX + 2f
         val barRect = LayoutBounds(barX, win.bottom - pad - 8f - barH, barWidth, barH)
         val content = LayoutBounds(mainX, win.y + pad + 14f, mainW, barRect.bottom - (win.y + pad + 14f))
-        appleQueueArea = content.copy(height = (barRect.y - content.y - 8f).coerceAtLeast(0f))
         if (!appleNavigation) {
             appleQueue.close()
             appleBarMenu.reset()

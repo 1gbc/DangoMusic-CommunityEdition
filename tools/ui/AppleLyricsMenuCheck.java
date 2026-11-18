@@ -21,6 +21,7 @@ import me.sorihiko.dangomusicgtnh.music.*;
 import me.sorihiko.dangomusicgtnh.musicui.*;
 import me.sorihiko.dangomusicgtnh.platform.Platform;
 import me.sorihiko.dangomusicgtnh.ui.LayoutBounds;
+import me.sorihiko.dangomusicgtnh.ui.ShapeStyle;
 import me.sorihiko.dangomusicgtnh.ui.VectorIcon;
 
 /** Run on the compiled client and core classpath, with core resources. No game or login needed. */
@@ -69,6 +70,9 @@ public class AppleLyricsMenuCheck {
         var icons = new ArrayList<VectorIcon>();
         var textLeft = new java.util.HashMap<String,Float>();
         var clipboard = new AtomicReference<String>();
+        var whiteMenuBounds = new AtomicReference<LayoutBounds>();
+        var whiteMenuStyle = new AtomicReference<ShapeStyle>();
+        int[] glassDraws = {0};
         var tempConfig = java.nio.file.Files.createTempDirectory(Path.of(args[0]), "apple-menu-");
         DangoMusic.start(proxy(Platform.class, (p,m,a) -> {
             if (m.getName().equals("getConfigDir")) return tempConfig;
@@ -92,6 +96,11 @@ public class AppleLyricsMenuCheck {
                 textLeft.put((String)a[0], (float)a[1]);
             }
             if (m.getName().equals("drawIcon")) icons.add((VectorIcon)a[1]);
+            if (m.getName().equals("drawGlass")) glassDraws[0]++;
+            if (m.getName().equals("drawShape") && ((ShapeStyle)a[1]).getFillColor().getA() == .96f) {
+                whiteMenuBounds.set((LayoutBounds)a[0]);
+                whiteMenuStyle.set((ShapeStyle)a[1]);
+            }
             return m.getName().equals("getOpacity") ? 1f : null;
         }));
 
@@ -117,6 +126,8 @@ public class AppleLyricsMenuCheck {
         var translation = (BooleanValue)field(module, "lyricsPageTranslation").get(module);
 
         I18n.INSTANCE.setLanguage(I18n.ENGLISH);
+        ui.setMx(982);
+        ui.setMy(906);
         menu.draw(frame, track);
         menu.toggle();
         draw(menu, frame, track, ui, labels, icons);
@@ -174,15 +185,33 @@ public class AppleLyricsMenuCheck {
         var bottom = (AppleLyricsMenu)field(screen, "appleBarMenu").get(screen);
         var barAnchor = new LayoutBounds(1500f, 1200f, 30f, 30f);
         bottom.draw(frame, track, barAnchor);
+        ui.setMx(2430);
+        ui.setMy(1240);
         bottom.toggle();
+        ui.setMx(40);
+        ui.setMy(40);
         ui.getHits().clear();
         labels.clear();
         icons.clear();
+        int beforeGlass = glassDraws[0];
         bottom.draw(frame, track, barAnchor);
         ui.getMt().flush(1f);
         check(labels.equals(List.of("插播", "最后播放", "个人收藏", "查看制作人员", "拷贝链接")),
             "Bottom menu contains only the five supported and localized actions: " + labels);
         check(icons.size() == 5, "All bottom menu actions have vector icons");
+        var bounds = whiteMenuBounds.get();
+        var style = whiteMenuStyle.get();
+        check(glassDraws[0] == beforeGlass && style.getRadius() == 5f
+            && style.getFillColor().getR() == 1f && style.getFillColor().getG() == 1f && style.getFillColor().getB() == 1f,
+            "Player menu uses a nearly opaque white fill and small corners without liquid glass");
+        check(bounds.getX() == 2242f && bounds.getY() == 1110f,
+            "Menu flips left and up when necessary and stays anchored to the original click");
+        var queue = (AppleQueuePanel)field(screen, "appleQueue").get(screen);
+        queue.toggle();
+        var window = new LayoutBounds(245f, 27f, 980f, 734f);
+        var fitted = queue.layoutIn(window);
+        check(fitted.getWidth() == 226f && fitted.getBottom() == window.getBottom()
+            && fitted.getRight() == window.getRight(), "Up Next is narrow and extends to the lower right edge");
         System.out.println("Apple lyrics menu passes both languages, independent toggles, scroll anchoring, credits and copy link");
     }
 }

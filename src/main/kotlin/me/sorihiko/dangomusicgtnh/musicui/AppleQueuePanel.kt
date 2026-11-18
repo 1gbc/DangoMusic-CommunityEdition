@@ -38,12 +38,15 @@ internal class AppleQueuePanel(private val ui: Ui) {
         return true
     }
 
-    fun draw(area: LayoutBounds) {
-        if (!open) return
-        val width = minOf(276f, area.width * 0.60f)
-        val panel = LayoutBounds(area.right - width, area.y, width, area.height)
-        if (width < 96f || panel.height < 90f) return
+    fun layoutIn(area: LayoutBounds): LayoutBounds {
+        val width = minOf(226f, area.width * 0.38f)
+        if (!open || width < 96f || area.height < 90f) return LayoutBounds()
+        return LayoutBounds(area.right - width, area.y, width, area.height)
+    }
+
+    fun draw(panel: LayoutBounds) {
         bounds = panel
+        if (!open || panel.width <= 0f || panel.height <= 0f) return
         val hits = mutableListOf<Hit>()
         val songs = MusicPlayer.appleUpcoming()
         val controlsReady = MusicPlayer.current?.source == MusicSource.APPLE &&

@@ -10,9 +10,11 @@ import me.sorihiko.dangomusicgtnh.music.MusicPlayer
 import me.sorihiko.dangomusicgtnh.music.MusicSource
 import me.sorihiko.dangomusicgtnh.music.NeteaseTrack
 import me.sorihiko.dangomusicgtnh.ui.LayoutBounds
+import me.sorihiko.dangomusicgtnh.ui.ShadowStyle
 import me.sorihiko.dangomusicgtnh.ui.ShapeStyle
 import me.sorihiko.dangomusicgtnh.ui.Theme
 import me.sorihiko.dangomusicgtnh.ui.VectorIcon
+import me.sorihiko.dangomusicgtnh.ui.Vec2
 import me.sorihiko.dangomusicgtnh.utils.Color
 import java.util.concurrent.CompletableFuture
 
@@ -23,6 +25,8 @@ internal class AppleLyricsMenu(
 ) {
     private var trackKey: String? = null
     private var menuOpen = false
+    private var menuX = 0f
+    private var menuY = 0f
     private var creditsOpen = false
     private var copyPending = false
     private var details: CompletableFuture<AppleMusicSource.SongDetails>? = null
@@ -32,6 +36,10 @@ internal class AppleLyricsMenu(
 
     fun toggle() {
         menuOpen = !menuOpen
+        if (menuOpen) {
+            menuX = ui.mx.toFloat()
+            menuY = ui.my.toFloat()
+        }
     }
 
     fun dismiss(): Boolean {
@@ -78,7 +86,7 @@ internal class AppleLyricsMenu(
 
         val hitStart = ui.hits.size
         if (menuOpen) {
-            if (bottomAnchor == null) drawMenu(frame, song) else drawBottomMenu(frame.viewport, bottomAnchor, song)
+            if (bottomAnchor == null) drawMenu(frame, song) else drawBottomMenu(frame.viewport, song)
         }
         if (creditsOpen) drawCredits(frame, song, metadata, complete)
         if (capturesInput) {
@@ -95,14 +103,29 @@ internal class AppleLyricsMenu(
         }
     }
 
-    private fun drawBottomMenu(viewport: LayoutBounds, anchor: LayoutBounds, song: NeteaseTrack) {
+    private fun menuBounds(viewport: LayoutBounds, width: Float, height: Float): LayoutBounds {
+        val gap = 2f
+        val padding = 4f
+        val left = viewport.x + padding
+        val top = viewport.y + padding
+        val maxX = (viewport.right - padding - width).coerceAtLeast(left)
+        val maxY = (viewport.bottom - padding - height).coerceAtLeast(top)
+        val x = if (menuX + gap <= maxX) menuX + gap else menuX - gap - width
+        val y = if (menuY + gap <= maxY) menuY + gap else menuY - gap - height
+        return LayoutBounds(x.coerceIn(left, maxX), y.coerceIn(top, maxY), width, height)
+    }
+
+    private fun drawWhiteMenu(panel: LayoutBounds, scale: Float = 1f) {
+        ui.ctx.drawShape(panel, ShapeStyle(MENU_WHITE, 5f * scale, shadow =
+            ShadowStyle(Color(0f, 0f, 0f, 0.23f), 10f * scale, Vec2(0f, 2f * scale))))
+    }
+
+    private fun drawBottomMenu(viewport: LayoutBounds, song: NeteaseTrack) {
         val width = minOf(186f, viewport.width - 16f)
-        val rowHeight = minOf(24f, (anchor.y - 22f) / 5f)
+        val rowHeight = minOf(24f, (viewport.height - 16f) / 5f)
         if (width < 80f || rowHeight < 14f) return
-        val height = rowHeight * 5f + 8f
-        val panel = LayoutBounds((anchor.right - width).coerceAtLeast(viewport.x + 8f),
-            anchor.y - height - 9f, width, height)
-        PopupLook.panel(ui.ctx, panel)
+        val panel = menuBounds(viewport, width, rowHeight * 5f + 8f)
+        drawWhiteMenu(panel)
         val canQueue = !AppleWebPlayer.stationActive && MusicPlayer.state != MusicPlayer.State.LOADING
         val favorite = Library.favoriteState(song)
         ui.popup(panel) {
@@ -110,13 +133,13 @@ internal class AppleLyricsMenu(
                 action: () -> Unit) {
                 val box = LayoutBounds(panel.x + 4f, panel.y + 4f + index * rowHeight, panel.width - 8f, rowHeight)
                 val hovered = enabled && ui.hover(box)
-                if (hovered) ui.card(box, PopupLook.hover, 4f)
-                if (index > 0) ui.card(box.copy(height = 1f), PopupLook.divider, 0f)
-                val color = if (enabled) Theme.TEXT_PRIMARY else Theme.TEXT_TERTIARY
+                if (hovered) ui.card(box, MENU_HOVER, 3f)
+                if (index > 0) ui.card(box.copy(height = 1f), MENU_DIVIDER, 0f)
+                val color = if (enabled) MENU_TEXT else MENU_TEXT.copy(a = 0.40f)
                 ui.text(I18n.text(label, "Apple Player Menu"), box.x + 7f, box.y + (rowHeight - 11f) / 2f,
                     11f, color, Theme.FONT_MEDIUM)
                 PlayerIcons.draw(ui.ctx, icon, box.right - 13f, box.y + rowHeight / 2f, if (hovered) 14f else 12.5f,
-                    if (selected && enabled) APPLE_CONTROL_BLUE else color)
+                    if (selected && enabled) MENU_ACCENT else color)
                 if (enabled) ui.hits += box to action
             }
             item(0, "Play Next", PLAY_NEXT, canQueue) {
@@ -145,19 +168,12 @@ internal class AppleLyricsMenu(
     private fun drawMenu(frame: AppleLyricsLayout, song: NeteaseTrack) {
         val scale = frame.scale
         val rowHeight = 26f * scale
-        val panel = frame.bounds(984f, 908f, 169f, 104f)
-        ui.ctx.pushOpacity(0.74f)
-        ui.ctx.drawGlass(panel, Theme.GLASS_SIDEBAR.copy(radius = 6f * scale,
-            tint = Color(0.06f, 0.04f, 0.05f, 0.22f), maxLuma = 0.58f, saturation = 1.12f,
-            frost = 0.52f, bevel = 3f * scale, refraction = 2f * scale, highlight = 0.18f,
-            shadow = me.sorihiko.dangomusicgtnh.ui.ShadowStyle()))
-        ui.ctx.popOpacity()
-        ui.ctx.drawShape(panel, ShapeStyle(radius = 6f * scale, borderWidth = 0.75f * scale,
-            borderColor = Color(1f, 1f, 1f, 0.19f)))
+        val panel = menuBounds(frame.viewport, 169f * scale, 104f * scale)
+        drawWhiteMenu(panel, scale)
         fun item(index: Int, label: String, icon: VectorIcon, checked: Boolean = false, action: () -> Unit) {
             val bounds = panel.copy(y = panel.y + index * rowHeight, height = rowHeight)
             if (index > 0) {
-                ui.card(LayoutBounds(bounds.x, bounds.y, bounds.width, scale), Theme.TEXT_PRIMARY.copy(a = 0.11f), 0f)
+                ui.card(LayoutBounds(bounds.x, bounds.y, bounds.width, scale), MENU_DIVIDER, 0f)
             }
             row(bounds, I18n.text(label, "Apple Lyrics Menu"), icon, scale, checked, action)
         }
@@ -178,14 +194,14 @@ internal class AppleLyricsMenu(
     private fun row(
         bounds: LayoutBounds, text: String, icon: VectorIcon, scale: Float, checked: Boolean, action: () -> Unit,
     ) {
-        if (ui.hover(bounds)) ui.card(bounds, Color(1f, 1f, 1f, 0.10f), 5f * scale)
+        if (ui.hover(bounds)) ui.card(bounds, MENU_HOVER, 3f * scale)
         val fontSize = 11.5f * scale
         ui.text(text, bounds.x + 9f * scale, bounds.y + (bounds.height - fontSize) / 2f, fontSize,
-            Theme.TEXT_PRIMARY, Theme.FONT_MEDIUM)
+            MENU_TEXT, Theme.FONT_MEDIUM)
         val centerY = bounds.y + bounds.height / 2f
-        PlayerIcons.draw(ui.ctx, icon, bounds.right - 15f * scale, centerY, 13.5f * scale, Theme.TEXT_PRIMARY)
+        PlayerIcons.draw(ui.ctx, icon, bounds.right - 15f * scale, centerY, 13.5f * scale, MENU_TEXT)
         if (checked) PlayerIcons.draw(ui.ctx, PlayerIcons.check, bounds.right - 33f * scale,
-            centerY, 10f * scale, Theme.TEXT_PRIMARY)
+            centerY, 10f * scale, MENU_ACCENT)
         ui.hits += bounds to action
     }
 
@@ -237,6 +253,11 @@ internal class AppleLyricsMenu(
     }
 
     private companion object {
+        val MENU_WHITE = Color(1f, 1f, 1f, 0.96f)
+        val MENU_TEXT = Color.fromHex("#242329")
+        val MENU_ACCENT = Color.fromHex("#0068D4")
+        val MENU_HOVER = Color(0f, 0f, 0f, 0.06f)
+        val MENU_DIVIDER = Color(0f, 0f, 0f, 0.12f)
         val PLAY_NEXT = VectorIcon.path {
             move(3.0, 4.0); line(9.0, 8.0); line(3.0, 12.0); close()
             move(13.0, 8.0); line(21.0, 8.0)
