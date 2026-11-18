@@ -215,6 +215,10 @@ internal class TracksPage(private val screen: MusicScreen) {
     private var embedded: List<Pair<Int, NeteaseTrack>> = emptyList()
 
     fun draw(page: LayoutBounds) {
+        if (applePlaylist) {
+            clearFilter()
+            filterRect = LayoutBounds()
+        }
         val (title, tracks) = currentTracks()
         val y = page.y
         var headerH = 62f
@@ -289,24 +293,10 @@ internal class TracksPage(private val screen: MusicScreen) {
 
     private fun drawApplePlaylistHeader(page: LayoutBounds, playlist: NeteasePlaylist, tracks: List<NeteaseTrack>?): Float {
         val backW = if (drawBackButton(page.x, page.y)) 36f else 0f
-        val controlsW = minOf(120f, page.width * 0.44f)
-        val controls = LayoutBounds(page.right - controlsW, page.y + 4f, controlsW, 26f)
+        drawApplePlaylistControls(page, backW)
         val textSize = APPLE_MENU_TEXT_SIZE
-        drawViewSwitch(controls, textSize)
-        val filterRight = drawLocate(controls.x - 8f, page.y, textSize)
-        val filterW = filterRight - page.x - backW
-        var coverY = page.y + 38f
-        if (tracks == null) {
-            filterRect = LayoutBounds()
-        } else if (filterW >= 96f) {
-            drawFilter(filterRight, page.y, minOf(180f, filterW), apple = true)
-        } else {
-            drawFilter(page.right, page.y + 34f, minOf(180f, page.width), apple = true)
-            coverY += 34f
-        }
-
         val coverSize = minOf(152f, page.width * 0.35f, page.height * 0.36f).coerceAtLeast(1f)
-        val cover = LayoutBounds(page.x, coverY, coverSize, coverSize)
+        val cover = LayoutBounds(page.x, page.y + 38f, coverSize, coverSize)
         ui.drawAppleCover(cover, CoverCache.playlistArtwork(playlist))
         val x = cover.right + minOf(20f, page.width * 0.05f)
         val width = page.right - x - 8f
@@ -373,13 +363,30 @@ internal class TracksPage(private val screen: MusicScreen) {
     }
 
     private fun drawPlayAll(bounds: LayoutBounds, label: String, tracks: List<NeteaseTrack>, apple: Boolean = false) {
-        val fill = if (apple) Theme.TEXT_PRIMARY else RED
-        val foreground = if (apple) Color(0.12f, 0.10f, 0.13f, 1f) else Theme.TEXT_PRIMARY
-        val size = if (apple) APPLE_MENU_TEXT_SIZE else 12f
-        ui.card(bounds, if (ui.hover(bounds)) fill.copy(a = 0.85f) else fill, bounds.height / 2f)
-        PlayerIcons.draw(ui.ctx, PlayerIcons.play, bounds.x + 18f, bounds.y + bounds.height / 2f, 13f, foreground)
-        val text = if (apple) ui.trim(label, bounds.width - 36f, size, Theme.FONT_SEMIBOLD) else label
-        ui.text(text, bounds.x + 30f, bounds.y + if (apple) 7f else 9f, size, foreground, Theme.FONT_SEMIBOLD)
+        val centerY = bounds.y + bounds.height / 2f
+        val hovered = ui.hover(bounds)
+        val color = Theme.TEXT_PRIMARY
+        if (apple) {
+            val radius = bounds.height / 2f
+            val glass = Theme.GLASS_SELECTION.copy(radius = radius, bevel = 6f, refraction = 3f,
+                highlight = 0.65f, tint = Color(1f, 1f, 1f, 0.09f),
+                fallback = Color(1f, 1f, 1f, 0.11f))
+            ui.ctx.drawGlass(bounds, glass)
+            if (hovered) ui.card(bounds, APPLE_ROW_HOVER, radius)
+            val size = APPLE_MENU_TEXT_SIZE
+            val iconSize = 12f
+            val gap = 5f
+            val text = ui.trim(label, (bounds.width - 31f).coerceAtLeast(0f), size, Theme.FONT_SEMIBOLD)
+            val textWidth = ui.width(text, size, Theme.FONT_SEMIBOLD)
+            val groupWidth = iconSize + if (text.isEmpty()) 0f else gap + textWidth
+            val x = bounds.x + (bounds.width - groupWidth) / 2f
+            PlayerIcons.draw(ui.ctx, PlayerIcons.play, x + iconSize / 2f, centerY, iconSize, color)
+            ui.text(text, x + iconSize + gap, centerY - size / 2f, size, color, Theme.FONT_SEMIBOLD)
+        } else {
+            ui.card(bounds, if (hovered) RED.copy(a = 0.85f) else RED, bounds.height / 2f)
+            PlayerIcons.draw(ui.ctx, PlayerIcons.play, bounds.x + 18f, centerY, 13f, color)
+            ui.text(label, bounds.x + 30f, bounds.y + 9f, 12f, color, Theme.FONT_SEMIBOLD)
+        }
         ui.hits += bounds to {
             val continuation = radio()
             ClientMusic.control { MusicPlayer.playAll(tracks, continuation) }
@@ -453,7 +460,7 @@ internal class TracksPage(private val screen: MusicScreen) {
         var rightX = drawLocate(seg.x - 10f, y, 11f)
 
         // 歌单内筛选框（按歌名 / 歌手，输入即筛选）
-        if (tracks != null && state.page != Page.SEARCH) {
+        if (tracks != null && state.page != Page.SEARCH && !applePlaylist) {
             // 窄的时候筛选框跟着变短，给标题至少留 160
             drawFilter(rightX, y, (rightX - titleX - 160f).coerceIn(110f, 190f))
             rightX = filterRect.x - 10f
@@ -467,6 +474,44 @@ internal class TracksPage(private val screen: MusicScreen) {
             }
         }
         return headerH
+    }
+
+    private fun drawApplePlaylistControls(page: LayoutBounds, backW: Float) {
+        val list = I18n.text("List")
+        val covers = I18n.text("Covers")
+        val size = APPLE_MENU_TEXT_SIZE
+        val height = 26f
+        val gap = 4f
+        val labelWidth = max(ui.width(list, size, Theme.FONT_SEMIBOLD), ui.width(covers, size, Theme.FONT_SEMIBOLD))
+        val available = page.width - backW - height - 2f * gap
+        val viewWidth = minOf(28f + labelWidth, available / 2f).coerceAtLeast(height)
+        val y = page.y + 4f
+        val coverBounds = LayoutBounds(page.right - viewWidth, y, viewWidth, height)
+        val listBounds = coverBounds.copy(x = coverBounds.x - gap - viewWidth)
+        val locate = LayoutBounds(listBounds.x - gap - height, y, height, height)
+        val coverView = ScreenState.coverView
+        val canLocate = currentInList()
+        drawApplePlaylistControl(locate, "locate", "", false, canLocate)
+        drawApplePlaylistControl(listBounds, "trackList", list, !coverView)
+        drawApplePlaylistControl(coverBounds, "coverWall", covers, coverView)
+        if (canLocate) ui.hits += locate to { locateCurrent() }
+        ui.hits += listBounds to { if (ScreenState.coverView) screen.toggleCoverView() }
+        ui.hits += coverBounds to { if (!ScreenState.coverView) screen.toggleCoverView() }
+    }
+
+    private fun drawApplePlaylistControl(bounds: LayoutBounds, icon: String, label: String, selected: Boolean, enabled: Boolean = true) {
+        if (selected || (enabled && ui.hover(bounds))) {
+            ui.card(bounds, if (selected) APPLE_ROW_SELECTION else APPLE_ROW_HOVER, APPLE_ROW_RADIUS)
+        }
+        val size = APPLE_MENU_TEXT_SIZE
+        val font = if (selected) Theme.FONT_SEMIBOLD else Theme.FONT_MEDIUM
+        val text = ui.trim(label, (bounds.width - 28f).coerceAtLeast(0f), size, font)
+        val centerY = bounds.y + bounds.height / 2f
+        val iconX = if (text.isEmpty()) bounds.x + bounds.width / 2f else bounds.x + 13f
+        val iconOpacity = if (!enabled) 0.35f else if (selected) 1f else 0.93f
+        SidebarIcons.drawApple(ui.ctx, icon, iconX, centerY, APPLE_SIDEBAR_BLUE.copy(a = iconOpacity), 14f)
+        val color = if (selected) Theme.TEXT_PRIMARY else Theme.TEXT_PRIMARY.copy(a = 0.86f)
+        ui.text(text, bounds.x + 23f, centerY - size / 2f, size, color, font)
     }
 
     private fun drawViewSwitch(seg: LayoutBounds, textSize: Float) {
@@ -502,7 +547,7 @@ internal class TracksPage(private val screen: MusicScreen) {
         return bounds.x - 10f
     }
 
-    private fun drawFilter(rightX: Float, y: Float, fw: Float, apple: Boolean = false) {
+    private fun drawFilter(rightX: Float, y: Float, fw: Float) {
         val ctx = ui.ctx
         filterRect = LayoutBounds(rightX - fw, y + 4f, fw, 26f)
         ui.card(filterRect, if (filterFocused) Theme.CARD_HOVER else Theme.CARD, 13f)
@@ -513,9 +558,8 @@ internal class TracksPage(private val screen: MusicScreen) {
         val placeholder = filterText.isEmpty() && !filterFocused
         var shownText = if (placeholder) I18n.text("Filter this list...") else filterText + caret
         val maxW = filterRect.width - 30f - (if (filterText.isNotEmpty()) 18f else 0f)
-        val textSize = if (apple) APPLE_MENU_TEXT_SIZE else 11f
-        if (apple && placeholder) shownText = ui.trim(shownText, maxW, textSize)
-        else while (shownText.length > 1 && ui.width(shownText, textSize) > maxW) shownText = shownText.substring(1)
+        val textSize = 11f
+        while (shownText.length > 1 && ui.width(shownText, textSize) > maxW) shownText = shownText.substring(1)
         ui.text(shownText, filterRect.x + 26f, filterRect.y + 8f, textSize, if (placeholder) Theme.TEXT_TERTIARY else Theme.TEXT_PRIMARY)
         ui.hits += filterRect to {
             filterFocused = true
@@ -812,7 +856,8 @@ internal class TracksPage(private val screen: MusicScreen) {
         val isCur = MusicPlayer.current?.key == t.key
         val ty = cy + size / 2f + 14f
         val name = ui.trim(t.name, area.width - 40f, 16f, Theme.FONT_SEMIBOLD)
-        ui.text(name, cx - ui.width(name, 16f, Theme.FONT_SEMIBOLD) / 2f, ty, 16f, if (isCur) RED else Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
+        val nameColor = if (isCur && !screen.appleNavigation) RED else Theme.TEXT_PRIMARY
+        ui.text(name, cx - ui.width(name, 16f, Theme.FONT_SEMIBOLD) / 2f, ty, 16f, nameColor, Theme.FONT_SEMIBOLD)
         val artist = ui.trim(t.artists.joinToString(" / "), area.width - 40f, 12f)
         ui.text(artist, cx - ui.width(artist, 12f) / 2f, ty + 21f, 12f, Theme.TEXT_SECONDARY)
         val idx = "${cfTarget + 1} / ${tracks.size}"
@@ -823,7 +868,7 @@ internal class TracksPage(private val screen: MusicScreen) {
 
     /** 筛选框有焦点时的按键；返回 true 表示按键被吃掉了 */
     fun filterKeyTyped(typedChar: Char, keyCode: Int): Boolean {
-        if (!filterFocused) return false
+        if (!filterFocused || applePlaylist) return false
         when {
             keyCode == Keys.ESCAPE -> clearFilter()
             keyCode == Keys.RETURN || keyCode == Keys.NUMPADENTER -> filterFocused = false
@@ -848,7 +893,7 @@ internal class TracksPage(private val screen: MusicScreen) {
         if (!tracksPage) return false
         val listView = !ScreenState.coverView
         when {
-            ScreenState.page != Page.SEARCH && DangoClient.platform.ctrlDown && keyCode == Keys.F -> filterFocused = true
+            ScreenState.page != Page.SEARCH && !applePlaylist && DangoClient.platform.ctrlDown && keyCode == Keys.F -> filterFocused = true
             keyCode == Keys.L -> locateCurrent()
             listView && keyCode == Keys.HOME -> scroll = 0
             listView && keyCode == Keys.END -> scroll = Int.MAX_VALUE / 2

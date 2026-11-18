@@ -70,10 +70,6 @@ internal class Sidebar(private val screen: MusicScreen, private val hiddenLibrar
     private val ROW_INSET = 10f
     private val ROW_TEXT = Theme.TEXT_PRIMARY.copy(a = 0.86f)
     private val ROW_SELECTION = Color(1f, 1f, 1f, 0.105f)
-    private val APPLE_ROW_SELECTION = Color(1f, 1f, 1f, 0.085f)
-    private val APPLE_ROW_HOVER = Color(1f, 1f, 1f, 0.045f)
-    private val APPLE_ROW_RADIUS = 8f
-    private val APPLE_SIDEBAR_BLUE = Color.fromHex("#70C8F5")
     private val APPLE_CHECK_MARK = Color.fromHex("#23303B")
 
     /** 音源菜单的液态玻璃：比侧栏更暗、更磨砂，保证上面的字看得清 */
@@ -156,7 +152,9 @@ internal class Sidebar(private val screen: MusicScreen, private val hiddenLibrar
         val page = ScreenState.page
         val modern = UiStyle.continuous
         val apple = screen.appleNavigation
-        ctx.drawGlass(side, if (modern) SIDEBAR_GLASS else Theme.GLASS_SIDEBAR)
+        val glassStyle = if (modern) SIDEBAR_GLASS else Theme.GLASS_SIDEBAR
+        if (apple) screen.coverBackdrop.drawControlBackground(side, glassStyle.radius)
+        else ctx.drawGlass(side, glassStyle)
         drawSelectionPill(side, apple)
         var newKey = ""
         var newTarget: LayoutBounds? = null

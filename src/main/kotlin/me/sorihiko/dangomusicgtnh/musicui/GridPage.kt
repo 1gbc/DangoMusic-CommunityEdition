@@ -30,6 +30,7 @@ internal class GridPage(private val screen: MusicScreen) {
 
     fun tick() {
         pos = ui.approach(pos, target, 70f)
+        if (kotlin.math.abs(pos - target) < 0.5f) pos = target
     }
 
     fun resetScroll() {
@@ -73,7 +74,7 @@ internal class GridPage(private val screen: MusicScreen) {
         val grouped = items.groupBy { AppleMusicSource.homeFeed(it.id) }
         val order = listOf(HomeFeed.RECOMMENDATIONS to "Recommended for you", HomeFeed.RECENT to "Recently played",
             HomeFeed.HEAVY_ROTATION to "Heavy rotation", HomeFeed.SHORTCUTS to "Shortcuts")
-        var offset = 0f
+        var offset = 3f
         ui.beginClip(area)
         try {
             for ((feed, heading) in order) {
@@ -82,7 +83,7 @@ internal class GridPage(private val screen: MusicScreen) {
                 val featured = feed == HomeFeed.RECOMMENDATIONS
                 val columns = minOf(if (featured) 5 else 6, ((area.width + 12f) / (if (featured) 126f else 108f)).toInt().coerceAtLeast(1))
                 val width = (area.width - 12f * (columns - 1)) / columns
-                val artworkHeight = if (featured) width * 1.30f else width
+                val artworkHeight = if (featured) width * 4f / 3f else width
                 val rowHeight = 26f + artworkHeight + (if (featured) 0f else 32f) + 22f
                 val y = area.y + offset - pos + pull
                 offset += rowHeight
@@ -100,15 +101,18 @@ internal class GridPage(private val screen: MusicScreen) {
     private fun drawHomeShelf(feed: HomeFeed, heading: String, cards: List<NeteasePlaylist>, y: Float,
                               columns: Int, width: Float, artworkHeight: Float, featured: Boolean) {
         val first = (shelfStarts[feed] ?: 0).coerceIn(0, (cards.size - columns).coerceAtLeast(0))
-        ui.text(heading, area.x, y, APPLE_MENU_TEXT_SIZE, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
+        ui.text(heading, area.x, y + (22f - APPLE_MENU_TEXT_SIZE) / 2f,
+            APPLE_MENU_TEXT_SIZE, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
         for (direction in listOf(-1, 1)) {
             val enabled = if (direction < 0) first > 0 else first + columns < cards.size
             if (!enabled) continue
-            val button = LayoutBounds(area.right - if (direction < 0) 46f else 22f, y - 4f, 22f, 22f)
-            ui.card(button, if (ui.hover(button)) Theme.CARD_HOVER else Theme.CARD, 11f)
+            val button = LayoutBounds(area.right - if (direction < 0) 46f else 22f, y, 22f, 22f)
+            val hit = button.intersect(area)
+            if (hit.height <= 0f) continue
+            ui.card(button, if (ui.hover(hit)) Theme.CARD_HOVER else Theme.CARD, 11f)
             SidebarIcons.draw(ui.ctx, if (direction < 0) "left" else "right", button.x + 11f, button.y + 11f,
                 APPLE_CONTROL_BLUE, 10f)
-            ui.hits += button.intersect(area) to { shelfStarts[feed] = first + direction * columns }
+            ui.hits += hit to { shelfStarts[feed] = first + direction * columns }
         }
         for ((index, item) in cards.drop(first).take(columns).withIndex()) {
             val bounds = LayoutBounds(area.x + index * (width + 12f), y + 23f, width, artworkHeight)
@@ -117,14 +121,17 @@ internal class GridPage(private val screen: MusicScreen) {
             val cover = CoverCache.playlistArtwork(item)
             val artist = AppleMusicSource.cardArtist(item.id)
             if (featured) {
-                val inset = width * 0.08f
-                val size = width - 2f * inset
-                ui.card(bounds, if (ui.hover(cell.intersect(area))) Theme.CARD_HOVER else Theme.CARD, appleCoverRadius(bounds))
-                ui.drawAppleCover(LayoutBounds(bounds.x + inset, bounds.y + inset, size, size), cover)
-                ui.text(ui.trim(item.name, size, APPLE_MENU_TEXT_SIZE, Theme.FONT_SEMIBOLD), bounds.x + inset,
-                    bounds.y + size + inset + 7f, APPLE_MENU_TEXT_SIZE, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
-                if (artist.isNotBlank()) ui.text(ui.trim(artist, size, 9f), bounds.x + inset,
-                    bounds.y + size + inset + 21f, 9f, Theme.TEXT_SECONDARY)
+                val radius = appleCoverRadius(bounds)
+                if (cover != null) ui.ctx.drawCroppedSquareImage(bounds, cover, radius)
+                else ui.card(bounds, Theme.TRACK, radius)
+                if (ui.hover(cell.intersect(area))) ui.card(bounds, Theme.CARD, radius)
+                val textX = bounds.x + 9f
+                val textWidth = (bounds.width - 18f).coerceAtLeast(0f)
+                val titleY = bounds.bottom - if (artist.isBlank()) 20f else 32f
+                ui.text(ui.trim(item.name, textWidth, APPLE_MENU_TEXT_SIZE, Theme.FONT_SEMIBOLD), textX,
+                    titleY, APPLE_MENU_TEXT_SIZE, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
+                if (artist.isNotBlank()) ui.text(ui.trim(artist, textWidth, 9f), textX,
+                    bounds.bottom - 17f, 9f, Theme.TEXT_SECONDARY)
             } else {
                 ui.drawAppleCover(bounds, cover)
                 ui.text(ui.trim(item.name, width, APPLE_MENU_TEXT_SIZE), bounds.x, bounds.bottom + 5f,

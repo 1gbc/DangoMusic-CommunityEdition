@@ -352,7 +352,7 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         val radius = bar.height / 2f
         val shadow = BAR_GLASS.shadow.copy(size = BAR_GLASS.shadow.size * unit, offset = Vec2(0f, -3f * unit), outside = true)
         ctx.drawShape(bar, ShapeStyle(radius = radius, shadow = shadow))
-        screen.coverBackdrop.drawMenuPanel(bar, radius, Color(0.03f, 0.035f, 0.045f, 0.20f))
+        screen.coverBackdrop.drawControlBackground(bar, radius)
         ctx.drawShape(bar, ShapeStyle(radius = radius, borderWidth = 0.65f * unit, borderColor = Theme.HAIRLINE))
         val coverSize = 27f * unit
         val cover = LayoutBounds(progressX, cy - coverSize / 2f, coverSize, coverSize)

@@ -497,7 +497,9 @@ class MusicScreen(
         if (appleNavigation) {
             val song = PlaybackView.snapshot().track?.takeIf { it.source == MusicSource.APPLE }
             coverBackdrop.prepareMenuFrame(song)
-            drawAppleWindowBackground(win, side.right)
+            coverBackdrop.drawMenuPanel(win, Theme.GLASS_WINDOW.radius, Color(0.03f, 0.035f, 0.045f, 0.34f))
+            // Room cards and the playlist play button sample the opaque cover backdrop.
+            if (ScreenState.page == Page.GROUP || ScreenState.page == Page.PLAYLIST) ui.ctx.recaptureBackdrop()
         } else ui.ctx.drawGlass(win, Theme.GLASS_WINDOW)
         val mainX = side.right + pad + 8f
         appleQueueArea = if (appleNavigation) {
@@ -529,27 +531,6 @@ class MusicScreen(
         this.barRect = barRect
     }
 
-    private fun drawAppleWindowBackground(win: LayoutBounds, divider: Float) {
-        val radius = Theme.GLASS_WINDOW.radius
-        // Keep the old underlay and initial scene capture on the sidebar side of the window.
-        // Round the two edges at the same pixel to avoid a gap at fractional GUI scales.
-        val scale = ui.scale
-        val left = (win.x * scale).toInt()
-        val separator = (divider * scale).toInt()
-        val right = (win.right * scale).toInt()
-        val bottom = platform.windowHeight - (win.bottom * scale).toInt()
-        val height = ((win.bottom * scale).toInt() - (win.y * scale).toInt()).coerceAtLeast(0)
-        val ctx = ui.ctx
-        ctx.scissor(left, bottom, (separator - left).coerceAtLeast(0), height)
-        try {
-            coverBackdrop.drawMenuPanel(win, radius, Color(0.03f, 0.035f, 0.045f, 0.25f), alpha = 0.85f)
-            ctx.scissor(separator, bottom, (right - separator).coerceAtLeast(0), height)
-            coverBackdrop.drawMenuPanel(win, radius, Color(0.03f, 0.035f, 0.045f, 0.34f))
-        } finally {
-            ctx.noScissor()
-        }
-    }
-
     /** 这一帧播放栏的位置（[drawWindow] 里算好，内容画完之后再画播放栏） */
     private var barRect = LayoutBounds()
     private class LibraryPull(val x: Int, val y: Int, val click: (() -> Unit)?) {
@@ -565,14 +546,7 @@ class MusicScreen(
 
     private fun drawBar() {
         if (appleLyricsOpen) {
-            appleLyricsFrame?.let { layout ->
-                ui.mt.useNotoSansSc = true
-                try {
-                    appleLyricsMenu.draw(layout, appleLyricsTrack)
-                } finally {
-                    ui.mt.useNotoSansSc = false
-                }
-            }
+            appleLyricsFrame?.let { appleLyricsMenu.draw(it, appleLyricsTrack) }
             return
         }
         // 播放栏画在最上面，点击也要先轮到它（点到的是第一个命中的区域）

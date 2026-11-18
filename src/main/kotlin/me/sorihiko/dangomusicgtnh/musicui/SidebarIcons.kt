@@ -132,6 +132,25 @@ internal object SidebarIcons {
         circle(12.0, 9.1, 2.5)
         move(6.5, 17.8); curve(7.4, 12.6, 16.6, 12.6, 17.5, 17.8)
     }
+    private val locate = VectorIcon.path {
+        circle(12.0, 12.0, 7.0)
+        move(12.0, 2.0); line(12.0, 5.0)
+        move(12.0, 19.0); line(12.0, 22.0)
+        move(2.0, 12.0); line(5.0, 12.0)
+        move(19.0, 12.0); line(22.0, 12.0)
+        circle(12.0, 12.0, 1.25)
+    }
+    private val trackList = VectorIcon.path {
+        for (y in listOf(6.0, 12.0, 18.0)) {
+            move(4.0, y); line(5.0, y)
+            move(9.0, y); line(21.0, y)
+        }
+    }
+    private val coverWall = VectorIcon.path {
+        roundRect(3.0, 3.0, 18.0, 18.0, 2.0)
+        move(12.0, 3.0); line(12.0, 21.0)
+        move(3.0, 12.0); line(21.0, 12.0)
+    }
 
     private fun path(glyph: String) = when (glyph) {
         "⌂" -> home
@@ -169,6 +188,9 @@ internal object SidebarIcons {
             "≡" -> applePlaylist
             "video" -> appleVideo
             "user" -> appleProfile
+            "locate" -> locate
+            "trackList" -> trackList
+            "coverWall" -> coverWall
             else -> path(glyph)
         }
         ctx.drawIcon(LayoutBounds(cx - size / 2f, cy - size / 2f, size, size), icon, color)

@@ -14,6 +14,7 @@ import me.sorihiko.dangomusicgtnh.platform.Keys
 import me.sorihiko.dangomusicgtnh.ui.GlassStyle
 import me.sorihiko.dangomusicgtnh.ui.LayoutBounds
 import me.sorihiko.dangomusicgtnh.ui.ShadowStyle
+import me.sorihiko.dangomusicgtnh.ui.ShapeStyle
 import me.sorihiko.dangomusicgtnh.ui.Theme
 import me.sorihiko.dangomusicgtnh.ui.Vec2
 import me.sorihiko.dangomusicgtnh.utils.Color
@@ -120,8 +121,10 @@ internal class GroupPage(private val screen: MusicScreen) {
 
     fun draw(page: LayoutBounds) {
         ui.headerAnim {
-            ui.card(LayoutBounds(page.x, page.y + 1f, 30f, 30f), Theme.ACCENT.copy(a = 0.16f), 10f)
-            ui.icon("♬", page.x + 15f, page.y + 16f, 16f, Theme.ACCENT)
+            val accent = if (screen.appleNavigation) APPLE_SIDEBAR_BLUE else Theme.ACCENT
+            ui.card(LayoutBounds(page.x, page.y + 1f, 30f, 30f), accent.copy(a = 0.16f), 10f)
+            if (screen.appleNavigation) SidebarIcons.drawApple(ui.ctx, "♬", page.x + 15f, page.y + 16f, accent)
+            else ui.icon("♬", page.x + 15f, page.y + 16f, 16f, accent)
             ui.text(I18n.text("Music group"), page.x + 40f, page.y, 22f, Theme.TEXT_PRIMARY, Theme.FONT_DISPLAY)
             ui.text(
                 I18n.text("Listen with friends, no distance limit"),
@@ -498,8 +501,13 @@ internal class GroupPage(private val screen: MusicScreen) {
     }
 
     private fun cardBox(b: LayoutBounds) {
-        ui.ctx.drawGlass(b, cardGlass.copy(radius = 14f))
-        ui.card(LayoutBounds(b.x + 1f, b.y + 14f, 3f, b.height - 28f), Theme.ACCENT.copy(a = 0.55f), 1.5f)
+        val apple = screen.appleNavigation
+        val style = if (apple) cardGlass.copy(shadow = ShadowStyle()) else cardGlass
+        ui.ctx.drawGlass(b, style)
+        val accent = if (apple) APPLE_SIDEBAR_BLUE else Theme.ACCENT
+        val stripe = LayoutBounds(b.x + 1f, b.y + 14f, 3f, b.height - 28f)
+        ui.ctx.drawShape(stripe, ShapeStyle(accent.copy(a = 0.55f), 1.5f,
+            clipBounds = b.takeIf { apple }, clipRadius = style.radius))
     }
 
     private fun sectionTitle(label: String, x: Float, y: Float, width: Float) {

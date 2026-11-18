@@ -53,6 +53,10 @@ internal class FlowingCoverBackdrop(private val ui: Ui) {
         ui.card(bounds, shade, radius)
     }
 
+    fun drawControlBackground(bounds: LayoutBounds, radius: Float) {
+        drawMenuPanel(bounds, radius, Color(0.03f, 0.035f, 0.045f, 0.20f))
+    }
+
     private fun drawWindowLayer(bounds: LayoutBounds, texture: Texture?, radius: Float, phase: Float, alpha: Float) {
         if (texture == null) {
             ui.card(bounds, FALLBACK.copy(a = alpha), radius)

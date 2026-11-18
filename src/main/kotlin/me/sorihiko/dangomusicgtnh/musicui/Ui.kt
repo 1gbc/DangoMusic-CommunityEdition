@@ -18,6 +18,10 @@ import kotlin.math.min
 /** 网易云红（和菜单里 Music 分类同色） */
 internal val RED = Color.fromHex("#FF375F")
 internal val APPLE_CONTROL_BLUE = Color.fromHex("#56A9FF")
+internal val APPLE_SIDEBAR_BLUE = Color.fromHex("#70C8F5")
+internal val APPLE_ROW_SELECTION = Color(1f, 1f, 1f, 0.085f)
+internal val APPLE_ROW_HOVER = Color(1f, 1f, 1f, 0.045f)
+internal const val APPLE_ROW_RADIUS = 8f
 // Previous preview's normal-width bottom title: 11.4 * 0.70, plus three logical pixels.
 internal const val APPLE_MENU_TEXT_SIZE = 10.98f
 internal fun appleCoverRadius(bounds: LayoutBounds) =
