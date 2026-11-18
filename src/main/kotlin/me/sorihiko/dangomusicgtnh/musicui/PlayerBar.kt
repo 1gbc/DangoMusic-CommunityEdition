@@ -357,7 +357,7 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         val coverSize = 27f * unit
         val cover = LayoutBounds(progressX, cy - coverSize / 2f, coverSize, coverSize)
         val canOpenCover = screen.canOpenLyrics && !expanded
-        val hoverCover = advanceAppleHover(appleCoverHover, canOpenCover && ui.hover(cover))
+        val hoverCover = ui.advanceAppleHover(appleCoverHover, canOpenCover && ui.hover(cover))
         val artwork = cover.scaled(1f + 0.095f * hoverCover)
         val coverCenterX = cover.x + coverSize / 2f
         val titleX = cover.right + 8f * unit
@@ -429,9 +429,9 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         volumeButton = hit(bar.right - 17f * unit)
         val volume = MusicPlayer.volume.coerceIn(0f, 1f)
         if (volume > 0f) lastAudibleAppleVolume = volume
-        val speakerHover = advanceAppleHover(volumeA.hover, ui.hover(volumeButton))
+        val speakerScale = ui.appleHoverScale(volumeA.hover, ui.hover(volumeButton))
         appleSpeaker(volumeButton.x + volumeButton.width / 2f, cy, volume,
-            if (volumeOpen) APPLE_CONTROL_BLUE else Theme.TEXT_PRIMARY, 0.62f * unit * (1f + 0.12f * speakerHover))
+            if (volumeOpen) APPLE_CONTROL_BLUE else Theme.TEXT_PRIMARY, 0.62f * unit * speakerScale)
         ui.hits += volumeButton to {
             val opening = !volumeOpen
             dismissMenu()
@@ -440,15 +440,10 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         if (volumeOpen || volumeMotion.visible) drawAppleVolumeMenu(bar)
     }
 
-    private fun advanceAppleHover(spring: Spring, hovered: Boolean): Float {
-        spring.step(if (hovered) 1f else 0f, ui.frameDt / 1000f)
-        return spring.x.coerceIn(0f, 1f)
-    }
-
     private fun appleButton(hit: LayoutBounds, enabled: Boolean, selected: Boolean, icon: VectorIcon,
         size: Float, hover: Spring, action: () -> Unit) {
-        val growth = advanceAppleHover(hover, enabled && ui.hover(hit))
-        PlayerIcons.draw(ui.ctx, icon, hit.x + hit.width / 2f, hit.y + hit.height / 2f, size * (1f + 0.12f * growth), when {
+        val scale = ui.appleHoverScale(hover, enabled && ui.hover(hit))
+        PlayerIcons.draw(ui.ctx, icon, hit.x + hit.width / 2f, hit.y + hit.height / 2f, size * scale, when {
             !enabled -> Theme.TEXT_TERTIARY.copy(a = 0.40f)
             selected -> APPLE_CONTROL_BLUE
             else -> Theme.TEXT_PRIMARY
@@ -474,8 +469,8 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
             ui.card(volRect, Theme.TEXT_PRIMARY.copy(a = 0.19f), 2f)
             if (fill > 0f) ui.card(volRect.copy(width = fill), Theme.TEXT_PRIMARY, minOf(fill, 4f) / 2f)
             val mute = LayoutBounds(box.right - 27f, box.y + 4f, 23f, box.height - 8f)
-            val growth = advanceAppleHover(appleMuteHover, interactive && ui.hover(mute))
-            appleSpeaker(mute.x + mute.width / 2f, centerY, volume, Theme.TEXT_PRIMARY, .60f * (1f + 0.12f * growth))
+            val scale = ui.appleHoverScale(appleMuteHover, interactive && ui.hover(mute))
+            appleSpeaker(mute.x + mute.width / 2f, centerY, volume, Theme.TEXT_PRIMARY, .60f * scale)
             if (interactive) {
                 ui.hits += mute.intersect(clip) to {
                     val current = MusicPlayer.volume
@@ -944,10 +939,10 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         val favorite = track?.takeUnless { snap.remote }?.let(Library::favoriteState)
         val ready = favorite?.selected != null && !favorite.pending
         val favoriteHit = frame.bounds(924f, 890f, 28f, 28f)
-        val favoriteGrowth = advanceAppleHover(appleFavoriteHover, ready && ui.hover(favoriteHit))
+        val favoriteScale = ui.appleHoverScale(appleFavoriteHover, ready && ui.hover(favoriteHit))
         SidebarIcons.draw(ctx, if (favorite?.selected == true) "filledStar" else "star",
             frame.x(938f), frame.y(904f), if (ready) primary else secondary,
-            13f * scale * (1f + 0.12f * favoriteGrowth))
+            13f * scale * favoriteScale)
         if (ready) ui.hits += favoriteHit to { track?.let(Library::toggleAppleFavorite) }
         appleButton(frame.moreButton, track != null && !snap.remote, false, AppleLyricsIcons.more,
             14f * scale, appleMoreHover, openMore)

@@ -132,24 +132,24 @@ internal object SidebarIcons {
         circle(12.0, 9.1, 2.5)
         move(6.5, 17.8); curve(7.4, 12.6, 16.6, 12.6, 17.5, 17.8)
     }
-    private val locate = VectorIcon.path {
-        circle(12.0, 12.0, 7.0)
-        move(12.0, 2.0); line(12.0, 5.0)
-        move(12.0, 19.0); line(12.0, 22.0)
-        move(2.0, 12.0); line(5.0, 12.0)
-        move(19.0, 12.0); line(22.0, 12.0)
-        circle(12.0, 12.0, 1.25)
+    private val playingWave = VectorIcon.path(strokeWidth = 1.8f) {
+        move(4.0, 10.0); line(4.0, 14.0)
+        move(8.0, 7.0); line(8.0, 17.0)
+        move(12.0, 4.0); line(12.0, 20.0)
+        move(16.0, 8.0); line(16.0, 16.0)
+        move(20.0, 10.0); line(20.0, 14.0)
     }
-    private val trackList = VectorIcon.path {
+    private val trackList = VectorIcon.path(strokeWidth = 1.7f) {
         for (y in listOf(6.0, 12.0, 18.0)) {
-            move(4.0, y); line(5.0, y)
-            move(9.0, y); line(21.0, y)
+            move(4.0, y); line(4.1, y)
+            move(8.0, y); line(20.0, y)
         }
     }
-    private val coverWall = VectorIcon.path {
-        roundRect(3.0, 3.0, 18.0, 18.0, 2.0)
-        move(12.0, 3.0); line(12.0, 21.0)
-        move(3.0, 12.0); line(21.0, 12.0)
+    private val coverWall = VectorIcon.path(strokeWidth = 1.55f) {
+        roundRect(3.0, 3.0, 7.0, 7.0, 1.3)
+        roundRect(14.0, 3.0, 7.0, 7.0, 1.3)
+        roundRect(3.0, 14.0, 7.0, 7.0, 1.3)
+        roundRect(14.0, 14.0, 7.0, 7.0, 1.3)
     }
 
     private fun path(glyph: String) = when (glyph) {
@@ -188,7 +188,8 @@ internal object SidebarIcons {
             "≡" -> applePlaylist
             "video" -> appleVideo
             "user" -> appleProfile
-            "locate" -> locate
+            "playingWave" -> playingWave
+            "pausedTrack" -> AppleLyricsIcons.pause
             "trackList" -> trackList
             "coverWall" -> coverWall
             else -> path(glyph)

@@ -24,6 +24,14 @@ internal val APPLE_ROW_HOVER = Color(1f, 1f, 1f, 0.045f)
 internal const val APPLE_ROW_RADIUS = 8f
 // Previous preview's normal-width bottom title: 11.4 * 0.70, plus three logical pixels.
 internal const val APPLE_MENU_TEXT_SIZE = 10.98f
+internal fun Ui.advanceAppleHover(spring: Spring, hovered: Boolean): Float {
+    spring.step(if (hovered) 1f else 0f, frameDt / 1000f)
+    return spring.x.coerceIn(0f, 1f)
+}
+
+internal fun Ui.appleHoverScale(spring: Spring, hovered: Boolean): Float =
+    1f + 0.12f * advanceAppleHover(spring, hovered)
+
 internal fun appleCoverRadius(bounds: LayoutBounds) =
     minOf(bounds.width, bounds.height) * if (UiStyle.continuous) 0.02f else 0.03f
 

@@ -244,6 +244,13 @@ internal class TracksPage(private val screen: MusicScreen) {
 
     // 列表 / 封面墙切换：红色选中块用弹簧滑过去（滑动时被拉长一点），内容左右滑入滑出（和设置页的标签切换一样）
     private val viewPill = Spring(300f, 23f, if (ScreenState.coverView) 1f else 0f)
+    private val appleViewSlide = Spring(300f, 26f, if (ScreenState.coverView) 1f else 0f)
+    private val appleLocateHover = Spring(300f, 26f)
+    private val appleListHover = Spring(300f, 26f)
+    private val appleCoverWallHover = Spring(300f, 26f)
+    private val appleSelectedIcon = Color.fromHex("#A4DDFF")
+    private val applePlayInk = Color.fromHex("#311725")
+    private val applePlayHovered = Color.fromHex("#EFE9ED")
     private val viewFade = Spring(210f, 24f, 1f)
     private var lastCover = ScreenState.coverView
     private var viewFrom: Boolean? = null
@@ -368,11 +375,7 @@ internal class TracksPage(private val screen: MusicScreen) {
         val color = Theme.TEXT_PRIMARY
         if (apple) {
             val radius = bounds.height / 2f
-            val glass = Theme.GLASS_SELECTION.copy(radius = radius, bevel = 6f, refraction = 3f,
-                highlight = 0.65f, tint = Color(1f, 1f, 1f, 0.09f),
-                fallback = Color(1f, 1f, 1f, 0.11f))
-            ui.ctx.drawGlass(bounds, glass)
-            if (hovered) ui.card(bounds, APPLE_ROW_HOVER, radius)
+            ui.card(bounds, if (hovered) applePlayHovered else Color.WHITE, radius)
             val size = APPLE_MENU_TEXT_SIZE
             val iconSize = 12f
             val gap = 5f
@@ -380,8 +383,8 @@ internal class TracksPage(private val screen: MusicScreen) {
             val textWidth = ui.width(text, size, Theme.FONT_SEMIBOLD)
             val groupWidth = iconSize + if (text.isEmpty()) 0f else gap + textWidth
             val x = bounds.x + (bounds.width - groupWidth) / 2f
-            PlayerIcons.draw(ui.ctx, PlayerIcons.play, x + iconSize / 2f, centerY, iconSize, color)
-            ui.text(text, x + iconSize + gap, centerY - size / 2f, size, color, Theme.FONT_SEMIBOLD)
+            PlayerIcons.draw(ui.ctx, AppleLyricsIcons.play, x + iconSize / 2f, centerY, iconSize, applePlayInk)
+            ui.text(text, x + iconSize + gap, centerY - size / 2f, size, applePlayInk, Theme.FONT_SEMIBOLD)
         } else {
             ui.card(bounds, if (hovered) RED.copy(a = 0.85f) else RED, bounds.height / 2f)
             PlayerIcons.draw(ui.ctx, PlayerIcons.play, bounds.x + 18f, centerY, 13f, color)
@@ -477,41 +480,39 @@ internal class TracksPage(private val screen: MusicScreen) {
     }
 
     private fun drawApplePlaylistControls(page: LayoutBounds, backW: Float) {
-        val list = I18n.text("List")
-        val covers = I18n.text("Covers")
-        val size = APPLE_MENU_TEXT_SIZE
         val height = 26f
-        val gap = 4f
-        val labelWidth = max(ui.width(list, size, Theme.FONT_SEMIBOLD), ui.width(covers, size, Theme.FONT_SEMIBOLD))
-        val available = page.width - backW - height - 2f * gap
-        val viewWidth = minOf(28f + labelWidth, available / 2f).coerceAtLeast(height)
+        val gap = 5f
+        val available = page.width - backW - height - gap
+        val viewWidth = (available / 2f).coerceIn(16f, 28f)
         val y = page.y + 4f
-        val coverBounds = LayoutBounds(page.right - viewWidth, y, viewWidth, height)
-        val listBounds = coverBounds.copy(x = coverBounds.x - gap - viewWidth)
-        val locate = LayoutBounds(listBounds.x - gap - height, y, height, height)
+        val slot = LayoutBounds(page.right - 2f * viewWidth, y, 2f * viewWidth, height)
+        val listBounds = slot.copy(width = viewWidth)
+        val coverBounds = listBounds.copy(x = listBounds.right)
+        val locate = LayoutBounds(slot.x - gap - height, y, height, height)
         val coverView = ScreenState.coverView
+        val radius = height / 2f
+        ui.card(slot, Color(1f, 1f, 1f, 0.045f), radius)
+        val position = appleViewSlide.tick(if (coverView) 1f else 0f).coerceIn(0f, 1f)
+        ui.ctx.drawShape(listBounds.copy(x = slot.x + position * viewWidth),
+            ShapeStyle(Color(1f, 1f, 1f, 0.10f), clipBounds = slot, clipRadius = radius))
+        ui.ctx.drawShape(slot, ShapeStyle(radius = radius, borderWidth = 0.75f,
+            borderColor = Color(1f, 1f, 1f, 0.24f)))
+
         val canLocate = currentInList()
-        drawApplePlaylistControl(locate, "locate", "", false, canLocate)
-        drawApplePlaylistControl(listBounds, "trackList", list, !coverView)
-        drawApplePlaylistControl(coverBounds, "coverWall", covers, coverView)
+        val locateIcon = if (MusicPlayer.state == MusicPlayer.State.PAUSED) "pausedTrack" else "playingWave"
+        drawApplePlaylistIcon(locate, locateIcon, appleLocateHover,
+            if (canLocate) Theme.TEXT_PRIMARY else Theme.TEXT_TERTIARY.copy(a = 0.40f), canLocate)
+        drawApplePlaylistIcon(listBounds, "trackList", appleListHover, if (coverView) Theme.TEXT_PRIMARY else appleSelectedIcon)
+        drawApplePlaylistIcon(coverBounds, "coverWall", appleCoverWallHover, if (coverView) appleSelectedIcon else Theme.TEXT_PRIMARY)
         if (canLocate) ui.hits += locate to { locateCurrent() }
         ui.hits += listBounds to { if (ScreenState.coverView) screen.toggleCoverView() }
         ui.hits += coverBounds to { if (!ScreenState.coverView) screen.toggleCoverView() }
     }
 
-    private fun drawApplePlaylistControl(bounds: LayoutBounds, icon: String, label: String, selected: Boolean, enabled: Boolean = true) {
-        if (selected || (enabled && ui.hover(bounds))) {
-            ui.card(bounds, if (selected) APPLE_ROW_SELECTION else APPLE_ROW_HOVER, APPLE_ROW_RADIUS)
-        }
-        val size = APPLE_MENU_TEXT_SIZE
-        val font = if (selected) Theme.FONT_SEMIBOLD else Theme.FONT_MEDIUM
-        val text = ui.trim(label, (bounds.width - 28f).coerceAtLeast(0f), size, font)
-        val centerY = bounds.y + bounds.height / 2f
-        val iconX = if (text.isEmpty()) bounds.x + bounds.width / 2f else bounds.x + 13f
-        val iconOpacity = if (!enabled) 0.35f else if (selected) 1f else 0.93f
-        SidebarIcons.drawApple(ui.ctx, icon, iconX, centerY, APPLE_SIDEBAR_BLUE.copy(a = iconOpacity), 14f)
-        val color = if (selected) Theme.TEXT_PRIMARY else Theme.TEXT_PRIMARY.copy(a = 0.86f)
-        ui.text(text, bounds.x + 23f, centerY - size / 2f, size, color, font)
+    private fun drawApplePlaylistIcon(bounds: LayoutBounds, icon: String, hover: Spring, color: Color, enabled: Boolean = true) {
+        val scale = ui.appleHoverScale(hover, enabled && ui.hover(bounds))
+        SidebarIcons.drawApple(ui.ctx, icon, bounds.x + bounds.width / 2f, bounds.y + bounds.height / 2f,
+            color, 14f * scale)
     }
 
     private fun drawViewSwitch(seg: LayoutBounds, textSize: Float) {

@@ -498,7 +498,7 @@ class MusicScreen(
             val song = PlaybackView.snapshot().track?.takeIf { it.source == MusicSource.APPLE }
             coverBackdrop.prepareMenuFrame(song)
             coverBackdrop.drawMenuPanel(win, Theme.GLASS_WINDOW.radius, Color(0.03f, 0.035f, 0.045f, 0.34f))
-            // Room cards and the playlist play button sample the opaque cover backdrop.
+            // Room cards and playlist highlights sample the opaque cover backdrop.
             if (ScreenState.page == Page.GROUP || ScreenState.page == Page.PLAYLIST) ui.ctx.recaptureBackdrop()
         } else ui.ctx.drawGlass(win, Theme.GLASS_WINDOW)
         val mainX = side.right + pad + 8f
