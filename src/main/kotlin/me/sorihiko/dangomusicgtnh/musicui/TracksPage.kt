@@ -499,8 +499,7 @@ internal class TracksPage(private val screen: MusicScreen) {
             borderColor = Color(1f, 1f, 1f, 0.24f)))
 
         val canLocate = currentInList()
-        val locateIcon = if (MusicPlayer.state == MusicPlayer.State.PAUSED) "pausedTrack" else "playingWave"
-        drawApplePlaylistIcon(locate, locateIcon, appleLocateHover,
+        drawApplePlaylistIcon(locate, "locateTrack", appleLocateHover,
             if (canLocate) Theme.TEXT_PRIMARY else Theme.TEXT_TERTIARY.copy(a = 0.40f), canLocate)
         drawApplePlaylistIcon(listBounds, "trackList", appleListHover, if (coverView) Theme.TEXT_PRIMARY else appleSelectedIcon)
         drawApplePlaylistIcon(coverBounds, "coverWall", appleCoverWallHover, if (coverView) appleSelectedIcon else Theme.TEXT_PRIMARY)

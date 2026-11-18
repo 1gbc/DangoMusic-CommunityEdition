@@ -132,7 +132,7 @@ internal object SidebarIcons {
         circle(12.0, 9.1, 2.5)
         move(6.5, 17.8); curve(7.4, 12.6, 16.6, 12.6, 17.5, 17.8)
     }
-    private val playingWave = VectorIcon.path(strokeWidth = 1.8f) {
+    private val locateTrack = VectorIcon.path(strokeWidth = 1.8f) {
         move(4.0, 10.0); line(4.0, 14.0)
         move(8.0, 7.0); line(8.0, 17.0)
         move(12.0, 4.0); line(12.0, 20.0)
@@ -188,8 +188,7 @@ internal object SidebarIcons {
             "≡" -> applePlaylist
             "video" -> appleVideo
             "user" -> appleProfile
-            "playingWave" -> playingWave
-            "pausedTrack" -> AppleLyricsIcons.pause
+            "locateTrack" -> locateTrack
             "trackList" -> trackList
             "coverWall" -> coverWall
             else -> path(glyph)
