@@ -74,7 +74,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         "lyricColors" to listOf("Custom color", "Cover color", "Cover gradient", "Rainbow"),
         "ktvLyricColors" to listOf("Custom color", "Cover color", "Cover gradient", "Rainbow"),
         "audioOutput" to listOf("Auto", "Java Sound", "Game audio (OpenAL)"),
-        "islandLayout" to listOf("Full island", "Compact island"),
+        "islandLayout" to listOf("Style C", "Style A", "Style B"),
         "uiStyle" to listOf("Classic", "Continuous corners"),
         "lyricStyle" to listOf("3D world lyrics", "Cockpit lyrics", "Both", "Hidden"),
         "sidePosition" to listOf("Left middle", "Left bottom", "Right middle"),

@@ -26,7 +26,8 @@ public class DynamicIslandCompactCheck {
         var island = new DynamicIslandModule();
         var layout = (IntValue)field(DynamicIslandModule.class,"islandLayout").get(island);
         var animations = (BooleanValue)field(DynamicIslandModule.class,"islandAnimations").get(island);
-        check(layout.getDefault()==1 && !animations.getDefault(),"Fresh installation uses compact and disables optional animations");
+        check(layout.getValue()==0 && layout.getDefault()==0 && !animations.getDefault(),
+            "Fresh installation uses style C and disables optional animations");
         var clipStack = new ArrayDeque<LayoutBounds>();
         var texts = new ArrayList<String>();
         var textXs = new ArrayList<Float>();
@@ -90,6 +91,10 @@ public class DynamicIslandCompactCheck {
                 check(clipStack.isEmpty(),"Islands must restore scissor");
             } catch(ReflectiveOperationException e){throw new RuntimeException(e);}
         };
+        for (int i=0;i<100;i++) draw.run();
+        check(Math.abs(shell.get(0).getHeight()-70f)<.01f && radii.get(0)==10f,
+            "The first rendered track uses the large-cover card");
+        layout.setValue(1);
         for(boolean continuous:new boolean[]{false,true}) {
             UiStyle.INSTANCE.setContinuous(continuous);
             for(int i=0;i<70;i++)draw.run();
@@ -136,21 +141,36 @@ public class DynamicIslandCompactCheck {
             "Chinese titles use the Apple lyrics page font fallback");
         check(Math.abs(cjkRuns.get(0).getSize()*renderScale[0] - 18f*800f/1292f*.96f)<.001f,
             "The title also matches the lyrics page in a height-limited viewport");
-        layout.setValue(0);
         animations.set(false);
         for (boolean continuous : new boolean[]{false, true}) {
             UiStyle.INSTANCE.setContinuous(continuous);
             width[0]=1920;
             height[0]=1080;
             MusicPlayer.INSTANCE.acceptAppleState(track("5", "Blue Moon"),65000,false);
+            layout.setValue(2);
+            for (int i=0;i<100;i++) draw.run();
+            var slim = shell.get(0);
+            check(Math.abs(slim.getWidth()-238.5f)<.01f && Math.abs(slim.getHeight()-29f/.6f)<.01f
+                && radii.get(0)==5.5f, "Style B restores the slim card and its original corners");
+            check(texts.equals(List.of("Blue Moon", "Extra artist / Afterglow")) && shapes.get(1).getHeight()==2f,
+                "Style B renders both text lines and the thin progress bar");
+            var slimProgress = shapes.get(1);
+            for (int i=0;i<texts.size();i++) {
+                float textWidth = texts.get(i).length()*titleSizes.get(i)/renderScale[0]*.58f;
+                check(Math.abs(textXs.get(i)+textWidth/2-slimProgress.getX()-slimProgress.getWidth()/2)<.01f,
+                    "Both style B text rows center over the progress track");
+            }
+
+            layout.reset();
+            check(layout.getValue()==0, "Resetting the layout restores style C");
             for(int i=0;i<100;i++)draw.run();
             var full = shell.get(0);
             check(Math.abs(full.getWidth()-270f)<.01f && Math.abs(full.getHeight()-70f)<.01f,
-                "Full island A uses the reference card proportions");
+                "Style C uses the reference card proportions");
             check(Math.abs((full.getX()+full.getWidth()/2)*renderScale[0]-960f)<.05f
-                && Math.abs(radii.get(0)-10f)<.001f,"Full island A is centered with the reference card radius");
+                && Math.abs(radii.get(0)-10f)<.001f,"Style C is centered with the reference card radius");
             check(texts.equals(List.of("Blue Moon", "Extra artist / Afterglow")),
-                "Full island A displays a title and an artist/album line: "+texts);
+                "Style C displays a title and an artist/album line: "+texts);
             check(fonts.get(0).equals(Theme.FONT_SEMIBOLD) && Math.abs(titleSizes.get(0)-16f*renderScale[0])<.001f,
                 "The full title keeps the Apple Music title font");
             check(textXs.stream().allMatch(x -> Math.abs(x-full.getX()-65f)<.01f),
@@ -171,6 +191,6 @@ public class DynamicIslandCompactCheck {
             check(shell.get(0).getWidth()<=174.01f,"The full island fits a narrow window");
             width[0]=1280;
         }
-        System.out.println("Compact layout, stable short title, scrolling caps, clipping, narrow window and song change passed");
+        System.out.println("Island styles A, B and default C passed resizing, clipping and song-change checks");
     }
 }

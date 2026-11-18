@@ -3,6 +3,8 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.nio.file.Paths;
+import java.util.List;
+import java.util.Map;
 
 import me.sorihiko.dangomusicgtnh.DangoMusic;
 import me.sorihiko.dangomusicgtnh.module.impls.music.NeteaseMusicModule;
@@ -34,6 +36,10 @@ public final class SettingsInputCheck {
         field(DangoMusic.class, "instance").set(null, constructor.newInstance(platform));
         screen = new MusicScreen(new NeteaseMusicModule(), () -> Unit.INSTANCE);
         settings = field(MusicScreen.class, "settings").get(screen);
+        Map<?, ?> choices = (Map<?, ?>) field(settings.getClass(), "choiceLabels").get(settings);
+        if (!List.of("Style C", "Style A", "Style B").equals(choices.get("islandLayout"))) {
+            throw new AssertionError("Island style names must match the persisted C/A/B IDs");
+        }
     }
 
     private static Field field(Class<?> owner, String name) throws Exception {

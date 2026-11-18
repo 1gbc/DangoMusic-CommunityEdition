@@ -42,8 +42,8 @@ class DynamicIslandModule : Module() {
     @ModuleValue("Liquid glass", "Liquid glass background; off is a solid black pill")
     private val glass = BooleanValue(true)
 
-    @ModuleValue("Island layout", "Choose how much song information the island shows")
-    private val islandLayout = IntValue(0, 1, 1)
+    @ModuleValue("Island layout", "Choose the Dynamic Island layout")
+    private val islandLayout = IntValue(STYLE_C, STYLE_B, STYLE_C)
 
     @ModuleValue("Island animations", "Show the playback waveform and volume hotkey feedback")
     private val islandAnimations = BooleanValue(false)
@@ -57,10 +57,16 @@ class DynamicIslandModule : Module() {
     @ModuleValue("Scale", "Island size")
     private val scale = FloatValue(0.6f, 1.6f, 1f, 2)
 
-    private enum class Kind(val height: Float, val coverSize: Float) {
+    private enum class Kind(
+        val height: Float,
+        val coverSize: Float,
+        val maxWidth: Float = Float.POSITIVE_INFINITY,
+        val cornerRadius: Float = Float.POSITIVE_INFINITY,
+    ) {
         IDLE(32f, 0f),
-        FULL(70f, 41f),
-        MINI(32f, COMPACT_COVER_SIZE),
+        MINI(32f, COMPACT_COVER_SIZE, COMPACT_MAX_WIDTH),
+        SLIM(29f / 0.6f, 37f, 238.5f, 5.5f),
+        CARD(70f, 41f, 270f, 10f),
     }
 
     private var context: GuiCanvas? = null
@@ -84,7 +90,7 @@ class DynamicIslandModule : Module() {
     private var waveColors = emptyList<Int>()
 
     internal fun showVolume(value: Float) {
-        if (!enabled || islandLayout.value == 1 || !islandAnimations.get()) return
+        if (!enabled || islandLayout.value == STYLE_A || !islandAnimations.get()) return
         targetVolume = value.coerceIn(0f, 1f)
         if (volumeReveal < 0.01f) animatedVolume = targetVolume
         volumeUntil = System.nanoTime() + 2_000_000_000L
@@ -126,16 +132,12 @@ class DynamicIslandModule : Module() {
             kind == Kind.IDLE -> 44f + idleWidth()
             kind == Kind.MINI -> (COMPACT_TITLE_LEFT + COMPACT_END_PADDING +
                 titleWidth(title, titleSize)).coerceIn(COMPACT_MIN_WIDTH, COMPACT_MAX_WIDTH)
-            else -> FULL_WIDTH
+            else -> kind.maxWidth
         }
         return min(preferred, widthLimit(kind, available))
     }
 
-    private fun widthLimit(kind: Kind, available: Float): Float = when (kind) {
-        Kind.IDLE -> available
-        Kind.MINI -> min(COMPACT_MAX_WIDTH, available)
-        Kind.FULL -> min(FULL_WIDTH, available)
-    }
+    private fun widthLimit(kind: Kind, available: Float): Float = min(kind.maxWidth, available)
 
     private fun idleParts(): List<Pair<String, Color>> {
         val parts = mutableListOf<Pair<String, Color>>()
@@ -174,8 +176,12 @@ class DynamicIslandModule : Module() {
             lastTrackKey = trackKey
             lastTitle = title
         }
-        val compact = islandLayout.value == 1
-        val animations = !compact && islandAnimations.get()
+        val layout = when (islandLayout.value) {
+            STYLE_A -> Kind.MINI
+            STYLE_B -> Kind.SLIM
+            else -> Kind.CARD
+        }
+        val animations = layout != Kind.MINI && islandAnimations.get()
         if (!animations) {
             volumeUntil = 0L
             volumeReveal = 0f
@@ -196,11 +202,7 @@ class DynamicIslandModule : Module() {
         }
         val extension = if (volumeReveal > 0.01f) 22f * volumeReveal else 0f
 
-        val want = when {
-            snap.track == null -> Kind.IDLE
-            compact -> Kind.MINI
-            else -> Kind.FULL
-        }
+        val want = if (snap.track == null) Kind.IDLE else layout
         val uiScale = min(platform.windowWidth / 1280f, platform.windowHeight / 800f).coerceAtLeast(0.5f)
         val requestedScale = uiScale * scale.value
         val titleSizePx = AppleLyricsLayout.titleSizeFor(platform.windowWidth.toFloat(), platform.windowHeight.toFloat()) * scale.value
@@ -263,7 +265,7 @@ class DynamicIslandModule : Module() {
         val ctx = context ?: DangoClient.gfx.newCanvas().also { context = it }
         ctx.begin(glass.get(), 0, 0)
         try {
-            val r = if (shown == Kind.FULL) min(FULL_CORNER_RADIUS, h / 2f) else h / 2f
+            val r = min(shown.cornerRadius, h / 2f)
 
             ctx.pushScale(k, k, 1f)
             if (glass.get()) {
@@ -292,9 +294,9 @@ class DynamicIslandModule : Module() {
             when {
                 shown == Kind.IDLE -> drawIdle(ctx, cb)
                 shown == Kind.MINI -> drawMini(ctx, cb, snap, titleSize, pill.x + pill.width / 2f)
-                else -> drawFull(ctx, cb, snap)
+                else -> drawFull(ctx, cb, snap, shown)
             }
-            if (animations && shown == Kind.FULL) {
+            if (animations && (shown == Kind.SLIM || shown == Kind.CARD)) {
                 val cover = snap.track?.let(CoverCache::trackImage)
                 drawWave(ctx, cb.right - 24f, cb.y + cb.height / 2f, cover)
             }
@@ -387,45 +389,59 @@ class DynamicIslandModule : Module() {
             .coerceAtLeast(0f)
     }
 
-    private fun drawFull(ctx: GuiCanvas, b: LayoutBounds, snap: PlaybackView.Snapshot) {
+    private fun drawFull(ctx: GuiCanvas, b: LayoutBounds, snap: PlaybackView.Snapshot, kind: Kind) {
         val track = snap.track ?: return
-        val coverSize = Kind.FULL.coverSize
-        val cover = LayoutBounds(b.x + FULL_INSET, b.y + 10f, coverSize, coverSize)
-        drawCover(ctx, cover, CoverCache.track(track), FULL_COVER_RADIUS)
+        val slim = kind == Kind.SLIM
+        val coverSize = kind.coverSize
+        val cover = if (slim) {
+            LayoutBounds(b.x + 7f, b.y + (b.height - coverSize) / 2f, coverSize, coverSize)
+        } else {
+            LayoutBounds(b.x + CARD_INSET, b.y + 10f, coverSize, coverSize)
+        }
+        val coverRadius = if (slim) coverSize * CoverCache.DEFAULT_CORNER_RATIO else 6.5f
+        drawCover(ctx, cover, CoverCache.track(track), coverRadius)
 
-        val duration = snap.durationMs.coerceAtLeast(0L)
-        val position = snap.positionMs.coerceIn(0L, duration)
-        drawSongProgress(ctx, b.x + FULL_INSET, b.y + 57f, b.width - 2f * FULL_INSET, position, duration)
-
-        val x = cover.right + FULL_TITLE_GAP
-        val right = b.right - if (islandAnimations.get()) 38f else FULL_INSET
+        val x = cover.right + if (slim) 10f else 12f
+        val right = b.right - if (islandAnimations.get()) 38f else if (slim) 10f else CARD_INSET
         val textWidth = right - x
+        val progress = if (slim) {
+            LayoutBounds(x, b.bottom - 7f, textWidth, 2f)
+        } else {
+            LayoutBounds(b.x + CARD_INSET, b.y + 57f, b.width - 2f * CARD_INSET, 2.5f)
+        }
+        drawSongProgress(ctx, progress, snap.positionMs, snap.durationMs)
         if (textWidth <= 0f) return
-        drawTrackTitle(ctx, track.name, x, right, b.y + 14.5f, FULL_TITLE_SIZE, Theme.TEXT_PRIMARY)
 
+        val center = if (slim) x + textWidth / 2f else null
+        val titleY = b.y + if (slim) 7f else 14.5f
+        val titleSize = if (slim) 12.5f else 16f
+        drawTrackTitle(ctx, track.name, x, right, titleY, titleSize, Theme.TEXT_PRIMARY, center)
+
+        val artistSize = if (slim) 11.5f else 11f
         val artists = track.artists.joinToString(" / ")
         val album = track.albumName.trim()
         val separator = " / "
-        val available = textWidth - width(separator, FULL_ARTIST_SIZE)
-        val details = if (artists.isBlank() || album.isBlank() || available < 2f * width("...", FULL_ARTIST_SIZE)) {
-            trim(artists.ifBlank { album }, textWidth, FULL_ARTIST_SIZE)
+        val available = textWidth - width(separator, artistSize)
+        val details = if (artists.isBlank() || album.isBlank() || available < 2f * width("...", artistSize)) {
+            trim(artists.ifBlank { album }, textWidth, artistSize)
         } else {
-            val albumWidth = min(width(album, FULL_ARTIST_SIZE), available / 2f)
-            val artistLabel = trim(artists, available - albumWidth, FULL_ARTIST_SIZE)
-            artistLabel + separator + trim(album, available - width(artistLabel, FULL_ARTIST_SIZE), FULL_ARTIST_SIZE)
+            val albumWidth = min(width(album, artistSize), available / 2f)
+            val artistLabel = trim(artists, available - albumWidth, artistSize)
+            artistLabel + separator + trim(album, available - width(artistLabel, artistSize), artistSize)
         }
-        if (width(details, FULL_ARTIST_SIZE) <= textWidth) {
-            text(ctx, details, x, b.y + 34f, FULL_ARTIST_SIZE, Theme.TEXT_SECONDARY)
+        val detailsWidth = width(details, artistSize)
+        if (detailsWidth <= textWidth) {
+            val detailsX = if (center != null) center - detailsWidth / 2f else x
+            text(ctx, details, detailsX, b.y + if (slim) 25f else 34f, artistSize, Theme.TEXT_SECONDARY)
         }
     }
 
-    private fun drawSongProgress(ctx: GuiCanvas, x: Float, y: Float, width: Float, position: Long, duration: Long) {
-        if (width <= 0f) return
-        val bar = LayoutBounds(x, y, width, 2.5f)
+    private fun drawSongProgress(ctx: GuiCanvas, bar: LayoutBounds, position: Long, duration: Long) {
+        if (bar.width <= 0f) return
         val radius = bar.height / 2f
         ctx.drawShape(bar, ShapeStyle(Theme.TRACK, radius))
-        if (position > 0L) {
-            val fill = (bar.width * (position.toDouble() / duration)).toFloat()
+        if (duration > 0L && position > 0L) {
+            val fill = (bar.width * (position.coerceAtMost(duration).toDouble() / duration)).toFloat()
             ctx.drawShape(LayoutBounds(bar.x, bar.y, fill, bar.height), ShapeStyle(Theme.TEXT_PRIMARY, min(radius, fill / 2f)))
         }
     }
@@ -473,15 +489,13 @@ class DynamicIslandModule : Module() {
     private fun trim(s: String, maxW: Float, size: Float, font: String = Theme.FONT_REGULAR): String = mt.trim(s, maxW, size, font)
 
     private companion object {
+        // Keep the saved IDs of the previous full (0) and compact (1) layouts.
+        const val STYLE_C = 0
+        const val STYLE_A = 1
+        const val STYLE_B = 2
         const val COMPACT_MIN_WIDTH = 164f
         const val COMPACT_MAX_WIDTH = 256f
-        const val FULL_WIDTH = 270f
-        const val FULL_CORNER_RADIUS = 10f
-        const val FULL_INSET = 12f
-        const val FULL_COVER_RADIUS = 6.5f
-        const val FULL_TITLE_GAP = 12f
-        const val FULL_TITLE_SIZE = 16f
-        const val FULL_ARTIST_SIZE = 11f
+        const val CARD_INSET = 12f
         const val COMPACT_COVER_LEFT = 10f
         const val COMPACT_COVER_SIZE = 22f
         const val COMPACT_COVER_GAP = 15f
