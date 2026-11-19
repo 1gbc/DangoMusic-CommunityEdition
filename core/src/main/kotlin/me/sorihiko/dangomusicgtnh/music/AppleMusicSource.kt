@@ -194,28 +194,11 @@ object AppleMusicSource : MusicSourceApi {
             val local = MusicSources.stableId(source, "playlist:$id")
             if (ids.size >= 1024) throw SourceAccessException("Too many Apple Music playlists; reconnect to refresh")
             ids[local] = id
-            NeteasePlaylist(local, str(o, "title"), 0, str(o, "cover"), o.get("editable")?.asBoolean == true,
+            NeteasePlaylist(local, str(o, "title"), 0, str(o, "cover"), true,
                 description = cleanSourceText(str(o, "description")))
         }
         return listOf(libraryEntry()) + lists
     }
-    fun isUserPlaylist(id: Long) = ids.containsKey(id)
-
-    override fun addToPlaylist(playlist: NeteasePlaylist, track: NeteaseTrack): PlaylistAddResult {
-        val id = ids[playlist.id] ?: throw SourceAccessException("This playlist cannot be edited")
-        require(track.source == source)
-        val kind = if (track.mediaId.startsWith("library:")) "library-songs" else "songs"
-        val songId = track.mediaId.removePrefix("library:")
-        val response = AppleWebPlayer.request("playlistAdd", "$id:$kind:$songId", 0)
-        val error = str(response, "error")
-        if (error.isNotEmpty()) throw SourceAccessException(error)
-        return when (str(response, "result")) {
-            "added" -> PlaylistAddResult.ADDED
-            "duplicate" -> PlaylistAddResult.DUPLICATE
-            else -> throw SourceAccessException("Could not add to playlist. Please retry.")
-        }
-    }
-
     override fun playlistTracks(id: Long): List<NeteaseTrack> {
         stationTrack(id)?.let { return listOf(it) }
         groupedTracks[id]?.let { return it }

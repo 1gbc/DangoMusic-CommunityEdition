@@ -68,7 +68,7 @@ object NeteaseApi {
         saveCookie("")
     }
 
-    @Synchronized fun resetUser() {
+    fun resetUser() {
         userId = 0L
         nickname = ""
         avatarUrl = ""
@@ -252,13 +252,13 @@ object NeteaseApi {
     const val FM_ID = -163_002L
 
     /** 带登录信息的 weapi 请求；返回整个回包（code 不是 200 时为 null） */
-    private fun account(url: String, body: JsonObject, acceptedCodes: Set<Int> = setOf(200)): JsonObject? {
+    private fun account(url: String, body: JsonObject): JsonObject? {
         if (!loggedIn) return null
         body.addProperty("csrf_token", csrf())
         val res = NeteaseLogin.weapi(url, body.toString(), cookieHeader()) ?: return null
         val root = JsonParser().parse(res.first)
         val o = if (root.isJsonObject) root.asJsonObject else return null
-        if (o.get("code")?.takeIf { it.isJsonPrimitive }?.asInt !in acceptedCodes) {
+        if (o.get("code")?.takeIf { it.isJsonPrimitive }?.asInt != 200) {
             DangoLogger.warn("NetEase {} failed: code {}", url.substringAfter("/weapi/").substringBefore('?'), codeOf(o))
             return null
         }
@@ -336,7 +336,7 @@ object NeteaseApi {
     fun isLiked(id: Long): Boolean = liked?.contains(id) ?: false
 
     /** 拉一次红心列表（10 分钟内不重复拉） */
-    @Synchronized fun loadLiked() {
+    fun loadLiked() {
         if (System.currentTimeMillis() - likedAt < 10 * 60_000L && liked != null) return
         likedAt = System.currentTimeMillis()
         val uid = resolveUser()
@@ -346,7 +346,7 @@ object NeteaseApi {
     }
 
     /** 加 / 取消红心；成功返回 true */
-    @Synchronized fun setLiked(id: Long, like: Boolean): Boolean {
+    fun setLiked(id: Long, like: Boolean): Boolean {
         val o = account("https://music.163.com/weapi/radio/like?alg=itembased&trackId=$id&time=3",
             JsonObject().apply { addProperty("trackId", id.toString()); addProperty("like", like) }) ?: return false
         if (o.get("code")?.asInt != 200) return false
@@ -354,27 +354,6 @@ object NeteaseApi {
         if (like) now.add(id) else now.remove(id)
         liked = now
         return true
-    }
-
-    @Synchronized fun addToPlaylist(playlist: NeteasePlaylist, track: NeteaseTrack): PlaylistAddResult {
-        if (!loggedIn || !playlist.owned || playlist.id <= 0 || track.source != MusicSource.NETEASE)
-            throw SourceAccessException("This playlist cannot be edited")
-        val detail = getJson("https://music.163.com/api/v6/playlist/detail?id=${playlist.id}&n=1&s=0")
-            ?.getAsJsonObject("playlist") ?: throw SourceAccessException("Could not check playlist contents")
-        val ids = detail.getAsJsonArray("trackIds") ?: throw SourceAccessException("Could not check playlist contents")
-        if (ids.any { it.asJsonObject.get("id")?.asLong == track.id }) return PlaylistAddResult.DUPLICATE
-        if (playlist.likedPlaylist) {
-            if (!setLiked(track.id, true)) throw SourceAccessException("Could not add to playlist. Please retry.")
-        } else {
-            val result = account("https://music.163.com/weapi/playlist/manipulate/tracks", JsonObject().apply {
-                addProperty("op", "add")
-                addProperty("pid", playlist.id.toString())
-                addProperty("trackIds", "[${track.id}]")
-                addProperty("imme", "true")
-            }, setOf(200, 502)) ?: throw SourceAccessException("Could not add to playlist. Please retry.")
-            if (result.get("code")?.asInt == 502) return PlaylistAddResult.DUPLICATE
-        }
-        return PlaylistAddResult.ADDED
     }
 
     private fun JsonObject.str(key: String): String =

@@ -166,11 +166,6 @@ class GlassRenderContext : GuiCanvas {
         fontShader.unbind()
     }
 
-    override fun drawOccludedImage(bounds: LayoutBounds, image: Texture?, radius: Float,
-        occluders: List<LayoutBounds>, brightness: Float) {
-        drawTexturedImage(bounds, image, radius, occluders = occluders, brightness = brightness)
-    }
-
     override fun drawImage(bounds: LayoutBounds, image: Texture) {
         drawTexturedImage(bounds,image,0f)
     }
@@ -191,9 +186,8 @@ class GlassRenderContext : GuiCanvas {
     }
 
     private fun drawTexturedImage(
-        bounds: LayoutBounds, image: Texture?, radius: Float, phase: Float = -1f,
+        bounds: LayoutBounds, image: Texture, radius: Float, phase: Float = -1f,
         uInset: Float = 0f, vInset: Float = 0f, captionShade: Float = 0f,
-        occluders: List<LayoutBounds> = emptyList(), brightness: Float = 1f,
     ) {
         imageShader.bind()
         imageShader.setup(
@@ -202,10 +196,10 @@ class GlassRenderContext : GuiCanvas {
                 mc.displayWidth.toFloat(),
                 mc.displayHeight.toFloat()
             ),
-            getOpacity(), bounds, radius, phase, captionShade, occluders, brightness, image == null
+            getOpacity(), bounds, radius, phase, captionShade
         )
         GL13.glActiveTexture(GL13.GL_TEXTURE0)
-        if (image != null) (image as LegacyTexture).bind()
+        (image as LegacyTexture).bind()
 
         GL11.glBegin(GL11.GL_QUADS)
         GL11.glTexCoord2f(uInset, vInset)

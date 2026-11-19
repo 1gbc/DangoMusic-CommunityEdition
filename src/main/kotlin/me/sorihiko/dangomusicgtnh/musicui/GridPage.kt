@@ -6,7 +6,6 @@ import me.sorihiko.dangomusicgtnh.music.AppleMusicSource.HomeFeed
 
 import me.sorihiko.dangomusicgtnh.music.CoverCache
 import me.sorihiko.dangomusicgtnh.music.MusicScreen
-import me.sorihiko.dangomusicgtnh.music.NeteaseApi
 import me.sorihiko.dangomusicgtnh.music.NeteasePlaylist
 import me.sorihiko.dangomusicgtnh.ui.LayoutBounds
 import me.sorihiko.dangomusicgtnh.ui.ShapeStyle
@@ -61,76 +60,6 @@ internal class GridPage(private val screen: MusicScreen) {
     fun drawItems(area: LayoutBounds, items: List<NeteasePlaylist>) {
         this.area = area
         drawGrid(area, items)
-    }
-
-    fun drawNeteaseHome(page: LayoutBounds, items: List<NeteasePlaylist>, loading: Boolean) {
-        ui.text(I18n.text("Home"), page.x, page.y + 3f, 18f, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
-        val refresh = LayoutBounds(page.right - 25f, page.y, 24f, 24f)
-        PlayerIcons.draw(ui.ctx, PlayerIcons.repeat, refresh.x + 12f, refresh.y + 12f, 14f,
-            if (ui.hover(refresh)) APPLE_CONTROL_BLUE else Theme.TEXT_SECONDARY)
-        ui.hits += refresh to { Library.refreshAll() }
-        area = page.copy(y = page.y + 34f, height = (page.height - 34f).coerceAtLeast(0f))
-        if (area.width <= 0f || area.height <= 0f) return
-        val personal = items.filter { it.id == NeteaseApi.DAILY_ID || it.id == NeteaseApi.FM_ID }
-        val liked = Library.playlists.firstOrNull(Library::canPlayHeartMode)
-        val featured = personal + listOfNotNull(liked)
-        val recommended = items.filterNot { it.id == NeteaseApi.DAILY_ID || it.id == NeteaseApi.FM_ID }
-        val columns = ((area.width + 16f) / 138f).toInt().coerceIn(1, 6)
-        val width = (area.width - (columns - 1) * 16f) / columns
-        var offset = 0f
-        ui.beginClip(area)
-        try {
-            for ((index, playlist) in featured.withIndex()) {
-                val x = area.x + (index % columns) * (width + 16f)
-                val y = area.y + (index / columns) * (width + 20f) - pos
-                val bounds = LayoutBounds(x, y, width, width)
-                if (bounds.intersect(area).height <= 0f) continue
-                ui.drawAppleCover(bounds, CoverCache.playlistArtwork(playlist), cropSquare = true)
-                if (ui.hover(bounds.intersect(area))) ui.card(bounds, Theme.CARD_HOVER, appleCoverRadius(bounds))
-                val label = when (playlist.id) {
-                    NeteaseApi.DAILY_ID -> "Daily recommendations"
-                    NeteaseApi.FM_ID -> "Personal FM"
-                    else -> if (Library.heartLoading) "Loading Heart mode…" else "Heart mode"
-                }
-                val caption = LayoutBounds(x, bounds.bottom - 35f, width, 35f)
-                ui.card(caption, Color(0.025f, 0.025f, 0.035f, 0.70f), appleCoverRadius(bounds))
-                ui.text(ui.trim(I18n.text(label), width - 42f, 12f, Theme.FONT_SEMIBOLD),
-                    x + 10f, caption.y + 11f, 12f, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
-                PlayerIcons.draw(ui.ctx, if (playlist === liked) PlayerIcons.heart else PlayerIcons.play,
-                    bounds.right - 19f, caption.y + 18f, 14f, Theme.TEXT_PRIMARY)
-                ui.hits += bounds.intersect(area) to {
-                    if (playlist === liked) Library.playHeartMode(playlist) else screen.openPlaylist(playlist, Page.HOME)
-                }
-            }
-            if (featured.isNotEmpty()) offset = ((featured.size + columns - 1) / columns) * (width + 20f) + 8f
-            val headingY = area.y + offset - pos
-            if (headingY >= area.y - 20f && headingY < area.bottom)
-                ui.text(I18n.text(if (loading) "Loading..." else "Recommended playlists"), area.x, headingY,
-                    13f, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
-            offset += 28f
-            for ((index, playlist) in recommended.withIndex()) {
-                val x = area.x + index % columns * (width + 16f)
-                val y = area.y + offset + index / columns * (width + 46f) - pos
-                val cell = LayoutBounds(x, y, width, width + 40f)
-                val hit = cell.intersect(area)
-                if (hit.height <= 0f) continue
-                val artwork = cell.copy(height = width)
-                ui.drawAppleCover(artwork, CoverCache.playlistArtwork(playlist))
-                if (ui.hover(hit)) {
-                    val button = LayoutBounds(artwork.right - 31f, artwork.bottom - 31f, 24f, 24f)
-                    ui.card(button, Color(0f, 0f, 0f, 0.55f), 12f)
-                    PlayerIcons.draw(ui.ctx, PlayerIcons.play, button.x + 12f, button.y + 12f, 13f, Theme.TEXT_PRIMARY)
-                }
-                ui.wrap2(playlist.name, width - 2f, 11f, Theme.FONT_MEDIUM).forEachIndexed { line, text ->
-                    ui.text(text, x, artwork.bottom + 7f + line * 14f, 11f, Theme.TEXT_PRIMARY, Theme.FONT_MEDIUM)
-                }
-                ui.hits += hit to { screen.openPlaylist(playlist, Page.HOME) }
-            }
-            offset += ((recommended.size + columns - 1) / columns) * (width + 46f)
-        } finally { ui.endClip() }
-        maxScroll = (offset + ui.bottomInset - area.height).coerceAtLeast(0f)
-        target = target.coerceIn(0f, maxScroll)
-        pos = pos.coerceIn(0f, maxScroll)
     }
 
     fun drawAppleHome(page: LayoutBounds, items: List<NeteasePlaylist>, loading: Boolean, warning: String, pull: Float,
