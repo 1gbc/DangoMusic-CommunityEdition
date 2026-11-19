@@ -86,6 +86,7 @@ internal class TracksPage(private val screen: MusicScreen) {
     fun onPageChanged() {
         listPos = scroll.toFloat()
         selSnap = true
+        selectedAppleTrack = null
     }
 
     // 正在播放那一行的玻璃高亮：换歌时从原来那行滑到新的一行（单位是"第几行"，滚动时跟着列表走）
@@ -94,6 +95,7 @@ internal class TracksPage(private val screen: MusicScreen) {
     private val selPress = Spring(420f, 13f)
     /** 换了页面：高亮直接出现在正确的行，不从上一页的位置滑过来 */
     private var selSnap = true
+    private var selectedAppleTrack: Pair<Int, String>? = null
 
     fun resetScroll() {
         scroll = 0
@@ -664,7 +666,7 @@ internal class TracksPage(private val screen: MusicScreen) {
         val frac = listPos - first
         val clipArea = LayoutBounds(body.x - 4f, body.y - 2f, body.width + 8f, body.height + 2f)
         ui.beginClip(clipArea)
-        val curRow = if (playing == null) -1 else tracks.indexOfFirst { it.second.key == playing.key }
+        val curRow = if (columns == null && playing != null) tracks.indexOfFirst { it.second.key == playing.key } else -1
         if (curRow >= 0) {
             if (selSnap) { selPos.x = curRow.toFloat(); selPos.v = 0f; selSnap = false }
             // 跨很多行（比如从第 3 首跳到第 400 首）时不从原位置一路飞过去，那样一闪而过很乱：
@@ -689,15 +691,34 @@ internal class TracksPage(private val screen: MusicScreen) {
             ui.itemAnim(r) {
                 val row = LayoutBounds(body.x, body.y + (r - frac) * rowH, body.width, rowH - rowGap)
                 val isCur = playing != null && playing.key == t.key
-                if (!isCur && ui.hover(row)) ui.card(row, Theme.CARD_HOVER, 10f)
-                if (flash > 0f && t.key == flashId) {
-                    ctx.drawShape(row, ShapeStyle(Color(0f, 0f, 0f, 0f), 10f, 1.5f, RED.copy(a = flash)))
+                val hit = row.intersect(clipArea)
+                val hovered = ui.hover(hit)
+                val radius = if (columns != null) 6f else 10f
+                if (columns != null) {
+                    val selection = i to t.key
+                    if (isCur || selection == selectedAppleTrack || hovered) {
+                        ui.card(row, if (isCur || selection == selectedAppleTrack) Theme.CARD_HOVER else Theme.CARD, radius)
+                    }
+                    drawAppleTrackRow(row, t, columns, isCur, hovered, clipArea) {
+                        selectedAppleTrack = selection
+                        val state = MusicPlayer.state
+                        if (MusicPlayer.current?.key != t.key || state == MusicPlayer.State.STOPPED || state == MusicPlayer.State.ERROR) {
+                            playFrom(all, i)
+                        } else if (state == MusicPlayer.State.PLAYING || state == MusicPlayer.State.PAUSED) {
+                            ClientMusic.control { if (MusicPlayer.current?.key == t.key) MusicPlayer.togglePause() }
+                        }
+                    }
+                    ui.hits += hit to { selectedAppleTrack = selection }
+                } else {
+                    if (!isCur && hovered) ui.card(row, Theme.CARD_HOVER, radius)
+                    drawTrackRow(row, t, i, isCur, clipArea)
+                    ui.hits += hit to {
+                        selPress.v -= 6f
+                        playFrom(all, i)
+                    }
                 }
-                if (columns != null) drawAppleTrackRow(row, t, columns, isCur, clipArea)
-                else drawTrackRow(row, t, i, isCur, clipArea)
-                ui.hits += row.intersect(clipArea) to {
-                    selPress.v -= 6f
-                    playFrom(all, i)
+                if (flash > 0f && t.key == flashId) {
+                    ctx.drawShape(row, ShapeStyle(Color.TRANSPARENT, radius, 1.5f, RED.copy(a = flash)))
                 }
             }
         }
@@ -745,13 +766,21 @@ internal class TracksPage(private val screen: MusicScreen) {
         ui.text(time, columns.time - ui.width(time, size, font), y, size, color, font)
     }
 
-    private fun drawAppleTrackRow(row: LayoutBounds, track: NeteaseTrack, columns: AppleTrackColumns, isCur: Boolean, clip: LayoutBounds) {
+    private fun drawAppleTrackRow(row: LayoutBounds, track: NeteaseTrack, columns: AppleTrackColumns,
+                                  isCur: Boolean, hovered: Boolean, clip: LayoutBounds, play: () -> Unit) {
         val thumb = LayoutBounds(columns.song, row.y + (row.height - 24f) / 2f, 24f, 24f)
+        val coverHit = thumb.intersect(clip)
         ui.drawAppleCover(thumb, CoverCache.track(track))
-        if (isCur && MusicPlayer.state == MusicPlayer.State.PLAYING) {
-            ui.card(thumb, Color(0.08f, 0.06f, 0.08f, 0.64f), appleCoverRadius(thumb))
-            ui.icon("♫", thumb.x + 12f, thumb.y + 12f, 11f, Theme.TEXT_PRIMARY)
+        val playing = isCur && MusicPlayer.state == MusicPlayer.State.PLAYING
+        if (hovered || playing) {
+            ui.card(thumb, Color.BLACK.copy(a = if (hovered) 0.34f else 0.46f), appleCoverRadius(thumb))
+            val cx = thumb.x + 12f
+            val cy = thumb.y + 12f
+            if (playing && !ui.hover(coverHit)) drawAppleTrackWave(cx, cy)
+            else PlayerIcons.draw(ui.ctx, if (playing) AppleLyricsIcons.pause else AppleLyricsIcons.play,
+                cx, cy, 14f, Theme.TEXT_PRIMARY)
         }
+        if (coverHit.height > 0f) ui.hits += coverHit to play
         val x = thumb.right + 9f
         val songW = (columns.artist ?: columns.timeStart) - x - 8f
         val compact = columns.artist == null
@@ -770,8 +799,9 @@ internal class TracksPage(private val screen: MusicScreen) {
             columns.album == null && track.albumName.isNotBlank() -> row.y + 4f
             else -> centerY
         }
-        if (artistEnd - artistX > 16f) drawArtistLinks(screen, track, artistX, artistY, artistEnd - artistX - 8f,
-            secondarySize, Theme.TEXT_SECONDARY, clip)
+        if (artistEnd - artistX > 16f) ui.text(
+            ui.trim(track.artists.joinToString(" / "), artistEnd - artistX - 8f, secondarySize),
+            artistX, artistY, secondarySize, Theme.TEXT_SECONDARY)
         val albumW = columns.timeStart - albumX - 8f
         if (track.albumName.isNotBlank() && albumW > 12f) {
             val albumY = if (columns.album == null) row.y + 17f else centerY
@@ -782,6 +812,16 @@ internal class TracksPage(private val screen: MusicScreen) {
             ui.text(time, columns.time - ui.width(time, secondarySize), centerY, secondarySize, Theme.TEXT_SECONDARY)
         }
         ui.card(LayoutBounds(row.x + 7f, row.bottom, row.width - 14f, 1f), Theme.SEPARATOR, 0f)
+    }
+
+    private fun drawAppleTrackWave(cx: Float, cy: Float) {
+        val time = System.nanoTime() / 1e9
+        for (i in 0..3) {
+            val phase = time * (5.2 + i * 0.83) + i * 1.75
+            val pulse = 0.50 + 0.28 * kotlin.math.sin(phase) + 0.18 * kotlin.math.sin(phase * 1.7)
+            val height = (3 + 9 * pulse).toFloat()
+            ui.card(LayoutBounds(cx - 5.8f + i * 3.2f, cy + 5.5f - height, 2f, height), Theme.TEXT_PRIMARY, 0.65f)
+        }
     }
 
     // ---------------------------------------------------------------- 封面墙（Coverflow）

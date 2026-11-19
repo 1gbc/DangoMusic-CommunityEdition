@@ -356,7 +356,7 @@ object CoverCache {
     }
 
     private val qqSize = Regex("R\\d{2,4}x\\d{2,4}M")
-    private val appleSize = Regex("/\\d{2,4}x\\d{2,4}(bb|cc)(-\\d+)?\\.(jpg|png|webp)(\\?.*)?$")
+    private val appleSize = Regex("/\\d{2,4}x\\d{2,4}([a-z]{0,4})(-\\d+)?\\.(jpg|png|webp)(\\?.*)?$")
     private val neteaseParam = Regex("param=\\d{2,4}y\\d{2,4}")
 
     /** 按平台的规则要 [px] 像素的图：网易云加 param，QQ 换 R300x300，Apple 换 256x256bb；认不出的原样用 */
@@ -410,7 +410,7 @@ object CoverCache {
     fun playlist(p: NeteasePlaylist) = get("p:${p.id}", p.coverUrl)
     fun playlistRounded(p: NeteasePlaylist, ratio: Float = DEFAULT_CORNER_RATIO) = rounded("p:${p.id}", p.coverUrl, ratio)
     fun featuredPlaylist(p: NeteasePlaylist, artwork: String) =
-        get("featured:${p.id}", artwork.ifEmpty { p.coverUrl }, 640, 360)
+        if (artwork.isBlank()) null else get("featured:${p.id}", artwork, 640, 360)
 
     private fun crop(src: BufferedImage, width: Int, height: Int): BufferedImage {
         val cropWidth = min(src.width, (src.height.toLong() * width / height).toInt()).coerceAtLeast(1)

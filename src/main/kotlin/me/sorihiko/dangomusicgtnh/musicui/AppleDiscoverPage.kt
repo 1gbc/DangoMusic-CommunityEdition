@@ -122,7 +122,7 @@ internal class AppleDiscoverPage(private val screen: MusicScreen) {
                 if (lines.size <= 1 && item.artist.isNotBlank())
                     ui.text(ui.trim(item.artist, cell.width, 13f), cell.x, cell.y + 36f, 13f, Theme.TEXT_SECONDARY)
                 val art = LayoutBounds(cell.x, cell.y + 61f, cell.width, cell.height - 61f)
-                ui.drawAppleCover(art, CoverCache.featuredPlaylist(item.card, item.featuredCover))
+                drawFeaturedCover(art, item.card, item.featuredCover)
             }
             link -> {
                 val button = cell.copy(height = 37f)
@@ -133,7 +133,7 @@ internal class AppleDiscoverPage(private val screen: MusicScreen) {
             else -> {
                 val size = if (row) 48f else cell.width
                 val art = LayoutBounds(cell.x, cell.y, size, size)
-                ui.drawAppleCover(art, CoverCache.playlist(item.card))
+                ui.drawAppleCover(art, if (row) CoverCache.playlist(item.card) else CoverCache.playlistArtwork(item.card))
                 val textX = if (row) art.right + 10f else cell.x
                 val textY = if (row) cell.y + 8f else art.bottom + 5f
                 val width = cell.right - textX
@@ -199,7 +199,7 @@ internal class AppleDiscoverPage(private val screen: MusicScreen) {
                     if (lines.size <= 1 && artist.isNotEmpty())
                         ui.text(ui.trim(artist, heroWidth - 4f, 13f), x, y + 36f, 13f, Theme.TEXT_SECONDARY)
                     val artwork = LayoutBounds(x, y + 61f, heroWidth, heroHeight)
-                    ui.drawAppleCover(artwork, CoverCache.featuredPlaylist(album, AppleMusicSource.featuredCover(album.id)))
+                    drawFeaturedCover(artwork, album, AppleMusicSource.featuredCover(album.id))
                     hit(card) { screen.openGridCard(album) }
                 }
                 y += heroBlock
@@ -245,6 +245,11 @@ internal class AppleDiscoverPage(private val screen: MusicScreen) {
         } finally {
             ui.endClip()
         }
+    }
+
+    private fun drawFeaturedCover(bounds: LayoutBounds, card: NeteasePlaylist, url: String) {
+        val featured = CoverCache.featuredPlaylist(card, url)
+        ui.drawAppleCover(bounds, featured ?: CoverCache.playlistArtwork(card), cropSquare = featured == null)
     }
 
     private fun drawHeading(page: LayoutBounds, y: Float, key: String, action: (() -> Unit)?) {

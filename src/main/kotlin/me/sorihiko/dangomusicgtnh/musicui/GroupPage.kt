@@ -14,12 +14,10 @@ import me.sorihiko.dangomusicgtnh.platform.Keys
 import me.sorihiko.dangomusicgtnh.ui.GlassStyle
 import me.sorihiko.dangomusicgtnh.ui.LayoutBounds
 import me.sorihiko.dangomusicgtnh.ui.ShadowStyle
-import me.sorihiko.dangomusicgtnh.ui.ShapeStyle
 import me.sorihiko.dangomusicgtnh.ui.Theme
 import me.sorihiko.dangomusicgtnh.ui.Vec2
 import me.sorihiko.dangomusicgtnh.utils.Color
 import kotlin.math.max
-import kotlin.math.min
 
 /**
  * Music group page.
@@ -122,13 +120,11 @@ internal class GroupPage(private val screen: MusicScreen) {
     fun draw(page: LayoutBounds) {
         ui.headerAnim {
             val accent = if (screen.appleNavigation) APPLE_SIDEBAR_BLUE else Theme.ACCENT
-            ui.card(LayoutBounds(page.x, page.y + 1f, 30f, 30f), accent.copy(a = 0.16f), 10f)
-            if (screen.appleNavigation) SidebarIcons.drawApple(ui.ctx, "♬", page.x + 15f, page.y + 16f, accent)
-            else ui.icon("♬", page.x + 15f, page.y + 16f, 16f, accent)
-            ui.text(I18n.text("Music group"), page.x + 40f, page.y, 22f, Theme.TEXT_PRIMARY, Theme.FONT_DISPLAY)
+            SidebarIcons.draw(ui.ctx, "♬", page.x + 11f, page.y + 11f, accent, 22f)
+            ui.text(I18n.text("Music group"), page.x + 30f, page.y, 22f, Theme.TEXT_PRIMARY, Theme.FONT_DISPLAY)
             ui.text(
-                I18n.text("Listen with friends, no distance limit"),
-                page.x + 40f, page.y + 30f, 11f, Theme.TEXT_SECONDARY, Theme.FONT_SEMIBOLD,
+                I18n.text("Listen together, anytime, anywhere"),
+                page.x + 30f, page.y + 30f, 11f, Theme.TEXT_SECONDARY, Theme.FONT_SEMIBOLD,
             )
         }
 
@@ -268,7 +264,7 @@ internal class GroupPage(private val screen: MusicScreen) {
         val invites = data.invites.take(3)
         val card = LayoutBounds(x, top, width, 44f + invites.size.coerceAtLeast(1) * 34f)
         cardBox(card)
-        sectionTitle(I18n.text("Invitations"), card.x + 20f, card.y + 15f, card.width - 40f)
+        sectionTitle(I18n.text("Invitations"), card.x + 20f, card.y + 15f)
         if (invites.isEmpty()) {
             emptyState(card.x + 20f, card.y + 44f, I18n.text("No invitations"))
         } else {
@@ -295,7 +291,7 @@ internal class GroupPage(private val screen: MusicScreen) {
         val groups = data.groups.take(3)
         val card = LayoutBounds(x, top, width, 44f + groups.size.coerceAtLeast(1) * 34f)
         cardBox(card)
-        sectionTitle(I18n.text("Open groups"), card.x + 20f, card.y + 15f, card.width - 40f)
+        sectionTitle(I18n.text("Open groups"), card.x + 20f, card.y + 15f)
         if (groups.isEmpty()) {
             emptyState(card.x + 20f, card.y + 44f, I18n.text("No open groups"))
         } else {
@@ -419,7 +415,7 @@ internal class GroupPage(private val screen: MusicScreen) {
         val groups = data.groupsJoined.take(16)
         val card = LayoutBounds(x, top, width, 38f + groups.size.coerceAtLeast(1) * 30f)
         cardBox(card)
-        sectionTitle(I18n.text("My groups"), card.x + 20f, card.y + 15f, card.width - 40f)
+        sectionTitle(I18n.text("My groups"), card.x + 20f, card.y + 15f)
         if (groups.isEmpty()) {
             emptyState(card.x + 20f, card.y + 44f, I18n.text("You have not joined a group"))
         } else {
@@ -469,7 +465,7 @@ internal class GroupPage(private val screen: MusicScreen) {
         val others = data.players.filter { it.name !in group.members }.take(3)
         val card = LayoutBounds(x, top, width, 44f + others.size.coerceAtLeast(1) * 34f)
         cardBox(card)
-        sectionTitle(I18n.text("Invite players"), card.x + 20f, card.y + 15f, card.width - 40f)
+        sectionTitle(I18n.text("Invite players"), card.x + 20f, card.y + 15f)
         if (others.isEmpty()) {
             emptyState(card.x + 20f, card.y + 46f, I18n.text("No online players to invite"))
         } else {
@@ -501,18 +497,11 @@ internal class GroupPage(private val screen: MusicScreen) {
     }
 
     private fun cardBox(b: LayoutBounds) {
-        val apple = screen.appleNavigation
-        val style = if (apple) cardGlass.copy(shadow = ShadowStyle()) else cardGlass
-        ui.ctx.drawGlass(b, style)
-        val accent = if (apple) APPLE_SIDEBAR_BLUE else Theme.ACCENT
-        val stripe = LayoutBounds(b.x + 1f, b.y + 14f, 3f, b.height - 28f)
-        ui.ctx.drawShape(stripe, ShapeStyle(accent.copy(a = 0.55f), 1.5f,
-            clipBounds = b.takeIf { apple }, clipRadius = style.radius))
+        ui.ctx.drawGlass(b, if (screen.appleNavigation) cardGlass.copy(shadow = ShadowStyle()) else cardGlass)
     }
 
-    private fun sectionTitle(label: String, x: Float, y: Float, width: Float) {
+    private fun sectionTitle(label: String, x: Float, y: Float) {
         ui.text(label, x, y, 12f, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
-        ui.card(LayoutBounds(x, y + 18f, min(28f, width), 2f), Theme.ACCENT.copy(a = 0.55f), 1f)
     }
 
     private fun emptyState(x: Float, y: Float, label: String) {

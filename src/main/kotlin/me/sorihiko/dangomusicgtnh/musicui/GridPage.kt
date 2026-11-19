@@ -183,7 +183,7 @@ internal class GridPage(private val screen: MusicScreen) {
                         ui.card(tile, if (ui.hover(tile)) Theme.CARD_HOVER else Theme.CARD, 15f)
                         val coverSize = tile.height - 16f
                         val cover = LayoutBounds(x + 8f, y + 8f, coverSize, coverSize)
-                        if (screen.appleNavigation) ui.drawAppleCover(cover, CoverCache.playlist(p))
+                        if (screen.appleNavigation) ui.drawAppleCover(cover, CoverCache.playlistArtwork(p), cropSquare = true)
                         else ui.drawCover(cover, CoverCache.playlistRounded(p, 0.10f), 12f)
                         val titleX = cover.right + 13f
                         for ((line, label) in ui.wrap2(p.name, tile.right - titleX - 12f, 15f).withIndex()) {
