@@ -770,25 +770,27 @@ internal class TracksPage(private val screen: MusicScreen) {
                                   isCur: Boolean, hovered: Boolean, clip: LayoutBounds, play: () -> Unit) {
         val thumb = LayoutBounds(columns.song, row.y + (row.height - 24f) / 2f, 24f, 24f)
         val coverHit = thumb.intersect(clip)
-        ui.drawAppleCover(thumb, CoverCache.track(track))
+        val coverRadius = 3f
+        val compact = columns.artist == null
+        val titleSize = APPLE_MENU_TEXT_SIZE
+        val centerY = row.y + (row.height - titleSize) / 2f
+        val titleY = if (compact) row.y + 4f else centerY
+        ui.drawAppleCover(thumb, CoverCache.track(track), radius = coverRadius)
         val playing = isCur && MusicPlayer.state == MusicPlayer.State.PLAYING
         if (hovered || playing) {
-            ui.card(thumb, Color.BLACK.copy(a = if (hovered) 0.34f else 0.46f), appleCoverRadius(thumb))
+            ui.card(thumb, Color.BLACK.copy(a = if (hovered) 0.34f else 0.46f), coverRadius)
             val cx = thumb.x + 12f
             val cy = thumb.y + 12f
-            if (playing && !ui.hover(coverHit)) drawAppleTrackWave(cx, cy)
+            if (playing && !ui.hover(coverHit)) drawAppleTrackWave(cx, titleY + titleSize / 2f)
             else PlayerIcons.draw(ui.ctx, if (playing) AppleLyricsIcons.pause else AppleLyricsIcons.play,
                 cx, cy, 14f, Theme.TEXT_PRIMARY)
         }
         if (coverHit.height > 0f) ui.hits += coverHit to play
         val x = thumb.right + 9f
         val songW = (columns.artist ?: columns.timeStart) - x - 8f
-        val compact = columns.artist == null
-        val titleSize = APPLE_MENU_TEXT_SIZE
         val secondarySize = APPLE_PLAYLIST_SECONDARY_SIZE
-        val centerY = row.y + (row.height - titleSize) / 2f
         if (songW > 12f) ui.text(ui.trim(track.name, songW, titleSize, Theme.FONT_MEDIUM), x,
-            if (compact) row.y + 4f else centerY, titleSize, if (isCur) RED else Theme.TEXT_PRIMARY, Theme.FONT_MEDIUM)
+            titleY, titleSize, if (isCur) RED else Theme.TEXT_PRIMARY, Theme.FONT_MEDIUM)
 
         // 窗口变窄时，先把专辑并到歌手列，再把两者移到歌名下方。
         val artistX = columns.artist ?: x
@@ -816,11 +818,15 @@ internal class TracksPage(private val screen: MusicScreen) {
 
     private fun drawAppleTrackWave(cx: Float, cy: Float) {
         val time = System.nanoTime() / 1e9
+        val width = 2.25f
+        val gap = 0.65f
+        val left = cx - (4f * width + 3f * gap) / 2f
+        val baseline = cy + 3.5f
         for (i in 0..3) {
             val phase = time * (5.2 + i * 0.83) + i * 1.75
             val pulse = 0.50 + 0.28 * kotlin.math.sin(phase) + 0.18 * kotlin.math.sin(phase * 1.7)
-            val height = (3 + 9 * pulse).toFloat()
-            ui.card(LayoutBounds(cx - 5.8f + i * 3.2f, cy + 5.5f - height, 2f, height), Theme.TEXT_PRIMARY, 0.65f)
+            val height = (3 + 9 * pulse).toFloat() * 0.7f
+            ui.card(LayoutBounds(left + i * (width + gap), baseline - height, width, height), Theme.TEXT_PRIMARY, 0.6f)
         }
     }
 

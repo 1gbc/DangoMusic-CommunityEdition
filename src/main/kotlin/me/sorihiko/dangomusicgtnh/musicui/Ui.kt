@@ -164,8 +164,8 @@ internal class Ui {
         if (tex != null) ctx.drawImage(b, tex) else card(b, Theme.TRACK, radius)
     }
 
-    fun drawAppleCover(bounds: LayoutBounds, texture: Texture?, cropSquare: Boolean = false) {
-        val radius = appleCoverRadius(bounds)
+    fun drawAppleCover(bounds: LayoutBounds, texture: Texture?, cropSquare: Boolean = false,
+                       radius: Float = appleCoverRadius(bounds)) {
         if (texture == null) card(bounds, Theme.TRACK, radius)
         else if (cropSquare) ctx.drawCroppedSquareImage(bounds, texture, radius)
         else ctx.drawRoundedImage(bounds, texture, radius)
