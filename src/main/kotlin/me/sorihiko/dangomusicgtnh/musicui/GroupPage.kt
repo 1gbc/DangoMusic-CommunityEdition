@@ -119,7 +119,7 @@ internal class GroupPage(private val screen: MusicScreen) {
 
     fun draw(page: LayoutBounds) {
         ui.headerAnim {
-            val accent = if (screen.appleNavigation) APPLE_SIDEBAR_BLUE else Theme.ACCENT
+            val accent = if (screen.usesAppleLayout) APPLE_SIDEBAR_BLUE else Theme.ACCENT
             SidebarIcons.draw(ui.ctx, "♬", page.x + 11f, page.y + 11f, accent, 22f)
             ui.text(I18n.text("Music group"), page.x + 30f, page.y, 22f, Theme.TEXT_PRIMARY, Theme.FONT_DISPLAY)
             ui.text(
@@ -497,7 +497,7 @@ internal class GroupPage(private val screen: MusicScreen) {
     }
 
     private fun cardBox(b: LayoutBounds) {
-        ui.ctx.drawGlass(b, if (screen.appleNavigation) cardGlass.copy(shadow = ShadowStyle()) else cardGlass)
+        ui.ctx.drawGlass(b, if (screen.usesAppleLayout) cardGlass.copy(shadow = ShadowStyle()) else cardGlass)
     }
 
     private fun sectionTitle(label: String, x: Float, y: Float) {

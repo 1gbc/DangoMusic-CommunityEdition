@@ -115,6 +115,11 @@ internal class LyricsPage(
         val song = MusicPlayer.current?.takeIf { it.source == MusicSource.NETEASE }
         this.backdrop.drawLyrics(backdrop, song, Theme.GLASS_LYRICS_EDGE.radius)
         ui.ctx.drawGlass(backdrop, Theme.GLASS_LYRICS_EDGE)
+        drawCommentTransition(area, song) { drawLyricsContent(area, close) }
+    }
+
+    private fun drawCommentTransition(area: LayoutBounds, song: NeteaseTrack?, appleLayout: Boolean = false,
+                                      drawLyrics: () -> Unit) {
         if (song == null || !module.songCommentsEnabled.get()) {
             commentsOpen = false
             commentsProgress = 0f
@@ -127,8 +132,8 @@ internal class LyricsPage(
         val before = ui.hits.size
         ui.shifted(0f, if (commentsSong != null) (1f - alpha) * 16f else (alpha - 1f) * 16f, alpha) {
             if (commentsSong != null) {
-                comments.draw(area, commentsSong) { commentsOpen = false }
-            } else drawLyricsContent(area, close)
+                comments.draw(area, commentsSong, appleLayout) { commentsOpen = false }
+            } else drawLyrics()
         }
         if (alpha < 0.99f) while (ui.hits.size > before) ui.hits.removeAt(ui.hits.lastIndex)
     }
@@ -144,11 +149,36 @@ internal class LyricsPage(
     fun drawApple(frame: AppleLyricsLayout, playback: PlaybackView.Snapshot, close: () -> Unit, toggleLyrics: () -> Unit) {
         if (frame.scale <= 0f) return
         pageArea = frame.viewport
+        val song = playback.track?.takeIf { it.source == MusicSource.APPLE }
+        backdrop.drawLyrics(frame.viewport, song)
+        drawAppleContent(frame, playback, song, close, toggleLyrics, netease = false)
+    }
+
+    fun drawNeteaseApple(frame: AppleLyricsLayout, playback: PlaybackView.Snapshot, close: () -> Unit, toggleLyrics: () -> Unit) {
+        if (frame.scale <= 0f) return
+        val outer = frame.viewport
+        val song = playback.track?.takeIf { it.source == MusicSource.NETEASE }
+        pageArea = outer
+        backdrop.drawLyrics(outer, song, Theme.GLASS_LYRICS_EDGE.radius)
+        ui.ctx.drawGlass(outer, Theme.GLASS_LYRICS_EDGE)
+        val comments = LayoutBounds(outer.x + 10f, outer.y + 10f, outer.width - 20f, frame.y(868f) - outer.y - 10f)
+        drawCommentTransition(comments, song, appleLayout = true) {
+            drawAppleContent(frame, playback, song, close, toggleLyrics, netease = true)
+            if (frame.showLyrics) {
+                drawNeteaseLyricsControls(frame.viewport.right - 48f, frame.viewport.y + (frame.viewport.height - 264f) / 2f, song)
+                if (manualPosition != null) {
+                    val follow = LayoutBounds(lyricArea.x, lyricArea.y - 32f, 140f, 26f)
+                    ui.pill(follow, Theme.CARD_HOVER, I18n.text("Follow playback")) { resumeAppleLyrics() }
+                }
+            }
+        }
+    }
+
+    private fun drawAppleContent(frame: AppleLyricsLayout, playback: PlaybackView.Snapshot, song: NeteaseTrack?,
+                                 close: () -> Unit, toggleLyrics: () -> Unit, netease: Boolean) {
         lyricArea = frame.lyrics
         shortcutArea = LayoutBounds()
         popupArea = null
-        val song = playback.track?.takeIf { it.source == MusicSource.APPLE }
-        backdrop.drawLyrics(frame.viewport, song)
         val closeHit = frame.close
         PlayerIcons.draw(ui.ctx, AppleLyricsIcons.close, closeHit.x + closeHit.width / 2f,
             closeHit.y + closeHit.height / 2f, (if (ui.hover(closeHit)) 20f else 18f) * frame.scale, white.copy(a = 0.72f))
@@ -181,7 +211,7 @@ internal class LyricsPage(
         if (!frame.showLyrics) return
         val lyricModule = module.lyrics()
         val lyrics = song?.let { lyricModule?.playerLyrics(it) }
-        val baseSize = module.appleLyricsPageSize.toFloat()
+        val baseSize = (if (netease) module.lyricsPageSize.value else module.appleLyricsPageSize).toFloat()
         val size = (baseSize + 3f) * frame.scale
         val annotationSize = (baseSize * ANNOTATION_RATIO + 3f) * frame.scale
         val keptScroll = layout(lyrics?.lines.orEmpty(), lyricArea.width, size,
@@ -209,7 +239,8 @@ internal class LyricsPage(
         if (resumeAppleFollow) scrollPosition = target
         else if (!keptScroll) scrollPosition = ui.approach(scrollPosition, target, 95f)
         resumeAppleFollow = false
-        drawLyrics(active, size, null, centered = true, annotationSize = annotationSize)
+        drawLyrics(active, size, if (netease) neteaseLyricsPopup(frame.viewport.right - 48f,
+            frame.viewport.y + (frame.viewport.height - 264f) / 2f) else null, centered = true, annotationSize = annotationSize)
     }
 
     private fun drawLyricsContent(area: LayoutBounds, close: () -> Unit) {
@@ -257,16 +288,7 @@ internal class LyricsPage(
         val position = MusicPlayer.positionMs + (song?.let(::lyricOffset) ?: 0L)
         val active = lyrics?.indexAt(position) ?: -1
         val railY = area.y + (area.height - 6 * 40f - 24f) / 2f
-        val popup = menu?.let {
-            val height = if (it == Menu.SIZE) 82f else 216f
-            LayoutBounds(railX - 246f, railY + 260f - height, 232f, height)
-        }
-        shortcutArea = LayoutBounds(lyricArea.right, minOf(lyricArea.y, railY),
-            railX + 34f - lyricArea.right, maxOf(lyricArea.bottom, railY + 258f) - minOf(lyricArea.y, railY))
-        popupArea = popup
-        val hovered = inLyricsModule(ui.mx, ui.my)
-        shortcutOpacity = ui.approach(shortcutOpacity, if (hovered) 1f else 0f, 75f)
-        if (!hovered && shortcutOpacity < 0.02f) dismissMenu()
+        val popup = neteaseLyricsPopup(railX, railY)
         if (rows.isEmpty()) {
             val message = when {
                 song == null -> "Play a NetEase song to view lyrics"
@@ -279,6 +301,22 @@ internal class LyricsPage(
             scrollPosition = ui.approach(scrollPosition, target, 95f)
             drawLyrics(active, size, popup)
         }
+        drawNeteaseLyricsControls(railX, railY, song)
+    }
+
+    private fun neteaseLyricsPopup(railX: Float, railY: Float) = menu?.let {
+        val height = if (it == Menu.SIZE) 82f else 216f
+        LayoutBounds(railX - 246f, railY + 260f - height, 232f, height)
+    }
+
+    private fun drawNeteaseLyricsControls(railX: Float, railY: Float, song: NeteaseTrack?) {
+        val popup = neteaseLyricsPopup(railX, railY)
+        shortcutArea = LayoutBounds(lyricArea.right, minOf(lyricArea.y, railY),
+            railX + 34f - lyricArea.right, maxOf(lyricArea.bottom, railY + 258f) - minOf(lyricArea.y, railY))
+        popupArea = popup
+        val hovered = inLyricsModule(ui.mx, ui.my)
+        shortcutOpacity = ui.approach(shortcutOpacity, if (hovered) 1f else 0f, 75f)
+        if (!hovered && shortcutOpacity < 0.02f) dismissMenu()
         if (shortcutOpacity >= 0.02f) {
             val firstHit = ui.hits.size
             ui.shifted(0f, 0f, shortcutOpacity) {

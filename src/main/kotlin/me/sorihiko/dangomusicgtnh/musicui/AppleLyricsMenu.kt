@@ -90,10 +90,31 @@ internal class AppleLyricsMenu(
         if (song == null) return
 
         val hitStart = ui.hits.size
-        if (menuOpen) drawMenu(frame.viewport, song, bottomAnchor != null)
+        if (menuOpen) drawMenu(frame.viewport, if (bottomAnchor != null) bottomActions(song) else lyricActions(song),
+            if (bottomAnchor != null) "Apple Player Menu" else "Apple Lyrics Menu")
         if (creditsOpen) drawCredits(frame, song, metadata, complete)
+        prioritizeHits(frame.viewport, hitStart)
+    }
+
+    fun drawNetease(viewport: LayoutBounds, anchor: LayoutBounds, openQuality: (LayoutBounds) -> Unit) {
+        if (!menuOpen) return
+        val hitStart = ui.hits.size
+        drawMenu(viewport, listOf(
+            Action("Quality", QUALITY) {
+                menuOpen = false
+                openQuality(anchor)
+            },
+            Action("Stop playback", PlayerIcons.stop, MusicPlayer.current?.source == MusicSource.NETEASE) {
+                menuOpen = false
+                ClientMusic.control { if (MusicPlayer.current?.source == MusicSource.NETEASE) Library.stopPlayback() }
+            },
+        ), "NetEase Player Menu")
+        prioritizeHits(viewport, hitStart)
+    }
+
+    private fun prioritizeHits(viewport: LayoutBounds, hitStart: Int) {
         if (capturesInput) {
-            ui.hits += frame.viewport to { dismiss() }
+            ui.hits += viewport to { dismiss() }
             val overlayHits = ui.hits.subList(hitStart, ui.hits.size).toList()
             ui.hits.subList(hitStart, ui.hits.size).clear()
             ui.hits.addAll(0, overlayHits)
@@ -118,11 +139,10 @@ internal class AppleLyricsMenu(
         return LayoutBounds(x.coerceIn(left, maxX), y.coerceIn(top, maxY), width, height)
     }
 
-    private fun drawMenu(viewport: LayoutBounds, song: NeteaseTrack, bottom: Boolean) {
+    private fun drawMenu(viewport: LayoutBounds, actions: List<Action>, context: String) {
         // Menus share GUI coordinates even when the full lyrics layout uses its own reference scale.
         val scale = minOf(MENU_SCALE, viewport.width / (MENU_WIDTH + 8f), viewport.height / (ROW_HEIGHT * 5f + 16f))
         val rowHeight = ROW_HEIGHT * scale
-        val actions = if (bottom) bottomActions(song) else lyricActions(song)
         val inset = 4f * scale
         val panel = menuBounds(viewport, MENU_WIDTH * scale, rowHeight * actions.size + 2f * inset, scale)
         ui.ctx.pushOpacity(0.94f)
@@ -135,7 +155,6 @@ internal class AppleLyricsMenu(
         } finally {
             ui.ctx.popOpacity()
         }
-        val context = if (bottom) "Apple Player Menu" else "Apple Lyrics Menu"
         ui.popup(panel) {
             actions.forEachIndexed { index, action ->
                 val bounds = LayoutBounds(panel.x + inset, panel.y + inset + index * rowHeight,
@@ -247,6 +266,14 @@ internal class AppleLyricsMenu(
     }
 
     private companion object {
+        val QUALITY = VectorIcon.path {
+            move(4.0, 5.0); line(20.0, 5.0)
+            move(4.0, 12.0); line(20.0, 12.0)
+            move(4.0, 19.0); line(20.0, 19.0)
+            move(8.0, 2.5); line(8.0, 7.5)
+            move(15.0, 9.5); line(15.0, 14.5)
+            move(10.0, 16.5); line(10.0, 21.5)
+        }
         const val MENU_SCALE = 0.85f
         const val MENU_WIDTH = 186f
         const val ROW_HEIGHT = 24f

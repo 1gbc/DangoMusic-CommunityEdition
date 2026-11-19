@@ -62,8 +62,10 @@ internal class GridPage(private val screen: MusicScreen) {
         drawGrid(area, items)
     }
 
-    fun drawAppleHome(page: LayoutBounds, items: List<NeteasePlaylist>, loading: Boolean, warning: String, pull: Float) {
-        ui.text(I18n.text("Home"), page.x, page.y + 3f, APPLE_MENU_TEXT_SIZE, Theme.TEXT_PRIMARY, Theme.FONT_DISPLAY)
+    fun drawAppleHome(page: LayoutBounds, items: List<NeteasePlaylist>, loading: Boolean, warning: String, pull: Float,
+                      neteaseHeading: String? = null) {
+        ui.text(I18n.text(if (neteaseHeading == null) "Home" else "Welcome to Dango Music!"),
+            page.x, page.y + 3f, APPLE_MENU_TEXT_SIZE, Theme.TEXT_PRIMARY, Theme.FONT_DISPLAY)
         if (loading || warning.isNotEmpty()) {
             val status = if (loading) I18n.text("Loading...") else warning
             ui.text(ui.trim(status, page.width - 120f, 9f), page.x, page.y + 22f, 9f, Theme.TEXT_SECONDARY)
@@ -71,9 +73,11 @@ internal class GridPage(private val screen: MusicScreen) {
         val top = page.y + if (loading || warning.isNotEmpty()) 39f else 27f
         area = page.copy(y = top, height = (page.bottom - top).coerceAtLeast(0f))
         if (area.width <= 0f || area.height <= 0f) return
-        val grouped = items.groupBy { AppleMusicSource.homeFeed(it.id) }
-        val order = listOf(HomeFeed.RECOMMENDATIONS to "Recommended for you", HomeFeed.RECENT to "Recently played",
-            HomeFeed.HEAVY_ROTATION to "Heavy rotation", HomeFeed.SHORTCUTS to "Shortcuts")
+        val grouped = if (neteaseHeading == null) items.groupBy { AppleMusicSource.homeFeed(it.id) }
+            else mapOf(HomeFeed.RECOMMENDATIONS to items)
+        val order = if (neteaseHeading != null) listOf(HomeFeed.RECOMMENDATIONS to neteaseHeading)
+            else listOf(HomeFeed.RECOMMENDATIONS to I18n.text("Recommended for you"), HomeFeed.RECENT to I18n.text("Recently played"),
+                HomeFeed.HEAVY_ROTATION to I18n.text("Heavy rotation"), HomeFeed.SHORTCUTS to I18n.text("Shortcuts"))
         var offset = 3f
         ui.beginClip(area)
         try {
@@ -88,7 +92,7 @@ internal class GridPage(private val screen: MusicScreen) {
                 val y = area.y + offset - pos + pull
                 offset += rowHeight
                 if (y + rowHeight <= area.y || y >= area.bottom) continue
-                drawHomeShelf(feed, I18n.text(heading), cards, y, columns, width, artworkHeight, featured)
+                drawHomeShelf(feed, heading, cards, y, columns, width, artworkHeight, featured)
             }
         } finally {
             ui.endClip()
@@ -119,7 +123,7 @@ internal class GridPage(private val screen: MusicScreen) {
             val cell = bounds.copy(height = bounds.height + if (featured) 0f else 28f)
             if (cell.intersect(area).height <= 0f) continue
             val cover = CoverCache.playlistArtwork(item)
-            val artist = AppleMusicSource.cardArtist(item.id)
+            val artist = if (screen.appleNavigation) AppleMusicSource.cardArtist(item.id) else ""
             if (featured) {
                 val radius = appleCoverRadius(bounds)
                 if (cover != null) ui.ctx.drawCroppedSquareImage(bounds, cover, radius)
@@ -183,7 +187,7 @@ internal class GridPage(private val screen: MusicScreen) {
                         ui.card(tile, if (ui.hover(tile)) Theme.CARD_HOVER else Theme.CARD, 15f)
                         val coverSize = tile.height - 16f
                         val cover = LayoutBounds(x + 8f, y + 8f, coverSize, coverSize)
-                        if (screen.appleNavigation) ui.drawAppleCover(cover, CoverCache.playlistArtwork(p), cropSquare = true)
+                        if (screen.usesAppleLayout) ui.drawAppleCover(cover, CoverCache.playlistArtwork(p), cropSquare = true)
                         else ui.drawCover(cover, CoverCache.playlistRounded(p, 0.10f), 12f)
                         val titleX = cover.right + 13f
                         for ((line, label) in ui.wrap2(p.name, tile.right - titleX - 12f, 15f).withIndex()) {
@@ -197,12 +201,12 @@ internal class GridPage(private val screen: MusicScreen) {
                     val cell = LayoutBounds(x, y, cw, rowH - 6f)
                     val hov = ui.hover(cell) && clip.contains(ui.mx, ui.my)
                     if (hov) ui.ctx.drawShape(LayoutBounds(x - 5f, y - 5f, cw + 10f, rowH + 2f), ShapeStyle(Theme.CARD_HOVER, 14f))
-                    if (screen.appleNavigation) ui.drawAppleCover(cover, CoverCache.playlistArtwork(p))
+                    if (screen.usesAppleLayout) ui.drawAppleCover(cover, CoverCache.playlistArtwork(p))
                     else ui.drawCover(cover, CoverCache.playlistRoundedLarge(p, 0.08f), 12f)
                     if (hov) {
                         // 悬停：右下角一个播放按钮
                         val pb = LayoutBounds(cover.right - 40f, cover.bottom - 40f, 30f, 30f)
-                        ui.ctx.drawShape(pb, ShapeStyle(RED, 15f))
+                        ui.ctx.drawShape(pb, ShapeStyle(if (screen.neteaseUsesAppleLayout) APPLE_CONTROL_BLUE else RED, 15f))
                         PlayerIcons.draw(ui.ctx, PlayerIcons.play, pb.x + 15f, pb.y + 15f, 17f, Theme.TEXT_PRIMARY)
                     }
                     val lines = ui.wrap2(p.name, cw - 4f, 12f, Theme.FONT_MEDIUM)

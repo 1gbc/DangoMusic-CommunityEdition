@@ -84,7 +84,11 @@ class MusicScreen(
             val playback = PlaybackView.snapshot()
             return if (playback.remote) null else playback.track?.source ?: MusicSources.selected
         }
-    private val appleLyricsOpen get() = lyricsOpen && lyricsSource == MusicSource.APPLE
+    private val appleLyricsOpen get() = lyricsOpen && when (lyricsSource) {
+        MusicSource.APPLE -> true
+        MusicSource.NETEASE -> module.neteaseUsesAppleLayout
+        else -> false
+    }
     internal val canOpenLyrics get() = when (lyricsSource) {
         MusicSource.NETEASE, MusicSource.APPLE -> true
         else -> false
@@ -141,6 +145,9 @@ class MusicScreen(
 
     internal fun selectSource(source: MusicSource) {
         if (source == MusicSources.selected) return
+        bar.dismissMenu()
+        appleBarMenu.reset()
+        appleQueue.close()
         module.selectSource(source)
         if (source == MusicSource.APPLE) AppleWebPlayer.restoreNativeIfNeeded()
         NativeAccounts.refreshProfile(source)
@@ -269,11 +276,16 @@ class MusicScreen(
     }
 
     internal val appleNavigation get() = MusicSources.selected == MusicSource.APPLE
+    internal val neteaseUsesAppleLayout get() = MusicSources.selected == MusicSource.NETEASE && module.neteaseUsesAppleLayout
+    internal val usesAppleLayout get() = appleNavigation || neteaseUsesAppleLayout
     internal val appleSidebarUsesDarkGlass get() = appleNavigation && module.appleSidebarUsesDarkGlass
     private val appleSearchHistory = mutableListOf<String>()
     private var appleSearchAt = 0L
 
     internal fun appleSearchEdited() {
+        if (neteaseUsesAppleLayout && ScreenState.page == Page.SEARCH && sidebar.searchText.isBlank()) {
+            ScreenState.lastQuery = ""
+        }
         if (!appleNavigation || ScreenState.page != Page.SEARCH) return
         if (sidebar.searchText.isBlank()) {
             appleSearchAt = 0L
@@ -296,7 +308,7 @@ class MusicScreen(
             sidebar.searchText = ""
         }
         sidebar.searchFocused = true
-        loadAppleSearchCategories()
+        if (appleNavigation) loadAppleSearchCategories()
     }
 
     internal fun openAppleSection(section: AppleMusicSource.Section) {
@@ -465,28 +477,32 @@ class MusicScreen(
     }
 
     private fun drawWindow(alpha: Float) {
+        val win = LayoutBounds(26f, 20f + (1f - alpha) * 12f, ui.lw - 52f, ui.lh - 40f)
         if (appleLyricsOpen) {
-            val layout = AppleLyricsLayout(LayoutBounds(0f, 0f, ui.lw, ui.lh), showAppleLyrics)
+            val netease = lyricsSource == MusicSource.NETEASE
+            val viewport = if (netease) win else LayoutBounds(0f, 0f, ui.lw, ui.lh)
+            val layout = AppleLyricsLayout(viewport, showAppleLyrics)
             barRect = LayoutBounds()
             val playback = PlaybackView.snapshot()
             appleLyricsFrame = layout
             appleLyricsTrack = playback.track
             ui.mt.useNotoSansSc = true
             try {
-                lyricsPage.drawApple(layout, playback, ::closeLyrics) {
+                val toggle = {
                     showAppleLyrics = !showAppleLyrics
                     if (showAppleLyrics) lyricsPage.resumeAppleLyrics()
                 }
-                bar.drawAppleLyrics(layout, playback, appleLyricsMenu::toggle)
+                if (netease) lyricsPage.drawNeteaseApple(layout, playback, ::closeLyrics, toggle)
+                else lyricsPage.drawApple(layout, playback, ::closeLyrics, toggle)
+                bar.drawAppleLyrics(layout, playback, appleLyricsMenu::toggle, netease)
             } finally {
                 ui.mt.useNotoSansSc = false
             }
             return
         }
         if (lyricsOpen && !canOpenLyrics) closeLyrics()
-        val win = LayoutBounds(26f, 20f + (1f - alpha) * 12f, ui.lw - 52f, ui.lh - 40f)
         val pad = 10f
-        val sideW = if (appleNavigation) 224f * 0.9f else 224f
+        val sideW = if (usesAppleLayout) 224f * 0.9f else 224f
         if (lyricsOpen) {
             val barH = if (appleNavigation) 45f else 88f
             barRect = LayoutBounds(win.x, win.bottom - barH, win.width, barH)
@@ -495,16 +511,16 @@ class MusicScreen(
             return
         }
         val side = LayoutBounds(win.x + pad, win.y + pad, sideW, win.height - pad * 2)
-        val sampleContent = appleNavigation && (ScreenState.page == Page.GROUP || ScreenState.page == Page.PLAYLIST)
-        if (appleNavigation) {
-            val song = PlaybackView.snapshot().track?.takeIf { it.source == MusicSource.APPLE }
+        val sampleContent = usesAppleLayout && (ScreenState.page == Page.GROUP || ScreenState.page == Page.PLAYLIST)
+        if (usesAppleLayout) {
+            val song = PlaybackView.snapshot().track?.takeIf { it.source == MusicSources.selected }
             coverBackdrop.prepareMenuFrame(song)
             coverBackdrop.drawMenuPanel(win, Theme.GLASS_WINDOW.radius, Color(0.03f, 0.035f, 0.045f, 0.34f))
             // Room cards and playlist highlights sample the opaque cover backdrop.
             if (sampleContent && !appleSidebarUsesDarkGlass) ui.ctx.recaptureBackdrop()
         } else ui.ctx.drawGlass(win, Theme.GLASS_WINDOW)
         val mainX = side.right + pad + 8f
-        appleQueueArea = if (appleNavigation) {
+        appleQueueArea = if (usesAppleLayout) {
             appleQueue.layoutIn(LayoutBounds(mainX, win.y + 6f, win.right - 6f - mainX, win.height - 12f))
         } else LayoutBounds()
         val mainRight = if (appleQueueArea.width > 0f) appleQueueArea.x - 12f else win.right - pad - 8f
@@ -512,15 +528,15 @@ class MusicScreen(
         // 播放栏浮在内容上面：左右和底部留出间距；内容延伸到播放栏底边为止，滚动时从播放栏后面经过，
         // 但不会在播放栏下面那道缝里露出来
         val barBottom = win.bottom - pad - 8f
-        val barRect = if (appleNavigation) PlayerBar.appleBarBounds(mainX, mainW, barBottom)
+        val barRect = if (usesAppleLayout) PlayerBar.appleBarBounds(mainX, mainW, barBottom)
             else LayoutBounds(mainX + 2f, barBottom - 88f, win.right - pad - 14f - mainX, 88f)
         val content = LayoutBounds(mainX, win.y + pad + 14f, mainW, barRect.bottom - (win.y + pad + 14f))
-        if (!appleNavigation) {
+        if (!usesAppleLayout) {
             appleQueue.close()
             appleBarMenu.reset()
         }
 
-        ui.compactAppleText = appleNavigation
+        ui.compactAppleText = usesAppleLayout
         try {
             sidebar.draw(side)
             // Dark glass uses the original game sample before the room or playlist captures the menu.
@@ -550,14 +566,18 @@ class MusicScreen(
 
     private fun drawBar() {
         if (appleLyricsOpen) {
-            appleLyricsFrame?.let { appleLyricsMenu.draw(it, appleLyricsTrack) }
+            appleLyricsFrame?.let {
+                if (lyricsSource == MusicSource.NETEASE)
+                    appleLyricsMenu.drawNetease(it.viewport, it.moreButton, bar::openQualityFromMenu)
+                else appleLyricsMenu.draw(it, appleLyricsTrack)
+            }
             return
         }
         // 播放栏画在最上面，点击也要先轮到它（点到的是第一个命中的区域）
-        if (appleNavigation && !lyricsOpen) {
+        if (usesAppleLayout && !lyricsOpen) {
             ui.compactAppleText = true
             try {
-                appleQueue.draw(appleQueueArea)
+                appleQueue.draw(appleQueueArea, neteaseUsesAppleLayout)
             } finally {
                 ui.compactAppleText = false
             }
@@ -575,14 +595,18 @@ class MusicScreen(
         repeat(barHits.size) { ui.hits.removeAt(ui.hits.size - 1) }
         // 播放栏的空白处也要挡住点击，不然会点到底下那首歌
         ui.hits.addAll(0, barHits + listOf(barRect to {}))
-        if (appleNavigation && !lyricsOpen) {
+        if (usesAppleLayout && !lyricsOpen) {
             if (appleBarMenu.capturesInput) {
                 ui.mt.flush(ui.scale)
                 ui.ctx.recaptureBackdrop()
             }
-            val playback = PlaybackView.snapshot()
-            appleBarMenu.draw(AppleLyricsLayout(LayoutBounds(0f, 0f, ui.lw, ui.lh)),
-                playback.track?.takeUnless { playback.remote }, bar.appleMenuAnchor)
+            val viewport = LayoutBounds(0f, 0f, ui.lw, ui.lh)
+            if (neteaseUsesAppleLayout) appleBarMenu.drawNetease(viewport, bar.appleMenuAnchor, bar::openQualityFromMenu)
+            else {
+                val playback = PlaybackView.snapshot()
+                appleBarMenu.draw(AppleLyricsLayout(viewport),
+                    playback.track?.takeUnless { playback.remote }, bar.appleMenuAnchor)
+            }
         }
     }
 
@@ -618,8 +642,9 @@ class MusicScreen(
                     libraryPullOffset = distance ?: ui.approach(libraryPullOffset, 0f, 85f)
                     if (libraryPullOffset < 0.5f) libraryPullOffset = 0f
                 }
-                if (apple) grid.drawAppleHome(body, items, Library.recommendLoading, AppleMusicSource.homeWarning,
-                    if (pull) libraryPullOffset else 0f)
+                if (usesAppleLayout) grid.drawAppleHome(body, items, Library.recommendLoading,
+                    if (apple) AppleMusicSource.homeWarning else "", if (pull) libraryPullOffset else 0f,
+                    neteaseHeading = label.takeUnless { apple })
                 else grid.draw(body, I18n.text("Welcome to Dango Music!"), "$label · ${items.size}",
                     items, Library.recommendLoading && items.isEmpty())
                 if (pull && libraryPullOffset > 18f) {
@@ -649,7 +674,7 @@ class MusicScreen(
                     items, loading, categoryTiles = section == AppleMusicSource.Section.GENRES,
                     wideCards = section == AppleMusicSource.Section.RADIO)
             }
-            Page.SEARCH -> if (appleNavigation) drawAppleSearch(body) else tracks.draw(body)
+            Page.SEARCH -> if (usesAppleLayout) drawAppleSearch(body) else tracks.draw(body)
             Page.SETTINGS -> settings.draw(body)
             Page.ARTIST -> artistPage.draw(body)
             Page.GROUP -> groupPage.draw(body)
@@ -658,6 +683,11 @@ class MusicScreen(
     }
 
     private fun drawAppleSearch(body: LayoutBounds) {
+        if (neteaseUsesAppleLayout) {
+            sidebar.drawAppleSearch(LayoutBounds(body.x, body.y, body.width, 36f))
+            if (ScreenState.lastQuery.isNotBlank()) tracks.draw(body.copy(y = body.y + 50f, height = body.height - 50f))
+            return
+        }
         val scopeWidth = minOf(230f, body.width * 0.44f)
         val search = LayoutBounds(body.x, body.y, body.width - scopeWidth - 12f, 36f)
         sidebar.drawAppleSearch(search)
@@ -873,7 +903,7 @@ class MusicScreen(
         when {
             // 其它页面 Ctrl+F 是全网搜索
             !lyricsOpen && platform.ctrlDown && keyCode == Keys.F -> {
-                if (appleNavigation) openAppleSearch() else sidebar.searchFocused = true
+                if (usesAppleLayout) openAppleSearch() else sidebar.searchFocused = true
             }
             keyCode == Keys.SPACE -> PlaybackView.togglePause()
             keyCode == Keys.BACK -> goBack()

@@ -72,7 +72,7 @@ internal class SongComments(private val ui: Ui) {
         if (wheel < 0 && target >= maxScroll - 100f && !current.failed && current.page?.more == true) request(current)
     }
 
-    fun draw(area: LayoutBounds, song: NeteaseTrack, close: () -> Unit) {
+    fun draw(area: LayoutBounds, song: NeteaseTrack, appleLayout: Boolean = false, close: () -> Unit) {
         count(song.id)
         val current = feed ?: return
         val page = current.page
@@ -80,7 +80,8 @@ internal class SongComments(private val ui: Ui) {
         val x = area.x + inset
         val width = area.width - inset * 2f
         val header = LayoutBounds(area.x + area.width * 0.30f, area.y + 14f, area.width * 0.4f, 48f)
-        ui.card(header, Theme.CARD_HOVER, 24f)
+        if (appleLayout) PopupLook.panel(ui.ctx, header)
+        else ui.card(header, Theme.CARD_HOVER, 24f)
         ui.drawCover(LayoutBounds(header.x + 7f, header.y + 6f, 36f, 36f), CoverCache.trackRounded(song, 0.5f), 18f)
         val caption = listOf(song.name, song.artists.joinToString(" / ")).filter { it.isNotBlank() }.joinToString(" · ")
         ui.text(ui.trim(caption, header.width - 76f, 15f), header.x + 51f, header.y + 17f, 15f, Theme.TEXT_PRIMARY)

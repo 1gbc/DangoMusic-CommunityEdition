@@ -152,7 +152,7 @@ internal class Sidebar(private val screen: MusicScreen, private val hiddenLibrar
         val ctx = ui.ctx
         val page = ScreenState.page
         val modern = UiStyle.continuous
-        val apple = screen.appleNavigation
+        val apple = screen.usesAppleLayout
         val darkGlass = screen.appleSidebarUsesDarkGlass
         val glassStyle = if (modern || darkGlass) SIDEBAR_GLASS else Theme.GLASS_SIDEBAR
         if (apple && !darkGlass) screen.coverBackdrop.drawControlBackground(side, glassStyle.radius)
@@ -252,7 +252,7 @@ internal class Sidebar(private val screen: MusicScreen, private val hiddenLibrar
         }
 
         val footerH = 92f
-        if (apple) {
+        if (screen.appleNavigation) {
             val selected = ScreenState.appleSection
             fun appleRow(icon: String, item: AppleMusicSource.Section) = AppleRow(icon, item.label,
                 page == Page.APPLE_BROWSE && selected == item) { screen.openAppleSection(item) }
@@ -331,9 +331,10 @@ internal class Sidebar(private val screen: MusicScreen, private val hiddenLibrar
                 ui.endClip()
             }
         } else {
-            if (!modern) section("DANGO MUSIC")
+            if (apple) nav("search", I18n.text("Search"), page == Page.SEARCH) { screen.openAppleSearch() }
+            else if (!modern) section("DANGO MUSIC")
             nav("⌂", I18n.text("Home"), page == Page.HOME, true) { screen.go(Page.HOME) }
-            if (!modern) { y += 4f; section(I18n.text("DISCOVER")) }
+            if (!modern && !apple) { y += 4f; section(I18n.text("DISCOVER")) }
             nav("▤", I18n.text("Charts"), page == Page.CHARTS) { screen.go(Page.CHARTS) }
             nav("♫", I18n.text("Now Playing"), page == Page.QUEUE) { screen.go(Page.QUEUE) }
             nav("♬", I18n.text("Music group"), page == Page.GROUP) { screen.go(Page.GROUP) }
@@ -371,13 +372,20 @@ internal class Sidebar(private val screen: MusicScreen, private val hiddenLibrar
                 val p = list[i]
                 val row = LayoutBounds(listArea.x, listArea.y + (r - frac) * rowH, listArea.width, if (modern) ROW_H else rowH - 2f)
                 val active = page == Page.PLAYLIST && ScreenState.opened?.id == p.id
+                val highlight = if (apple) appleRowHighlight(row) else row
                 if (active) {
                     newKey = "pl:${p.id}"
-                    newTarget = if (modern) row.intersect(listShown) else row
-                } else if (ui.hover(row)) {
-                    ui.card(row, if (modern) Theme.CARD else Theme.CARD_HOVER, if (modern) row.height / 2f else 9f)
+                    newTarget = if (modern || apple) highlight.intersect(listShown) else highlight
+                } else if (ui.hover(row.intersect(listShown))) {
+                    if (apple) ui.card(highlight, APPLE_ROW_HOVER, APPLE_ROW_RADIUS)
+                    else ui.card(row, if (modern) Theme.CARD else Theme.CARD_HOVER, if (modern) row.height / 2f else 9f)
                 }
                 val liked = netease && i == firstOwned   // 第一个自己的歌单就是"我喜欢的音乐"
+                if (apple) {
+                    drawAppleNavLabel(row, if (liked) "♥" else "≡", p.name, active)
+                    ui.hits += row.intersect(listShown) to { screen.openPlaylist(p, null) }
+                    continue
+                }
                 // 歌单封面的小缩略图；"我喜欢的音乐"和还没加载出封面的照旧画图标
                 val thumb = if (liked || p.coverUrl.isEmpty()) null else CoverCache.playlistRounded(p, if (modern) 0.22f else 0.25f)
                 if (modern) {
@@ -513,7 +521,9 @@ internal class Sidebar(private val screen: MusicScreen, private val hiddenLibrar
             return
         }
         val ub = LayoutBounds(side.x + inset, side.bottom - 46f, side.width - inset * 2f, 40f)
-        val av = LayoutBounds(ub.x + 6f, ub.y + 6f, 28f, 28f)
+        val appleLayout = screen.neteaseUsesAppleLayout
+        val av = if (appleLayout) LayoutBounds(ub.x + 5f, ub.y + 8f, 24f, 24f)
+            else LayoutBounds(ub.x + 6f, ub.y + 6f, 28f, 28f)
         val source = MusicSources.selected
         val native = source != MusicSource.NETEASE
         val account = if (native) NativeAccounts.get(source) else null
@@ -524,7 +534,8 @@ internal class Sidebar(private val screen: MusicScreen, private val hiddenLibrar
         val chip = LayoutBounds(ub.right - chipW - 6f, ub.y + 9f, chipW, 22f)
         ui.card(chip, if (menuOpen || ui.hover(chip)) Theme.CARD_HOVER else Theme.CARD, 7f)
         ui.text(chipLabel, chip.x + 8f, chip.y + 7f, 10f, if (menuOpen) Theme.TEXT_PRIMARY else Theme.TEXT_SECONDARY, Theme.FONT_MEDIUM)
-        SidebarIcons.draw(ui.ctx, "⇄", chip.right - 10f, chip.y + 11f, Theme.TEXT_SECONDARY, 12f)
+        SidebarIcons.draw(ui.ctx, if (appleLayout) "down" else "⇄", chip.right - 10f, chip.y + 11f,
+            if (appleLayout && menuOpen) appleAccent else Theme.TEXT_SECONDARY, 12f)
         chipRect = chip
         menuRects += chip
         ui.hits += chip to { menuOpen = !menuOpen }
@@ -542,10 +553,11 @@ internal class Sidebar(private val screen: MusicScreen, private val hiddenLibrar
             val label = ui.trim(I18n.text("Log in"), textW, 12f, Theme.FONT_SEMIBOLD)
             val lb = LayoutBounds(ub.x + 2f, ub.y + 3f, min(chip.x - 6f, av.right + 10f + ui.width(label, 12f, Theme.FONT_SEMIBOLD) + 10f) - (ub.x + 2f), 34f)
             if (ui.hover(lb)) ui.card(lb, Theme.CARD_HOVER, 10f)
-            ui.ctx.drawShape(av, ShapeStyle(Theme.TRACK, 14f))
-            if(UiStyle.continuous) SidebarIcons.draw(ui.ctx,"user",av.x+14f,av.y+14f,Theme.TEXT_SECONDARY,18f)
+            ui.ctx.drawShape(av, ShapeStyle(Theme.TRACK, av.width / 2f))
+            if (appleLayout || UiStyle.continuous) SidebarIcons.draw(ui.ctx, "user", av.x + av.width / 2f,
+                av.y + av.height / 2f, if (appleLayout) appleAccent else Theme.TEXT_SECONDARY, 18f)
             else ui.icon("?", av.x + 14f, av.y + 14f, 12f, Theme.TEXT_SECONDARY)
-            ui.text(label, av.right + 10f, ub.y + 14f, 12f, RED, Theme.FONT_SEMIBOLD)
+            ui.text(label, av.right + 10f, ub.y + 14f, 12f, if (appleLayout) appleAccent else RED, Theme.FONT_SEMIBOLD)
             ui.hits += lb to {
                 menuOpen = false
                 screen.login.open()

@@ -142,6 +142,11 @@ class NeteaseMusicModule : Module() {
 
     internal val appleSidebarUsesDarkGlass get() = appleSidebarStyle.value == 1
 
+    @ModuleValue("NetEase interface style", "Choose the interface layout for NetEase Music")
+    private val neteaseInterfaceStyle = IntValue(0, 1, 0)
+
+    internal val neteaseUsesAppleLayout get() = neteaseInterfaceStyle.value == 1
+
     @ModuleValue("Resume last session", "Restore the last queue and song position (paused) when you start the game")
     private val resumeSession = BooleanValue(true)
 
