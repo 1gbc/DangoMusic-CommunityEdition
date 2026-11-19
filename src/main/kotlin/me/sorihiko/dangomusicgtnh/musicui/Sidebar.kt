@@ -1,5 +1,7 @@
 package me.sorihiko.dangomusicgtnh.musicui
 
+import me.sorihiko.dangomusicgtnh.gfx.Texture
+
 import me.sorihiko.dangomusicgtnh.i18n.I18n
 import me.sorihiko.dangomusicgtnh.music.AppleMusicSource
 
@@ -116,6 +118,23 @@ internal class Sidebar(private val screen: MusicScreen, private val hiddenLibrar
 
     fun drawAppleSearch(box: LayoutBounds) {
         searchRect = box
+        if (screen.neteaseUsesAppleLayout) {
+            ui.drawNeteaseAppleSearchField(box, searchText, I18n.text("Search"), searchFocused,
+                box.x + 19f, 18f, box.x + 36f, box.right - if (searchText.isEmpty()) 12f else 36f, 12f)
+        } else drawAppleSearchAppearance(box)
+        ui.hits += box to { searchFocused = true }
+        if (searchText.isNotEmpty()) {
+            val clear = LayoutBounds(box.right - 30f, box.y + 4f, 24f, box.height - 8f)
+            SidebarIcons.draw(ui.ctx, "clear", clear.x + 12f, clear.y + clear.height / 2f, Theme.TEXT_SECONDARY, 13f)
+            ui.hits.add(ui.hits.lastIndex, clear to {
+                searchText = ""
+                screen.appleSearchEdited()
+                searchFocused = true
+            })
+        }
+    }
+
+    private fun drawAppleSearchAppearance(box: LayoutBounds) {
         ui.card(box, if (searchFocused) Theme.CARD_HOVER else Theme.CARD, box.height / 2f)
         if (searchFocused) ui.ctx.drawShape(box, ShapeStyle(Color.TRANSPARENT, box.height / 2f, 1.8f, APPLE_CONTROL_BLUE))
         SidebarIcons.draw(ui.ctx, "search", box.x + 19f, box.y + box.height / 2f,
@@ -129,16 +148,6 @@ internal class Sidebar(private val screen: MusicScreen, private val hiddenLibrar
         } else visible = ui.trim(visible, width, 12f)
         ui.text(visible, box.x + 36f, box.y + 11f, 12f,
             if (searchText.isEmpty() && !searchFocused) Theme.TEXT_TERTIARY else Theme.TEXT_PRIMARY)
-        ui.hits += box to { searchFocused = true }
-        if (searchText.isNotEmpty()) {
-            val clear = LayoutBounds(box.right - 30f, box.y + 4f, 24f, box.height - 8f)
-            SidebarIcons.draw(ui.ctx, "clear", clear.x + 12f, clear.y + clear.height / 2f, Theme.TEXT_SECONDARY, 13f)
-            ui.hits.add(ui.hits.lastIndex, clear to {
-                searchText = ""
-                screen.appleSearchEdited()
-                searchFocused = true
-            })
-        }
     }
 
     /** 菜单正在显示（展开中、展开着或正在收起） */
@@ -336,7 +345,7 @@ internal class Sidebar(private val screen: MusicScreen, private val hiddenLibrar
             nav("⌂", I18n.text("Home"), page == Page.HOME, true) { screen.go(Page.HOME) }
             if (!modern && !apple) { y += 4f; section(I18n.text("DISCOVER")) }
             nav("▤", I18n.text("Charts"), page == Page.CHARTS) { screen.go(Page.CHARTS) }
-            nav("♫", I18n.text("Now Playing"), page == Page.QUEUE) { screen.go(Page.QUEUE) }
+            nav(if (apple) "nowPlaying" else "♫", I18n.text("Now Playing"), page == Page.QUEUE) { screen.go(Page.QUEUE) }
             nav("♬", I18n.text("Music group"), page == Page.GROUP) { screen.go(Page.GROUP) }
             val netease = MusicSources.selected == MusicSource.NETEASE
             val playlists = Library.playlists
@@ -382,7 +391,8 @@ internal class Sidebar(private val screen: MusicScreen, private val hiddenLibrar
                 }
                 val liked = netease && i == firstOwned   // 第一个自己的歌单就是"我喜欢的音乐"
                 if (apple) {
-                    drawAppleNavLabel(row, if (liked) "♥" else "≡", p.name, active)
+                    val cover = if (netease && !liked) CoverCache.playlist(p) else null
+                    drawAppleNavLabel(row, if (liked) "♥" else "≡", p.name, active, artwork = cover)
                     ui.hits += row.intersect(listShown) to { screen.openPlaylist(p, null) }
                     continue
                 }
@@ -424,7 +434,8 @@ internal class Sidebar(private val screen: MusicScreen, private val hiddenLibrar
     private fun appleRowHighlight(row: LayoutBounds) =
         LayoutBounds(row.x, row.y + 2f, row.width, row.height - 4f)
 
-    private fun drawAppleNavLabel(row: LayoutBounds, glyph: String, label: String, active: Boolean, checked: Boolean? = null) {
+    private fun drawAppleNavLabel(row: LayoutBounds, glyph: String, label: String, active: Boolean,
+                                  checked: Boolean? = null, artwork: Texture? = null) {
         val center = row.y + row.height / 2f
         val offset = if (checked == null) 0f else 16f
         if (checked != null) {
@@ -436,8 +447,12 @@ internal class Sidebar(private val screen: MusicScreen, private val hiddenLibrar
                 ui.ctx.drawShape(box, ShapeStyle(Color.TRANSPARENT, 3f, 1f, Theme.TEXT_SECONDARY))
             }
         }
-        SidebarIcons.drawApple(ui.ctx, glyph, row.x + 17f + offset, center,
-            appleAccent.copy(a = if (active) 1f else 0.93f))
+        if (artwork != null) {
+            ui.drawAppleCover(LayoutBounds(row.x + 8f + offset, center - 9f, 18f, 18f), artwork, cropSquare = true, radius = 2.5f)
+        } else {
+            SidebarIcons.drawApple(ui.ctx, glyph, row.x + 17f + offset, center,
+                appleAccent.copy(a = if (active) 1f else 0.93f))
+        }
         val textX = row.x + 31f + offset
         val font = if (active) Theme.FONT_SEMIBOLD else Theme.FONT_MEDIUM
         val text = ui.trim(label, (row.right - textX - 8f).coerceAtLeast(0f), APPLE_MENU_TEXT_SIZE, font)
@@ -611,6 +626,8 @@ internal class Sidebar(private val screen: MusicScreen, private val hiddenLibrar
     private fun drawSourceMenu(side: LayoutBounds, menu: LayoutBounds, apple: Boolean) {
         val ctx = ui.ctx
         val modern = UiStyle.continuous
+        val usePlayerStyle = screen.neteaseUsesAppleLayout
+        val rowRadius = if (usePlayerStyle) 6f else 8f
         val current = MusicSources.selected
         val sources = MusicSource.values()
         val itemH = MENU_ITEM_H
@@ -620,7 +637,9 @@ internal class Sidebar(private val screen: MusicScreen, private val hiddenLibrar
         // 液态玻璃底：圆角、斜面和折射跟着当前大小走，小的时候也不会变形
         val r = kotlin.math.min(14f, menu.height / 2f)
         val edge = kotlin.math.min(12f, kotlin.math.min(menu.width, menu.height) / 3f)
-        if (modern) {
+        if (usePlayerStyle) {
+            screen.coverBackdrop.drawControlPanel(menu, 8f)
+        } else if (modern) {
             ctx.drawGlass(menu, MENU_GLASS.copy(radius = r, bevel = edge, refraction = edge))
             ctx.drawShape(menu, ShapeStyle(Color(0f, 0f, 0f, 0f), r, 1f, Color(1f, 1f, 1f, 0.10f)))
         } else {
@@ -655,7 +674,7 @@ internal class Sidebar(private val screen: MusicScreen, private val hiddenLibrar
                 else -> PopupLook.selected
             }
             val hoverFill = if (modern) Theme.CARD_HOVER else PopupLook.hover
-            if (on) ui.card(row, selFill, 8f) else if (interactive && ui.hover(row)) ui.card(row, hoverFill, 8f)
+            if (on) ui.card(row, selFill, rowRadius) else if (interactive && ui.hover(row)) ui.card(row, hoverFill, rowRadius)
             if (loggedIn(s)) ctx.drawShape(LayoutBounds(row.x + 10f, row.y + row.height / 2f - 3f, 6f, 6f), ShapeStyle(Theme.GREEN, 3f))
             ui.text(I18n.text(s.label), row.x + 24f, row.y + (row.height - textSize) / 2f + 1f, textSize,
                 if (on) Theme.TEXT_PRIMARY else Theme.TEXT_SECONDARY,
@@ -674,7 +693,7 @@ internal class Sidebar(private val screen: MusicScreen, private val hiddenLibrar
             val (row0, a) = rowAt(y + 9f)
             ctx.pushOpacity(a)
             ctx.drawShape(LayoutBounds(full.x + 12f, row0.y - 5f, full.width - 24f, 1f), ShapeStyle(if (modern) Color(1f, 1f, 1f, 0.08f) else PopupLook.divider, 0.5f))
-            if (interactive && ui.hover(row0)) ui.card(row0, if (modern) Theme.CARD_HOVER else PopupLook.hover, 8f)
+            if (interactive && ui.hover(row0)) ui.card(row0, if (modern) Theme.CARD_HOVER else PopupLook.hover, rowRadius)
             ui.text(I18n.text("Log out"), row0.x + 24f, row0.y + (row0.height - textSize) / 2f + 1f, textSize,
                 Theme.TEXT_TERTIARY, Theme.FONT_MEDIUM)
             ctx.popOpacity()

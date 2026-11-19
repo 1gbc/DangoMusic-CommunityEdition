@@ -688,7 +688,9 @@ NetEase interface style	网易云界面风格
 Choose the interface layout for NetEase Music	选择网易云音乐的界面布局
 NetEase classic style	经典款
 NetEase Apple style	苹果款
-Choose between blue icons with flowing cover colors and red icons with dark glass	切换浅蓝图标与封面流动背景，或红色图标与深色玻璃背景
+Choose between blue icons with flowing cover colors and red icons with dark glass. Also applies to NetEase in Apple style.	切换浅蓝图标与封面流动背景，或红色图标与深色玻璃背景。也适用于网易云苹果款。
+Show lyrics 0.5 seconds earlier	歌词提前 0.5 秒
+Show lyrics 0.5 seconds later	歌词延后 0.5 秒
 Flowing cover colors	封面流动
 Dark glass	深色玻璃
 Classic: rounded corners, capsule switches with round knobs. Continuous corners: smoother squircle corners everywhere	经典：普通圆角，开关是胶囊加圆形圆钮；连续圆角：所有圆角改用更顺滑的连续曲率

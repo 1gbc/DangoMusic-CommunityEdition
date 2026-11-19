@@ -34,10 +34,13 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
 
     companion object {
         private const val APPLE_BAR_WIDTH = 540f
+        private const val NETEASE_APPLE_BAR_WIDTH = 688f
         private const val APPLE_BAR_SCALE = 0.80f
 
-        fun appleBarBounds(left: Float, availableWidth: Float, bottom: Float): LayoutBounds {
-            val width = minOf(APPLE_BAR_WIDTH, availableWidth - 12f).coerceAtLeast(0f) * APPLE_BAR_SCALE
+        fun appleBarBounds(left: Float, availableWidth: Float, bottom: Float, netease: Boolean = false): LayoutBounds {
+            val available = (availableWidth - 12f).coerceAtLeast(0f)
+            val width = if (netease) minOf(NETEASE_APPLE_BAR_WIDTH * APPLE_BAR_SCALE, available)
+                else minOf(APPLE_BAR_WIDTH, available) * APPLE_BAR_SCALE
             val height = 45f * APPLE_BAR_SCALE
             return LayoutBounds(left + (availableWidth - width) / 2f, bottom - height, width, height)
         }
@@ -310,12 +313,24 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
 
     private fun drawAppleBar(bar: LayoutBounds, snap: PlaybackView.Snapshot) {
         val ctx = ui.ctx
-        val unit = bar.width / APPLE_BAR_WIDTH
+        val netease = screen.neteaseUsesAppleLayout
+        val unit = bar.width / (if (netease) NETEASE_APPLE_BAR_WIDTH else APPLE_BAR_WIDTH)
         val cy = bar.y + bar.height / 2f
         val track = snap.track
-        val netease = screen.neteaseUsesAppleLayout
         val source = if (netease) MusicSource.NETEASE else MusicSource.APPLE
         val local = !snap.remote && track?.source == source
+        val neteaseTrack = track?.takeIf { netease && local }
+        val commentTrack = neteaseTrack?.takeIf { module.songCommentsEnabled.get() }
+        val commentLabel = commentTrack?.let { screen.songComments.count(it.id) }?.let { count ->
+            if (count >= 10000) "${count / 10000}w+" else if (count > 999) "999+" else count.toString()
+        }
+        fun hit(x: Float) = LayoutBounds(x - 12f * unit, cy - 12f * unit, 24f * unit, 24f * unit)
+        val more = hit(bar.right - 68f * unit)
+        val comment = if (commentTrack == null) null else {
+            val labelWidth = commentLabel?.let { ui.width(it, 8f * unit, Theme.FONT_SEMIBOLD) } ?: 0f
+            val width = maxOf(39f * unit, labelWidth + 23f * unit)
+            LayoutBounds(more.x - 5f * unit - width, more.y, width, more.height)
+        }
         val cleared = local && !netease && MusicPlayer.appleQueueCleared
         val transportEnabled = local && !snap.loading && !cleared
         val modeEnabled = transportEnabled || netease && !snap.remote
@@ -323,8 +338,9 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         if (seekTrack != track?.key) seekTrack = null
         val canSeek = local && !snap.loading && !(cleared && !snap.playing) && duration > 0L
         if (!canSeek) seekTrack = null
-        val progressX = bar.x + (if (netease) 137f else 153f) * unit
-        val progressRight = bar.right - 83f * unit
+        val leftInset = if (netease) 12f else 0f
+        val progressX = bar.x + ((if (neteaseTrack != null) 182f else if (netease) 157f else 153f) + leftInset) * unit
+        val progressRight = comment?.let { it.x - 8f * unit } ?: (bar.right - 83f * unit)
         val progressY = bar.bottom - 5.5f * unit
         progRect = LayoutBounds(progressX, progressY - 2.5f * unit, progressRight - progressX, 5f * unit)
         progressHit = if (canSeek) progRect.expand(0f, 3.5f * unit) else LayoutBounds()
@@ -334,11 +350,7 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         val position = if (seekTrack != null) (seekFraction.toDouble() * duration).toLong()
             else snap.positionMs.coerceIn(0L, duration)
 
-        val radius = bar.height / 2f
-        val shadow = BAR_GLASS.shadow.copy(size = BAR_GLASS.shadow.size * unit, offset = Vec2(0f, -3f * unit), outside = true)
-        ctx.drawShape(bar, ShapeStyle(radius = radius, shadow = shadow))
-        screen.coverBackdrop.drawControlBackground(bar, radius)
-        ctx.drawShape(bar, ShapeStyle(radius = radius, borderWidth = 0.65f * unit, borderColor = Theme.HAIRLINE))
+        screen.coverBackdrop.drawControlPanel(bar, bar.height / 2f, unit)
         val coverSize = 27f * unit
         val cover = LayoutBounds(progressX, cy - coverSize / 2f, coverSize, coverSize)
         val canOpenCover = screen.canOpenLyrics && !expanded
@@ -346,10 +358,7 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         val artwork = cover.scaled(1f + 0.095f * hoverCover)
         val coverCenterX = cover.x + coverSize / 2f
         val titleX = cover.right + 8f * unit
-        val neteaseTrack = track?.takeIf { netease && local }
-        val showComments = neteaseTrack != null && module.songCommentsEnabled.get()
-        val actionWidth = if (neteaseTrack == null) 0f else if (showComments) 65f * unit else 27f * unit
-        val titleW = (progressRight - titleX - 3f * unit - actionWidth).coerceAtLeast(0f)
+        val titleW = (progressRight - titleX - 3f * unit).coerceAtLeast(0f)
         val titleSize = 11.4f * unit
         val detailSize = 9.3f * unit
         val title = ui.trim(track?.name ?: I18n.text("Not playing"), titleW, titleSize, Theme.FONT_SEMIBOLD)
@@ -387,12 +396,10 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
             ui.text(remaining, lane.right - ui.width(remaining, timeSize), timeY, timeSize, timeColor)
         }
 
-        fun hit(x: Float) = LayoutBounds(x - 12f * unit, cy - 12f * unit, 24f * unit, 24f * unit)
-        fun transport(x: Float) = hit(bar.x + (x - if (netease) 10f else 0f) * unit)
+        fun transport(x: Float) = hit(bar.x + (x + leftInset - if (netease) 5f else 0f) * unit)
         if (neteaseTrack != null) {
-            val heart = LayoutBounds(progressRight - actionWidth, cy - 12f * unit, 25f * unit, 24f * unit)
-            val comment = if (showComments) heart.copy(x = heart.right + 1f * unit, width = actionWidth - 26f * unit) else null
-            drawNeteaseQuickActions(neteaseTrack, heart, comment, unit)
+            val heart = LayoutBounds(bar.x + (148f + leftInset) * unit, cy - 12f * unit, 25f * unit, 24f * unit)
+            drawNeteaseFavorite(neteaseTrack, heart, unit)
         }
         appleButton(transport(22f), modeEnabled && (netease || !AppleWebPlayer.stationActive),
             MusicPlayer.shuffle, PlayerIcons.shuffle, 14f * unit, modeA.hover) { toggleAppleShuffle() }
@@ -410,8 +417,9 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
             ClientMusic.control(PlaybackView::next)
         }
         appleRepeatButton(transport(131f), modeEnabled, 14f * unit, netease)
-        val more = hit(bar.right - 68f * unit)
+        if (comment != null) drawNeteaseComment(comment, commentLabel, unit)
         appleMenuAnchor = more
+        if (netease && (qualityOpen || qualityMotion.visible)) qualityButton = more
         appleButton(more, local || netease && !snap.remote, screen.appleBarMenuOpen, AppleLyricsIcons.more, 13f * unit, appleMoreHover) {
             dismissMenu()
             screen.toggleAppleBarMenu()
@@ -461,7 +469,7 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         ui.text(text, toast.x + 10f, toast.y + 7f, 11f, Theme.TEXT_PRIMARY.copy(a = opacity), font)
     }
 
-    private fun drawNeteaseQuickActions(track: NeteaseTrack, heart: LayoutBounds, comment: LayoutBounds?, unit: Float) {
+    private fun drawNeteaseFavorite(track: NeteaseTrack, heart: LayoutBounds, unit: Float) {
         val canLike = NeteaseApi.loggedIn
         if (canLike) Library.ensureLiked()
         val liked = canLike && NeteaseApi.isLiked(track.id)
@@ -470,12 +478,16 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         PlayerIcons.draw(ui.ctx, heartIcon, heart.x + heart.width / 2f, heart.y + heart.height / 2f,
             15f * unit * heartScale, APPLE_CONTROL_BLUE.copy(a = if (canLike) 1f else 0.55f))
         if (canLike) ui.hits += heart to { Library.toggleLike(track) }
-        if (comment == null) return
-        val icon = comment.copy(width = 19f * unit)
-        appleButton(icon, true, false, PlayerIcons.comments, 14f * unit, neteaseCommentHover, screen::openSongComments)
-        screen.songComments.count(track.id)?.let { count ->
-            val label = if (count >= 10000) "${count / 10000}w+" else if (count > 999) "999+" else count.toString()
-            ui.text(label, icon.right, comment.y + 4f * unit, 8f * unit, Theme.TEXT_SECONDARY, Theme.FONT_SEMIBOLD)
+    }
+
+    private fun drawNeteaseComment(comment: LayoutBounds, label: String?, unit: Float) {
+        val y = comment.y + comment.height / 2f
+        val hover = ui.appleHoverScale(neteaseCommentHover, ui.hover(comment))
+        PlayerIcons.draw(ui.ctx, PlayerIcons.comments, comment.x + 9.5f * unit, y,
+            14f * unit * hover, Theme.TEXT_PRIMARY)
+        if (label != null) {
+            val size = 8f * unit
+            ui.text(label, comment.x + 19f * unit, y - size / 2f, size, Theme.TEXT_SECONDARY, Theme.FONT_SEMIBOLD)
         }
         ui.hits += comment to screen::openSongComments
     }
@@ -676,6 +688,7 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
     }
 
     private fun drawPopup(anchor: LayoutBounds,target: LayoutBounds,motion: PopupMotion,open: Boolean,
+        smallApplePanel: Boolean = false,
         content: (LayoutBounds,Boolean,LayoutBounds)->Unit): LayoutBounds {
         val b=motion.bounds(anchor,target)
         val p=motion.progress.coerceIn(0f,1f)
@@ -683,7 +696,8 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         val before=ui.hits.size
         val trigger=ui.hits.subList(hitStart.coerceAtMost(before),before).firstOrNull { it.first === anchor }
         ui.ctx.pushOpacity(p)
-        PopupLook.panel(ui.ctx, b)
+        if (smallApplePanel) screen.coverBackdrop.drawControlPanel(b, 8f)
+        else PopupLook.panel(ui.ctx, b)
         ui.ctx.popOpacity()
         ui.beginClip(b)
         ui.ctx.pushOpacity(motion.contentOpacity)
@@ -722,14 +736,14 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
     }
 
     /**
-     * 音质菜单（两种风格共用，外观见 PopupLook）：和播放顺序、音量菜单同一种弹出动画（从音质徽章里展开，内容淡入、上浮），
+     * 音质菜单和播放顺序、音量菜单共用弹出动画（从入口处展开，内容淡入、上浮），
      * 当前流 / 输出 / 请求的音质三行说明，下面是可选的音质，选中的一项高亮并打勾
      */
     private fun drawQualityMenu(bar: LayoutBounds) {
         val preferred = module.preferredQuality
         val stream = MusicPlayer.neteaseStream
         val tiers = NeteaseQuality.values().reversed()
-        val appleStyle = screen.neteaseUsesAppleLayout || appleLyricsControls
+        val appleStyle = screen.neteaseUsesAppleLayout
         val accent = if (appleStyle) APPLE_CONTROL_BLUE else RED
         val width = if (appleStyle) minOf(260f, (ui.lw - 16f).coerceAtLeast(1f)) else 260f
         val rowH = 30f
@@ -737,7 +751,7 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         val left = if (appleStyle) (qualityButton.right - width).coerceIn(8f, (ui.lw - width - 8f).coerceAtLeast(8f))
             else (qualityButton.right - width).coerceAtMost(bar.right - width - 8f).coerceAtLeast(bar.x + 8f)
         val target = LayoutBounds(left, max(8f, bar.y - height - 8f), width, height)
-        qualityMenu = drawPopup(qualityButton, target, qualityMotion, qualityOpen) { content, interactive, clip ->
+        qualityMenu = drawPopup(qualityButton, target, qualityMotion, qualityOpen, smallApplePanel = appleStyle) { content, interactive, clip ->
             ui.text(I18n.text("Playback quality"), content.x + 14f, content.y + 12f, 11f, Theme.TEXT_SECONDARY, Theme.FONT_MEDIUM)
             val now = when {
                 stream != null -> I18n.format("Current stream · %s", streamDescription(stream))
@@ -757,8 +771,9 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
             for ((i, tier) in tiers.withIndex()) {
                 val row = LayoutBounds(content.x + 8f, content.y + 92f + i * rowH, content.width - 16f, rowH - 4f)
                 val selected = tier == preferred
-                if (selected) ui.card(row, PopupLook.selected, PopupLook.rowRadius(row.height))
-                else if (interactive && ui.hover(row)) ui.card(row, PopupLook.hover, PopupLook.rowRadius(row.height))
+                val rowRadius = if (appleStyle) 6f else PopupLook.rowRadius(row.height)
+                if (selected) ui.card(row, PopupLook.selected, rowRadius)
+                else if (interactive && ui.hover(row)) ui.card(row, PopupLook.hover, rowRadius)
                 ui.text(I18n.text(tier.label), row.x + 14f, row.y + row.height / 2f - 12f * 0.39f - 0.5f, 12f,
                     if (selected) accent else Theme.TEXT_PRIMARY, if (selected) Theme.FONT_SEMIBOLD else Theme.FONT_MEDIUM)
                 if (selected) PlayerIcons.draw(ui.ctx, PlayerIcons.check, row.right - 16f, row.y + row.height / 2f, 14f, accent)
@@ -970,7 +985,8 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
     }
 
     @JvmOverloads
-    fun drawAppleLyrics(frame: AppleLyricsLayout, snap: PlaybackView.Snapshot, openMore: () -> Unit, netease: Boolean = false) {
+    fun drawAppleLyrics(frame: AppleLyricsLayout, snap: PlaybackView.Snapshot, openMore: () -> Unit,
+                        netease: Boolean = false, interactive: Boolean = true) {
         if (frame.scale <= 0f) return
         hitStart = 0
         if (!appleLyricsControls) {
@@ -987,6 +1003,11 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         val primary = Theme.TEXT_PRIMARY
         val secondary = Theme.TEXT_SECONDARY
         val track = snap.track?.takeIf { it.source == if (netease) MusicSource.NETEASE else MusicSource.APPLE }
+        val firstHit = ui.hits.size
+        if (!interactive) {
+            seekTrack = null
+            volumeDragging = false
+        }
 
         val titleSize = frame.titleSize
         val title = track?.name ?: I18n.text("Not playing")
@@ -994,7 +1015,7 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         val metadata = if (snap.loading && !netease) I18n.text("Loading Apple Music song")
             else listOf(artist, track?.albumName.orEmpty()).filter { it.isNotBlank() }.joinToString(" — ")
         val font = AppleLyricsLayout.TITLE_FONT
-        val titleWidth = (if (netease) 465f else 514f) * scale
+        val titleWidth = (if (netease) 552f else 514f) * scale
         val shownTitle = ui.trim(title, titleWidth, titleSize, font)
         ui.text(shownTitle, frame.x(396f), frame.y(886f), titleSize, primary, font)
         ui.text(ui.trim(metadata, titleWidth, titleSize, font), frame.x(396f), frame.y(910f), titleSize, secondary, font)
@@ -1002,9 +1023,8 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
             val titleHit = LayoutBounds(frame.x(396f), frame.y(883f), minOf(titleWidth, ui.width(shownTitle, titleSize, font)), titleSize + 8f * scale)
             ui.hits += titleHit to screen::toggleLyrics
             if (track != null && !snap.remote) {
-                val heart = frame.bounds(874f, 884f, 36f, 38f)
-                val comment = frame.bounds(913f, 884f, 46f, 38f).takeIf { module.songCommentsEnabled.get() }
-                drawNeteaseQuickActions(track, heart, comment, scale * 1.4f)
+                val heart = frame.bounds(960f, 884f, 36f, 38f)
+                drawNeteaseFavorite(track, heart, scale * 1.4f)
             }
         } else {
             val favorite = track?.takeUnless { snap.remote }?.let(Library::favoriteState)
@@ -1016,12 +1036,13 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
                 13f * scale * favoriteScale)
             if (ready) ui.hits += favoriteHit to { track?.let(Library::toggleAppleFavorite) }
         }
-        appleButton(frame.moreButton, !snap.remote && (netease || track != null), false, AppleLyricsIcons.more,
+        if (!netease) appleButton(frame.moreButton, !snap.remote && track != null, false, AppleLyricsIcons.more,
             14f * scale, appleMoreHover, openMore)
 
         progRect = frame.progress
         val duration = if (track == null) 0L else snap.durationMs.coerceAtLeast(0L)
-        progressHit = if (duration > 0L && !snap.remote && !snap.loading) frame.bounds(390f, 936f, 612f, 24f) else LayoutBounds()
+        progressHit = if (interactive && duration > 0L && !snap.remote && !snap.loading)
+            frame.bounds(390f, 936f, 612f, 24f) else LayoutBounds()
         val position = if (track != null && seekTrack == track.key) {
             (seekFraction.toDouble() * duration).toLong()
         } else snap.positionMs.coerceIn(0L, duration)
@@ -1061,9 +1082,8 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         }
         if (netease) {
             drawPlaybackNotice(LayoutBounds(frame.artwork.x, frame.moreButton.y, frame.artwork.width, 0f), snap)
-            qualityMotion.step(qualityOpen, ui.frameDt / 1000f)
-            if (qualityOpen || qualityMotion.visible) drawQualityMenu(frame.viewport.copy(y = frame.moreButton.y))
         }
+        if (!interactive) while (ui.hits.size > firstHit) ui.hits.removeAt(ui.hits.lastIndex)
     }
 
     fun endAppleLyricsControls() {

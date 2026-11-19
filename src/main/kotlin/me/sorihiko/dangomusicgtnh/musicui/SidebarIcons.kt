@@ -114,6 +114,15 @@ internal object SidebarIcons {
         curve(4.1, 16.5, 6.7, 15.3, 9.6, 15.8)
         line(9.6, 5.6); close()
     }
+    private val nowPlaying = VectorIcon.path(filled = true) {
+        move(10.0, 16.0); line(10.0, 3.0); line(12.0, 3.0)
+        curve(13.5, 6.2, 19.0, 6.0, 20.0, 10.5)
+        curve(17.4, 8.8, 14.9, 8.7, 12.5, 8.0)
+        line(12.5, 17.0)
+        curve(12.5, 19.8, 10.1, 21.5, 7.2, 21.5)
+        curve(4.9, 21.5, 3.5, 20.3, 3.5, 18.6)
+        curve(3.5, 16.5, 6.4, 15.0, 10.0, 16.0); close()
+    }
     private val applePlaylist = VectorIcon.path {
         move(3.0, 5.0); line(13.0, 5.0)
         move(3.0, 10.0); line(11.0, 10.0)
@@ -185,6 +194,7 @@ internal object SidebarIcons {
     fun drawApple(ctx: RenderContext, glyph: String, cx: Float, cy: Float, color: Color, size: Float = 16f) {
         val icon = when (glyph) {
             "♫" -> appleSong
+            "nowPlaying" -> nowPlaying
             "≡" -> applePlaylist
             "video" -> appleVideo
             "user" -> appleProfile

@@ -4,6 +4,10 @@ import me.sorihiko.dangomusicgtnh.gfx.Texture
 import me.sorihiko.dangomusicgtnh.music.CoverCache
 import me.sorihiko.dangomusicgtnh.music.NeteaseTrack
 import me.sorihiko.dangomusicgtnh.ui.LayoutBounds
+import me.sorihiko.dangomusicgtnh.ui.ShadowStyle
+import me.sorihiko.dangomusicgtnh.ui.ShapeStyle
+import me.sorihiko.dangomusicgtnh.ui.Theme
+import me.sorihiko.dangomusicgtnh.ui.Vec2
 import me.sorihiko.dangomusicgtnh.utils.Color
 
 /** Uses the same cover palette and flow phase in the full lyrics view and the Apple player window. */
@@ -55,6 +59,14 @@ internal class FlowingCoverBackdrop(private val ui: Ui) {
 
     fun drawControlBackground(bounds: LayoutBounds, radius: Float) {
         drawMenuPanel(bounds, radius, Color(0.03f, 0.035f, 0.045f, 0.20f))
+    }
+
+    fun drawControlPanel(bounds: LayoutBounds, radius: Float, unit: Float = 1f) {
+        val corner = minOf(radius, bounds.width / 2f, bounds.height / 2f)
+        val shadow = ShadowStyle(Color(0f, 0f, 0f, 0.10f), 14f * unit, Vec2(0f, -3f * unit), outside = true)
+        ui.ctx.drawShape(bounds, ShapeStyle(radius = corner, shadow = shadow))
+        drawControlBackground(bounds, corner)
+        ui.ctx.drawShape(bounds, ShapeStyle(radius = corner, borderWidth = 0.65f * unit, borderColor = Theme.HAIRLINE))
     }
 
     private fun drawWindowLayer(bounds: LayoutBounds, texture: Texture?, radius: Float, phase: Float, alpha: Float) {

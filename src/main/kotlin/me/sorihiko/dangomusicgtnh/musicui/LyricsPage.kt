@@ -15,6 +15,8 @@ import me.sorihiko.dangomusicgtnh.ui.Theme
 import me.sorihiko.dangomusicgtnh.ui.UiStyle
 import me.sorihiko.dangomusicgtnh.ui.VectorIcon
 import me.sorihiko.dangomusicgtnh.utils.Color
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 private const val ANNOTATION_RATIO = 0.74f
 
@@ -58,15 +60,33 @@ internal class LyricsPage(
     private var manualPosition: Float? = null
     private var appleFollowAfter = 0L
     private var scrollPosition = 0f
+    private var fontSliderOpen = false
+    private var fontSliderDragging = false
+    private var fontSliderTrack = LayoutBounds()
+    private val railHover = List(5) { Spring(420f, 23f, 0f) }
 
     fun dismissMenu(): Boolean {
-        if (menu == null) return false
+        val wasOpen = menu != null || fontSliderOpen
         menu = null
+        fontSliderOpen = false
+        stopFontSliderDrag()
+        return wasOpen
+    }
+
+    fun dragFontSlider(y: Int): Boolean {
+        if (!fontSliderDragging || fontSliderTrack.height <= 0f) return false
+        val setting = module.lyricsPageSize
+        val fraction = ((fontSliderTrack.bottom - y) / fontSliderTrack.height).coerceIn(0f, 1f)
+        setting.setValue((setting.minRange + fraction * (setting.maxRange - setting.minRange)).roundToInt())
         return true
     }
 
+    fun stopFontSliderDrag() { fontSliderDragging = false }
+
     private var commentsOpen = false
     private var commentsProgress = 0f
+    private val commentsVisible get() = commentsProgress >= 0.5f
+    val commentFade get() = abs(commentsProgress * 2f - 1f)
     private var pageArea = LayoutBounds()
     private var shortcutArea = LayoutBounds()
     private var popupArea: LayoutBounds? = null
@@ -83,7 +103,7 @@ internal class LyricsPage(
         commentsProgress = 0f
         shortcutOpacity = 0f
         popupArea = null
-        menu = null
+        dismissMenu()
         manualPosition = null
         appleFollowAfter = 0L
         resumeAppleFollow = false
@@ -95,6 +115,7 @@ internal class LyricsPage(
             comments.scroll(wheel) { commentsOpen = false }
             return
         }
+        if (fontSliderDragging) return
         if (inLyricsModule(x, y)) {
             val end = rows.lastOrNull()?.center ?: return
             val position = manualPosition ?: scrollPosition
@@ -115,24 +136,25 @@ internal class LyricsPage(
         val song = MusicPlayer.current?.takeIf { it.source == MusicSource.NETEASE }
         this.backdrop.drawLyrics(backdrop, song, Theme.GLASS_LYRICS_EDGE.radius)
         ui.ctx.drawGlass(backdrop, Theme.GLASS_LYRICS_EDGE)
-        drawCommentTransition(area, song) { drawLyricsContent(area, close) }
+        drawCommentTransition(song, commentArea = { area }) { drawLyricsContent(area, close) }
     }
 
-    private fun drawCommentTransition(area: LayoutBounds, song: NeteaseTrack?, appleLayout: Boolean = false,
-                                      drawLyrics: () -> Unit) {
+    private fun drawCommentTransition(song: NeteaseTrack?, appleLayout: Boolean = false,
+                                      commentArea: () -> LayoutBounds, drawLyrics: () -> Unit) {
         if (song == null || !module.songCommentsEnabled.get()) {
             commentsOpen = false
             commentsProgress = 0f
         }
         val destination = if (commentsOpen) 1f else 0f
         commentsProgress = ui.approach(commentsProgress, destination, 65f)
-        if (kotlin.math.abs(commentsProgress - destination) < 0.02f) commentsProgress = destination
-        val commentsSong = song?.takeIf { commentsProgress >= 0.5f }
-        val alpha = kotlin.math.abs(commentsProgress * 2f - 1f)
+        if (abs(commentsProgress - destination) < 0.02f) commentsProgress = destination
+        val commentsSong = song?.takeIf { commentsVisible }
+        val alpha = commentFade
         val before = ui.hits.size
         ui.shifted(0f, if (commentsSong != null) (1f - alpha) * 16f else (alpha - 1f) * 16f, alpha) {
             if (commentsSong != null) {
-                comments.draw(area, commentsSong, appleLayout) { commentsOpen = false }
+                if (appleLayout) ui.ctx.recaptureBackdrop()
+                comments.draw(commentArea(), commentsSong, appleLayout) { commentsOpen = false }
             } else drawLyrics()
         }
         if (alpha < 0.99f) while (ui.hits.size > before) ui.hits.removeAt(ui.hits.lastIndex)
@@ -154,34 +176,41 @@ internal class LyricsPage(
         drawAppleContent(frame, playback, song, close, toggleLyrics, netease = false)
     }
 
-    fun drawNeteaseApple(frame: AppleLyricsLayout, playback: PlaybackView.Snapshot, close: () -> Unit, toggleLyrics: () -> Unit) {
-        if (frame.scale <= 0f) return
+    fun drawNeteaseApple(frame: AppleLyricsLayout, playback: PlaybackView.Snapshot, close: () -> Unit, toggleLyrics: () -> Unit): AppleLyricsLayout {
+        if (frame.scale <= 0f) return frame
         val outer = frame.viewport
         val song = playback.track?.takeIf { it.source == MusicSource.NETEASE }
         pageArea = outer
-        backdrop.drawLyrics(outer, song, Theme.GLASS_LYRICS_EDGE.radius)
-        ui.ctx.drawGlass(outer, Theme.GLASS_LYRICS_EDGE)
-        val comments = LayoutBounds(outer.x + 10f, outer.y + 10f, outer.width - 20f, frame.y(868f) - outer.y - 10f)
-        drawCommentTransition(comments, song, appleLayout = true) {
+        backdrop.drawLyrics(outer, song)
+        if (!frame.showLyrics) dismissMenu()
+        val commentControls = frame.commentControls()
+        drawCommentTransition(song, appleLayout = true, commentArea = {
+            val top = outer.y + 10f
+            LayoutBounds(outer.x + 10f, top, (outer.width - 20f).coerceAtLeast(0f),
+                (commentControls.y(858f) - top).coerceAtLeast(0f))
+        }) {
             drawAppleContent(frame, playback, song, close, toggleLyrics, netease = true)
             if (frame.showLyrics) {
-                drawNeteaseLyricsControls(frame.viewport.right - 48f, frame.viewport.y + (frame.viewport.height - 264f) / 2f, song)
+                drawNeteaseAppleRail(frame, song)
                 if (manualPosition != null) {
-                    val follow = LayoutBounds(lyricArea.x, lyricArea.y - 32f, 140f, 26f)
+                    val width = minOf(140f, lyricArea.width)
+                    val follow = LayoutBounds(lyricArea.x + (lyricArea.width - width) / 2f, lyricArea.bottom + 6f, width, 26f)
                     ui.pill(follow, Theme.CARD_HOVER, I18n.text("Follow playback")) { resumeAppleLyrics() }
                 }
             }
         }
+        return if (commentsVisible) commentControls else frame
     }
 
     private fun drawAppleContent(frame: AppleLyricsLayout, playback: PlaybackView.Snapshot, song: NeteaseTrack?,
                                  close: () -> Unit, toggleLyrics: () -> Unit, netease: Boolean) {
-        lyricArea = frame.lyrics
+        lyricArea = if (netease) frame.lyrics.copy(height = (frame.lyrics.height - 32f).coerceAtLeast(0f)) else frame.lyrics
         shortcutArea = LayoutBounds()
         popupArea = null
         val closeHit = frame.close
-        PlayerIcons.draw(ui.ctx, AppleLyricsIcons.close, closeHit.x + closeHit.width / 2f,
-            closeHit.y + closeHit.height / 2f, (if (ui.hover(closeHit)) 20f else 18f) * frame.scale, white.copy(a = 0.72f))
+        PlayerIcons.draw(ui.ctx, if (netease) PlayerIcons.chevronDown else AppleLyricsIcons.close,
+            closeHit.x + closeHit.width / 2f, closeHit.y + closeHit.height / 2f,
+            (if (ui.hover(closeHit)) 20f else 18f) * frame.scale, if (netease) white else white.copy(a = 0.72f))
         ui.hits += closeHit to close
         val toggleHit = frame.lyricsToggle
         PlayerIcons.draw(ui.ctx, AppleLyricsIcons.lyrics, toggleHit.x + toggleHit.width / 2f,
@@ -193,6 +222,8 @@ internal class LyricsPage(
             manualPosition = null
             appleFollowAfter = 0L
             scrollPosition = 0f
+            hasRomanization = false
+            hasTranslation = false
         }
         track = song
         // The reference cover turns into the straight edge at about 18 px out of 600.
@@ -239,8 +270,91 @@ internal class LyricsPage(
         if (resumeAppleFollow) scrollPosition = target
         else if (!keptScroll) scrollPosition = ui.approach(scrollPosition, target, 95f)
         resumeAppleFollow = false
-        drawLyrics(active, size, if (netease) neteaseLyricsPopup(frame.viewport.right - 48f,
-            frame.viewport.y + (frame.viewport.height - 264f) / 2f) else null, centered = true, annotationSize = annotationSize)
+        drawLyrics(active, size, null, centered = true, annotationSize = annotationSize)
+    }
+
+    private fun drawNeteaseAppleRail(frame: AppleLyricsLayout, song: NeteaseTrack?) {
+        val buttonSize = minOf(34f, frame.viewport.height / 9f)
+        val step = buttonSize + 6f
+        val railX = frame.viewport.right - buttonSize - 14f
+        val railY = frame.viewport.y + (frame.viewport.height - (4f * step + buttonSize)) / 2f
+        val lastY = railY + 4f * step
+        val popupHeight = minOf(154f, frame.viewport.height - 16f)
+        val popup = if (fontSliderOpen && popupHeight >= 64f) {
+            val y = (lastY + buttonSize - popupHeight).coerceIn(frame.viewport.y + 8f, frame.viewport.bottom - popupHeight - 8f)
+            LayoutBounds(railX - 62f, y, 56f, popupHeight)
+        } else null
+        val top = minOf(lyricArea.y, railY)
+        shortcutArea = LayoutBounds(lyricArea.right, top, (railX + buttonSize - lyricArea.right).coerceAtLeast(0f),
+            maxOf(lyricArea.bottom, lastY + buttonSize) - top)
+        popupArea = popup
+        val hovered = fontSliderDragging || inLyricsModule(ui.mx, ui.my)
+        shortcutOpacity = ui.approach(shortcutOpacity, if (hovered) 1f else 0f, 75f)
+        if (shortcutOpacity < 0.02f) {
+            if (!hovered) dismissMenu()
+            return
+        }
+        val firstHit = ui.hits.size
+        ui.shifted(0f, 0f, shortcutOpacity) {
+            val offset = song?.let { "   " + I18n.format("Lyrics offset · %+.1f s", lyricOffset(it) / 1000.0) }.orEmpty()
+            fun button(index: Int, icon: VectorIcon, label: String, enabled: Boolean = true,
+                       selected: Boolean = false, action: () -> Unit) {
+                val hit = LayoutBounds(railX, railY + step * index, buttonSize, buttonSize)
+                val over = hovered && ui.hover(hit)
+                val scale = ui.appleHoverScale(railHover[index], over)
+                val center = hit.y + hit.height / 2f
+                ui.card(hit, white.copy(a = if (selected) 0.17f else 0.06f), hit.height / 2f)
+                PlayerIcons.draw(ui.ctx, icon, hit.x + hit.width / 2f, center,
+                    minOf(14f, hit.width * 0.45f) * scale, white.copy(a = if (enabled) 0.95f else 0.40f))
+                if (over) {
+                    val right = if (popup == null) hit.x else popup.x
+                    val hint = ui.trim(label, (right - frame.viewport.x - 16f).coerceAtLeast(0f), 12f)
+                    ui.text(hint, right - 9f - ui.width(hint, 12f), center - 6f, 12f, white)
+                }
+                if (enabled) ui.hits += hit to action
+            }
+            button(0, PlayerIcons.chevronLeft, I18n.text("Show lyrics 0.5 seconds earlier") + offset, song != null) {
+                song?.let { adjustLyricOffset(it, 500L) }
+            }
+            button(1, PlayerIcons.chevronRight, I18n.text("Show lyrics 0.5 seconds later") + offset, song != null) {
+                song?.let { adjustLyricOffset(it, -500L) }
+            }
+            button(2, AppleLyricsIcons.romanization, I18n.text(if (hasRomanization) "Phonetic lyrics" else "No phonetic lyrics"),
+                hasRomanization, showRomanization && hasRomanization) { module.lyricsPageRomanization.toggle() }
+            button(3, AppleLyricsIcons.translation, I18n.text(if (hasTranslation) "Lyric translation" else "No lyric translation"),
+                hasTranslation, showTranslation && hasTranslation) { module.lyricsPageTranslation.toggle() }
+            button(4, LyricsIcons.fontSize, I18n.text("Lyrics font size"), selected = fontSliderOpen) {
+                if (fontSliderOpen) dismissMenu() else fontSliderOpen = true
+            }
+            if (popup != null) drawFontSlider(popup)
+        }
+        if (!hovered) while (ui.hits.size > firstHit) ui.hits.removeAt(ui.hits.lastIndex)
+    }
+
+    private fun drawFontSlider(panel: LayoutBounds) {
+        val setting = module.lyricsPageSize
+        ui.ctx.drawGlass(panel, (if (UiStyle.continuous) PopupLook.CONTINUOUS_GLASS else PopupLook.CLASSIC_GLASS)
+            .copy(radius = 8f, bevel = 6f, refraction = 4f))
+        val x = panel.x + 16f
+        val rail = LayoutBounds(x - 2f, panel.y + 32f, 4f, panel.height - 64f)
+        fontSliderTrack = rail
+        val knob = rail.bottom - rail.height * setting.normalize()
+        ui.card(rail, white.copy(a = 0.26f), 2f)
+        if (knob < rail.bottom) ui.card(rail.copy(y = knob, height = rail.bottom - knob), RED, 2f)
+        ui.card(LayoutBounds(x - 5f, knob - 5f, 10f, 10f), white, 5f)
+        ui.text(setting.value.toString(), panel.x + 29f, knob - 6f, 11f, white, Theme.FONT_SEMIBOLD)
+
+        fun step(y: Float, glyph: VectorIcon, delta: Int) {
+            val hit = LayoutBounds(panel.x, y, panel.width, 28f)
+            PlayerIcons.draw(ui.ctx, glyph, x, y + 14f, 12f, white)
+            ui.hits += hit to { setting.setValue(setting.value + delta) }
+        }
+        step(panel.y, LyricsIcons.plus, 2)
+        step(panel.bottom - 28f, LyricsIcons.minus, -2)
+        ui.hits += LayoutBounds(panel.x, panel.y + 28f, panel.width, panel.height - 56f) to {
+            fontSliderDragging = true
+            dragFontSlider(ui.my)
+        }
     }
 
     private fun drawLyricsContent(area: LayoutBounds, close: () -> Unit) {

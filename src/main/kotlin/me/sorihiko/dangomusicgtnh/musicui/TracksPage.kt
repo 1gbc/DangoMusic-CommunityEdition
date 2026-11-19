@@ -228,7 +228,11 @@ internal class TracksPage(private val screen: MusicScreen) {
         var headerH = 62f
         val playlist = ScreenState.opened?.takeIf { applePlaylistLayout }
         ui.headerAnim {
-            headerH = if (playlist != null) drawApplePlaylistHeader(page, playlist, tracks) else drawHeader(page, title, tracks)
+            headerH = when {
+                playlist != null -> drawApplePlaylistHeader(page, playlist, tracks)
+                screen.neteaseUsesAppleLayout && ScreenState.page == Page.QUEUE -> drawNeteaseAppleQueueHeader(page, title, tracks)
+                else -> drawHeader(page, title, tracks)
+            }
         }
         area = LayoutBounds(page.x, y + headerH, page.width, page.bottom - (y + headerH))
         if (tracks == null) return
@@ -304,16 +308,10 @@ internal class TracksPage(private val screen: MusicScreen) {
 
     private fun drawApplePlaylistHeader(page: LayoutBounds, playlist: NeteasePlaylist, tracks: List<NeteaseTrack>?): Float {
         val backW = if (drawBackButton(page.x, page.y)) 36f else 0f
-        drawApplePlaylistControls(page, backW)
         val textSize = APPLE_MENU_TEXT_SIZE
         val coverSize = minOf(152f, page.width * 0.35f, page.height * 0.36f).coerceAtLeast(1f)
         val netease = screen.neteaseUsesAppleLayout
-        val filterWidth = (page.width - backW - 102f).coerceAtMost(190f)
-        val filterOnSecondLine = netease && tracks != null && filterWidth < 100f
-        if (netease && tracks != null) {
-            if (filterOnSecondLine) drawFilter(page.right, page.y + 32f, page.width.coerceAtMost(190f))
-            else drawFilter(page.x + backW + filterWidth, page.y, filterWidth)
-        } else filterRect = LayoutBounds()
+        val filterOnSecondLine = drawAppleTrackToolbar(page, backW, netease && tracks != null)
         val cover = LayoutBounds(page.x, page.y + if (filterOnSecondLine) 70f else 38f, coverSize, coverSize)
         ui.drawAppleCover(cover, CoverCache.playlistArtwork(playlist))
         val x = cover.right + minOf(20f, page.width * 0.05f)
@@ -504,6 +502,29 @@ internal class TracksPage(private val screen: MusicScreen) {
         return headerH
     }
 
+    private fun drawNeteaseAppleQueueHeader(page: LayoutBounds, title: String, tracks: List<NeteaseTrack>?): Float {
+        val backW = if (drawBackButton(page.x, page.y)) 36f else 0f
+        val secondLine = drawAppleTrackToolbar(page, backW, tracks != null)
+        val titleY = page.y + if (secondLine) 70f else 38f
+        ui.text(ui.trim(title, page.width, 18f, Theme.FONT_SEMIBOLD), page.x, titleY,
+            18f, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
+        ui.text(ui.trim(headerSubtitle(tracks), page.width, APPLE_PLAYLIST_SECONDARY_SIZE), page.x, titleY + 23f,
+            APPLE_PLAYLIST_SECONDARY_SIZE, Theme.TEXT_SECONDARY)
+        return titleY - page.y + 47f
+    }
+
+    private fun drawAppleTrackToolbar(page: LayoutBounds, backW: Float, filter: Boolean): Boolean {
+        drawApplePlaylistControls(page, backW)
+        val filterWidth = (page.width - backW - 102f).coerceAtMost(190f)
+        val secondLine = filter && filterWidth < 100f
+        when {
+            secondLine -> drawFilter(page.right, page.y + 32f, page.width.coerceAtMost(190f))
+            filter -> drawFilter(page.x + backW + filterWidth, page.y, filterWidth)
+            else -> filterRect = LayoutBounds()
+        }
+        return secondLine
+    }
+
     private fun drawApplePlaylistControls(page: LayoutBounds, backW: Float) {
         val height = 26f
         val gap = 5f
@@ -575,17 +596,23 @@ internal class TracksPage(private val screen: MusicScreen) {
     private fun drawFilter(rightX: Float, y: Float, fw: Float) {
         val ctx = ui.ctx
         filterRect = LayoutBounds(rightX - fw, y + 4f, fw, 26f)
-        ui.card(filterRect, if (filterFocused) Theme.CARD_HOVER else Theme.CARD, 13f)
-        if (filterFocused) ctx.drawShape(filterRect, ShapeStyle(Color(0f, 0f, 0f, 0f), 13f, 1f, RED))
-        ctx.drawShape(LayoutBounds(filterRect.x + 10f, filterRect.y + 8f, 8f, 8f), ShapeStyle(Color(0f, 0f, 0f, 0f), 4f, 1.3f, Theme.TEXT_SECONDARY))
-        ctx.drawShape(LayoutBounds(filterRect.x + 16.5f, filterRect.y + 15f, 4f, 1.5f), ShapeStyle(Theme.TEXT_SECONDARY, 0.75f))
-        val caret = if (filterFocused && caretVisible()) "|" else ""
-        val placeholder = filterText.isEmpty() && !filterFocused
-        var shownText = if (placeholder) I18n.text("Filter this list...") else filterText + caret
-        val maxW = filterRect.width - 30f - (if (filterText.isNotEmpty()) 18f else 0f)
-        val textSize = 11f
-        while (shownText.length > 1 && ui.width(shownText, textSize) > maxW) shownText = shownText.substring(1)
-        ui.text(shownText, filterRect.x + 26f, filterRect.y + 8f, textSize, if (placeholder) Theme.TEXT_TERTIARY else Theme.TEXT_PRIMARY)
+        val maxRight = filterRect.right - 4f - if (filterText.isNotEmpty()) 18f else 0f
+        if (screen.neteaseUsesAppleLayout) {
+            ui.drawNeteaseAppleSearchField(filterRect, filterText, if (filterFocused) "" else I18n.text("Filter this list..."),
+                filterFocused, filterRect.x + 14f, 13f, filterRect.x + 26f, maxRight, 11f)
+        } else {
+            ui.card(filterRect, if (filterFocused) Theme.CARD_HOVER else Theme.CARD, 13f)
+            if (filterFocused) ctx.drawShape(filterRect, ShapeStyle(Color.TRANSPARENT, 13f, 1f, RED))
+            ctx.drawShape(LayoutBounds(filterRect.x + 10f, filterRect.y + 8f, 8f, 8f),
+                ShapeStyle(Color.TRANSPARENT, 4f, 1.3f, Theme.TEXT_SECONDARY))
+            ctx.drawShape(LayoutBounds(filterRect.x + 16.5f, filterRect.y + 15f, 4f, 1.5f), ShapeStyle(Theme.TEXT_SECONDARY, 0.75f))
+            val caret = if (filterFocused && caretVisible()) "|" else ""
+            val placeholder = filterText.isEmpty() && !filterFocused
+            var shownText = if (placeholder) I18n.text("Filter this list...") else filterText + caret
+            val maxW = maxRight - filterRect.x - 26f
+            while (shownText.length > 1 && ui.width(shownText, 11f) > maxW) shownText = shownText.substring(1)
+            ui.text(shownText, filterRect.x + 26f, filterRect.y + 8f, 11f, if (placeholder) Theme.TEXT_TERTIARY else Theme.TEXT_PRIMARY)
+        }
         ui.hits += filterRect to {
             filterFocused = true
             screen.sidebar.searchFocused = false

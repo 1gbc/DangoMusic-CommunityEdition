@@ -74,6 +74,43 @@ internal class Ui {
 
     private fun textSize(size: Float): Float = if (compactAppleText) min(size, APPLE_MENU_TEXT_SIZE) else size
 
+    fun drawNeteaseAppleSearchField(
+        box: LayoutBounds, value: String, placeholder: String, focused: Boolean,
+        iconX: Float, iconSize: Float, textX: Float, textRight: Float, size: Float,
+    ) {
+        val centerY = box.y + box.height / 2f
+        val fill = if (focused) Theme.CARD_HOVER else Theme.CARD
+        val radius = box.height / 2f
+        val stroke = 1.5f
+        if (focused) {
+            // ShapeStyle draws its stroke outside the fill. Inset once so both end caps share one outline.
+            ctx.drawShape(box.expand(-stroke, -stroke), ShapeStyle(fill, radius - stroke, stroke, APPLE_CONTROL_BLUE))
+        } else card(box, fill, radius)
+        SidebarIcons.draw(ctx, "search", iconX, centerY, if (focused) APPLE_CONTROL_BLUE else Theme.TEXT_SECONDARY, iconSize)
+
+        val width = (textRight - textX).coerceAtLeast(0f)
+        val caretGap = if (focused) 3f else 0f
+        val available = (width - caretGap).coerceAtLeast(0f)
+        val textTop = centerY - textSize(size) / 2f
+        val showingCaret = focused && width >= 1f && caretVisible()
+        val shown = if (value.isEmpty()) {
+            trim(placeholder, available, size)
+        } else {
+            var first = 0
+            while (first < value.length && width(value.substring(first), size) > available) {
+                first += Character.charCount(value.codePointAt(first))
+            }
+            value.substring(first)
+        }
+        val labelX = textX + if (value.isEmpty()) caretGap else 0f
+        text(shown, labelX, textTop, size, if (value.isEmpty()) Theme.TEXT_TERTIARY else Theme.TEXT_PRIMARY)
+        if (showingCaret) {
+            val caretX = textX + if (value.isEmpty()) 0f else width(shown, size) + 1f
+            val height = minOf(12f, box.height - 4f)
+            card(LayoutBounds(caretX, centerY - height / 2f, 1f, height), Theme.TEXT_PRIMARY, 0f)
+        }
+    }
+
     // ---------------------------------------------------------------- 文字
 
     /** y 是文字顶部 */

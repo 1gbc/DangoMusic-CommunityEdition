@@ -5,6 +5,8 @@ import me.sorihiko.dangomusicgtnh.DangoMusic
 import me.sorihiko.dangomusicgtnh.i18n.I18n
 import me.sorihiko.dangomusicgtnh.module.impls.music.NearbyModule
 import me.sorihiko.dangomusicgtnh.music.MusicScreen
+import me.sorihiko.dangomusicgtnh.music.MusicSource
+import me.sorihiko.dangomusicgtnh.music.MusicSources
 import me.sorihiko.dangomusicgtnh.multiplayer.GroupInvite
 import me.sorihiko.dangomusicgtnh.multiplayer.GroupSummary
 import me.sorihiko.dangomusicgtnh.multiplayer.GroupUi
@@ -16,8 +18,23 @@ import me.sorihiko.dangomusicgtnh.ui.LayoutBounds
 import me.sorihiko.dangomusicgtnh.ui.ShadowStyle
 import me.sorihiko.dangomusicgtnh.ui.Theme
 import me.sorihiko.dangomusicgtnh.ui.Vec2
+import me.sorihiko.dangomusicgtnh.ui.VectorIcon
 import me.sorihiko.dangomusicgtnh.utils.Color
 import kotlin.math.max
+
+private object RoomIcons {
+    val listen = VectorIcon.path {
+        move(4.0, 15.0); line(4.0, 11.0)
+        curve(4.0, 1.0, 20.0, 1.0, 20.0, 11.0); line(20.0, 15.0)
+        roundRect(3.0, 12.0, 5.0, 8.0, 1.5)
+        roundRect(16.0, 12.0, 5.0, 8.0, 1.5)
+    }
+    val leave = VectorIcon.path {
+        move(11.0, 4.0); line(4.0, 4.0); line(4.0, 20.0); line(11.0, 20.0)
+        move(9.0, 12.0); line(21.0, 12.0)
+        move(17.0, 8.0); line(21.0, 12.0); line(17.0, 16.0)
+    }
+}
 
 /**
  * Music group page.
@@ -28,6 +45,7 @@ import kotlin.math.max
  */
 internal class GroupPage(private val screen: MusicScreen) {
     private val ui = screen.ui
+    private val flatRooms get() = MusicSources.selected == MusicSource.NETEASE || MusicSources.selected == MusicSource.APPLE
 
     var editing = false
         private set
@@ -250,7 +268,7 @@ internal class GroupPage(private val screen: MusicScreen) {
             nameRect.x + 9f, nameRect.y + 9f, 11.5f,
             if (placeholder) Theme.TEXT_TERTIARY else Theme.TEXT_PRIMARY,
         )
-        ui.hits += nameRect to { editing = true }
+        addVisibleHit(nameRect) { editing = true }
 
         val create = LayoutBounds(card.right - 20f - buttonW, card.y + 60f, buttonW, 30f)
         button(create, I18n.text("Create"), if (nameText.isBlank()) ButtonKind.Disabled else ButtonKind.Primary) {
@@ -304,7 +322,7 @@ internal class GroupPage(private val screen: MusicScreen) {
 
     private fun openGroupRow(summary: GroupSummary, x: Float, y: Float, width: Float) {
         val row = LayoutBounds(x, y, width, 30f)
-        if (ui.hover(row)) ui.card(row, Theme.CARD_HOVER, 8f)
+        if (!flatRooms && ui.hover(row)) ui.card(row, Theme.CARD_HOVER, 8f)
         avatar(summary.name, x + 4f, y + 4f, 24f)
         ui.text(ui.trim(summary.name, width - 160f, 11f, Theme.FONT_SEMIBOLD), x + 36f, y + 3f, 11f, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
         ui.text(
@@ -364,7 +382,7 @@ internal class GroupPage(private val screen: MusicScreen) {
         val armed = System.currentTimeMillis() < leaveArmedUntil
         val leave = LayoutBounds(card.right - 88f, card.y + 15f, 68f, 24f)
         button(leave, if (armed) I18n.text("Confirm leave") else I18n.text("Leave"),
-            if (armed) ButtonKind.Danger else ButtonKind.Ghost) {
+            if (armed) ButtonKind.Danger else ButtonKind.Ghost, RoomIcons.leave.takeIf { flatRooms }) {
             if (armed) {
                 leaveArmedUntil = 0L
                 NearbyClient.groupAction("leave", group.id)
@@ -423,7 +441,7 @@ internal class GroupPage(private val screen: MusicScreen) {
                 val row = LayoutBounds(card.x + 12f, card.y + 34f + i * 30f, card.width - 24f, 28f)
                 val isActive = group.id == activeId
                 if (isActive) ui.card(row, Theme.ACCENT.copy(a = 0.12f), 8f)
-                else if (ui.hover(row)) ui.card(row, Theme.CARD_HOVER, 8f)
+                else if (!flatRooms && ui.hover(row)) ui.card(row, Theme.CARD_HOVER, 8f)
                 ui.card(
                     LayoutBounds(row.x + 8f, row.y + 12f, 5f, 5f),
                     if (isActive) Theme.GREEN else Theme.TEXT_TERTIARY,
@@ -442,12 +460,12 @@ internal class GroupPage(private val screen: MusicScreen) {
                     button(select, I18n.text("Current"), ButtonKind.Disabled) {}
                     button(side, I18n.text("Stop"), ButtonKind.Ghost) { NearbyClient.selectGroup("") }
                 } else {
-                    button(select, I18n.text("Listen"), ButtonKind.Primary) {
+                    button(select, I18n.text("Listen"), ButtonKind.Primary, RoomIcons.listen.takeIf { flatRooms }) {
                         NearbyClient.selectGroup(group.id)
                     }
                     val armed = rowLeaveArmed[group.id]?.let { System.currentTimeMillis() < it } == true
                     button(side, if (armed) I18n.text("Confirm") else I18n.text("Leave"),
-                        if (armed) ButtonKind.Danger else ButtonKind.Ghost) {
+                        if (armed) ButtonKind.Danger else ButtonKind.Ghost, RoomIcons.leave.takeIf { flatRooms }) {
                         if (armed) {
                             rowLeaveArmed.remove(group.id)
                             NearbyClient.groupAction("leave", group.id)
@@ -497,7 +515,8 @@ internal class GroupPage(private val screen: MusicScreen) {
     }
 
     private fun cardBox(b: LayoutBounds) {
-        ui.ctx.drawGlass(b, if (screen.usesAppleLayout) cardGlass.copy(shadow = ShadowStyle()) else cardGlass)
+        if (flatRooms) ui.card(b, APPLE_ROW_HOVER, APPLE_ROW_RADIUS)
+        else ui.ctx.drawGlass(b, cardGlass)
     }
 
     private fun sectionTitle(label: String, x: Float, y: Float) {
@@ -518,19 +537,21 @@ internal class GroupPage(private val screen: MusicScreen) {
 
     private enum class ButtonKind { Primary, Ghost, Danger, Disabled }
 
-    private fun button(bounds: LayoutBounds, label: String, kind: ButtonKind, action: () -> Unit) {
+    private fun button(bounds: LayoutBounds, label: String, kind: ButtonKind, icon: VectorIcon? = null, action: () -> Unit) {
         val base = when (kind) {
             ButtonKind.Primary -> Theme.ACCENT.copy(a = 0.82f)
             ButtonKind.Ghost -> Theme.CARD_HOVER
             ButtonKind.Danger -> RED.copy(a = 0.78f)
             ButtonKind.Disabled -> Theme.TRACK
         }
-        val target = if (kind != ButtonKind.Disabled && ui.hover(bounds)) 1f else 0f
+        val target = if (kind != ButtonKind.Disabled && ui.hover(visibleControl(bounds))) 1f else 0f
         val key = "${kind.name}|$label|${bounds.x.toInt()}:${bounds.y.toInt()}"
         val hover = buttonHover.getOrPut(key) { Spring(420f, 23f, target) }.tick(target)
         // Small scale spring on hover, like the settings controls.
         val drawB = bounds.expand(bounds.width * 0.022f * hover, bounds.height * 0.07f * hover)
-        if (kind == ButtonKind.Disabled) {
+        if (icon != null) {
+            ui.card(drawB, base.copy(a = (base.a + 0.08f * hover).coerceAtMost(1f)), 6f)
+        } else if (kind == ButtonKind.Disabled) {
             ui.card(drawB, base, drawB.height / 2f)
         } else {
             ui.ctx.drawGlass(
@@ -547,10 +568,27 @@ internal class GroupPage(private val screen: MusicScreen) {
             ButtonKind.Ghost -> Theme.TEXT_PRIMARY
             else -> Color(1f, 1f, 1f, 0.98f)
         }
-        val w = ui.width(label, 10f, Theme.FONT_SEMIBOLD)
-        ui.text(label, drawB.x + (drawB.width - w) / 2f, drawB.y + (drawB.height - 10f) / 2f - 0.5f,
-            10f, color, Theme.FONT_SEMIBOLD)
-        if (kind != ButtonKind.Disabled) ui.hits += drawB to action
+        val iconSlot = if (icon != null) 14f else 0f
+        val fullWidth = ui.width(label, 10f, Theme.FONT_SEMIBOLD)
+        val textSize = if (icon != null && fullWidth > 0f)
+            minOf(10f, 10f * (drawB.width - iconSlot - 6f) / fullWidth) else 10f
+        val w = ui.width(label, textSize, Theme.FONT_SEMIBOLD)
+        val start = drawB.x + (drawB.width - w - iconSlot) / 2f
+        if (icon != null) PlayerIcons.draw(ui.ctx, icon, start + 5f, drawB.y + drawB.height / 2f, 11f, color)
+        ui.text(label, start + iconSlot, drawB.y + (drawB.height - textSize) / 2f - 0.5f,
+            textSize, color, Theme.FONT_SEMIBOLD)
+        if (kind != ButtonKind.Disabled) addVisibleHit(drawB, action)
+    }
+
+    private fun visibleControl(bounds: LayoutBounds): LayoutBounds {
+        if (ui.ctx.getOpacity() <= 0f) return LayoutBounds()
+        // Match the scroll clip after applying the same entrance offset as the rendered control.
+        return bounds.copy(x = bounds.x + ui.mt.shiftX, y = bounds.y + ui.mt.shiftY).intersect(area)
+    }
+
+    private fun addVisibleHit(bounds: LayoutBounds, action: () -> Unit) {
+        val visible = visibleControl(bounds)
+        if (visible.width > 0f && visible.height > 0f) ui.hits += visible to action
     }
 
     private fun createGroup() {

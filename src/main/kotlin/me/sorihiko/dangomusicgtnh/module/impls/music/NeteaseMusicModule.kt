@@ -137,7 +137,7 @@ class NeteaseMusicModule : Module() {
     @ModuleValue("Interface style", "Classic: rounded corners, capsule switches with round knobs. Continuous corners: smoother squircle corners everywhere")
     private val uiStyle = IntValue(0, 1, 0)
 
-    @ModuleValue("Apple Music sidebar style", "Choose between blue icons with flowing cover colors and red icons with dark glass")
+    @ModuleValue("Apple Music sidebar style", "Choose between blue icons with flowing cover colors and red icons with dark glass. Also applies to NetEase in Apple style.")
     private val appleSidebarStyle = IntValue(0, 1, 0)
 
     internal val appleSidebarUsesDarkGlass get() = appleSidebarStyle.value == 1

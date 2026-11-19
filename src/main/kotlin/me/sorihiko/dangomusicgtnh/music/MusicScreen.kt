@@ -278,7 +278,7 @@ class MusicScreen(
     internal val appleNavigation get() = MusicSources.selected == MusicSource.APPLE
     internal val neteaseUsesAppleLayout get() = MusicSources.selected == MusicSource.NETEASE && module.neteaseUsesAppleLayout
     internal val usesAppleLayout get() = appleNavigation || neteaseUsesAppleLayout
-    internal val appleSidebarUsesDarkGlass get() = appleNavigation && module.appleSidebarUsesDarkGlass
+    internal val appleSidebarUsesDarkGlass get() = usesAppleLayout && module.appleSidebarUsesDarkGlass
     private val appleSearchHistory = mutableListOf<String>()
     private var appleSearchAt = 0L
 
@@ -480,7 +480,7 @@ class MusicScreen(
         val win = LayoutBounds(26f, 20f + (1f - alpha) * 12f, ui.lw - 52f, ui.lh - 40f)
         if (appleLyricsOpen) {
             val netease = lyricsSource == MusicSource.NETEASE
-            val viewport = if (netease) win else LayoutBounds(0f, 0f, ui.lw, ui.lh)
+            val viewport = LayoutBounds(0f, 0f, ui.lw, ui.lh)
             val layout = AppleLyricsLayout(viewport, showAppleLyrics)
             barRect = LayoutBounds()
             val playback = PlaybackView.snapshot()
@@ -492,9 +492,16 @@ class MusicScreen(
                     showAppleLyrics = !showAppleLyrics
                     if (showAppleLyrics) lyricsPage.resumeAppleLyrics()
                 }
-                if (netease) lyricsPage.drawNeteaseApple(layout, playback, ::closeLyrics, toggle)
-                else lyricsPage.drawApple(layout, playback, ::closeLyrics, toggle)
-                bar.drawAppleLyrics(layout, playback, appleLyricsMenu::toggle, netease)
+                if (netease) {
+                    val controls = lyricsPage.drawNeteaseApple(layout, playback, ::closeLyrics, toggle)
+                    val fade = lyricsPage.commentFade
+                    ui.shifted(0f, 0f, fade) {
+                        bar.drawAppleLyrics(controls, playback, appleLyricsMenu::toggle, netease = true, interactive = fade >= 0.99f)
+                    }
+                } else {
+                    lyricsPage.drawApple(layout, playback, ::closeLyrics, toggle)
+                    bar.drawAppleLyrics(layout, playback, appleLyricsMenu::toggle)
+                }
             } finally {
                 ui.mt.useNotoSansSc = false
             }
@@ -528,7 +535,7 @@ class MusicScreen(
         // 播放栏浮在内容上面：左右和底部留出间距；内容延伸到播放栏底边为止，滚动时从播放栏后面经过，
         // 但不会在播放栏下面那道缝里露出来
         val barBottom = win.bottom - pad - 8f
-        val barRect = if (usesAppleLayout) PlayerBar.appleBarBounds(mainX, mainW, barBottom)
+        val barRect = if (usesAppleLayout) PlayerBar.appleBarBounds(mainX, mainW, barBottom, neteaseUsesAppleLayout)
             else LayoutBounds(mainX + 2f, barBottom - 88f, win.right - pad - 14f - mainX, 88f)
         val content = LayoutBounds(mainX, win.y + pad + 14f, mainW, barRect.bottom - (win.y + pad + 14f))
         if (!usesAppleLayout) {
@@ -566,11 +573,7 @@ class MusicScreen(
 
     private fun drawBar() {
         if (appleLyricsOpen) {
-            appleLyricsFrame?.let {
-                if (lyricsSource == MusicSource.NETEASE)
-                    appleLyricsMenu.drawNetease(it.viewport, it.moreButton, bar::openQualityFromMenu)
-                else appleLyricsMenu.draw(it, appleLyricsTrack)
-            }
+            if (lyricsSource == MusicSource.APPLE) appleLyricsFrame?.let { appleLyricsMenu.draw(it, appleLyricsTrack) }
             return
         }
         // 播放栏画在最上面，点击也要先轮到它（点到的是第一个命中的区域）
@@ -805,6 +808,7 @@ class MusicScreen(
     /** 按住鼠标拖动时调用 */
     fun mouseDragged(mouseButton: Int) {
         if (closingAt != 0L || closed) return
+        if (mouseButton == 0 && lyricsOpen && lyricsPage.dragFontSlider((platform.mouseY / ui.scale).toInt())) return
         if (mouseButton == 0 && libraryPull != null) {
             updateLibraryPull()
             return
@@ -826,6 +830,7 @@ class MusicScreen(
 
     fun mouseReleased(mouseButton: Int) {
         if (module.openKey.value < 0) openKeyHeld = false
+        if (mouseButton == 0) lyricsPage.stopFontSliderDrag()
         bar.mouseUp()
         tracks.scrollbarUp()
         settings.stopDrag()
