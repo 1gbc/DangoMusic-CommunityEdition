@@ -74,6 +74,12 @@ internal object ClientMusic {
         DangoMusic.instance.moduleManager.get(NeteaseMusicModule::class.java).setVolume(value)
     }
 
+    fun settingsExportSnapshot(): String {
+        val instance = DangoMusic.instance
+        instance.moduleManager.get(NeteaseMusicModule::class.java).syncPlayerKeys()
+        return instance.configManager.exportSnapshot(LegacyKeyBindings.exportSnapshot())
+    }
+
     @JvmStatic
     fun open(parent: GuiScreen?) {
         val screen = if (ClientRenderBridge.graphicsReady) LegacyMusicScreen(parent) else PlayerScreen(parent)

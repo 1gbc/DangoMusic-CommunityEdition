@@ -96,6 +96,10 @@ interface Textures {
 // ---------------------------------------------------------------- 液态玻璃画布
 
 interface GuiCanvas : RenderContext {
+    /** Exclude closer covers before applying depth opacity. */
+    fun drawOccludedImage(bounds: LayoutBounds, image: Texture?, radius: Float,
+        occluders: List<LayoutBounds>, brightness: Float, blurPixels: Float)
+
     fun drawFlowingBackdrop(bounds: LayoutBounds, image: Texture, phase: Float, radius: Float)
     /** Fill the rounded bounds by center-cropping square artwork, with a fade behind the lower caption. */
     fun drawCroppedSquareImage(bounds: LayoutBounds, image: Texture, radius: Float)

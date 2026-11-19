@@ -12,7 +12,6 @@ import me.sorihiko.dangomusicgtnh.music.PlaybackView
 import me.sorihiko.dangomusicgtnh.ui.LayoutBounds
 import me.sorihiko.dangomusicgtnh.ui.ShapeStyle
 import me.sorihiko.dangomusicgtnh.ui.Theme
-import me.sorihiko.dangomusicgtnh.ui.UiStyle
 import me.sorihiko.dangomusicgtnh.ui.VectorIcon
 import me.sorihiko.dangomusicgtnh.utils.Color
 import kotlin.math.abs
@@ -308,8 +307,9 @@ internal class LyricsPage(
                     minOf(14f, hit.width * 0.45f) * scale, white.copy(a = if (enabled) 0.95f else 0.40f))
                 if (over) {
                     val right = if (popup == null) hit.x else popup.x
-                    val hint = ui.trim(label, (right - frame.viewport.x - 16f).coerceAtLeast(0f), 12f)
-                    ui.text(hint, right - 9f - ui.width(hint, 12f), center - 6f, 12f, white)
+                    val size = 9f
+                    val hint = ui.trim(label, (right - frame.viewport.x - 16f).coerceAtLeast(0f), size)
+                    ui.text(hint, right - 9f - ui.width(hint, size), center - size / 2f, size, white)
                 }
                 if (enabled) ui.hits += hit to action
             }
@@ -326,15 +326,15 @@ internal class LyricsPage(
             button(4, LyricsIcons.fontSize, I18n.text("Lyrics font size"), selected = fontSliderOpen) {
                 if (fontSliderOpen) dismissMenu() else fontSliderOpen = true
             }
-            if (popup != null) drawFontSlider(popup)
+            if (popup != null) drawFontSlider(popup, song)
         }
         if (!hovered) while (ui.hits.size > firstHit) ui.hits.removeAt(ui.hits.lastIndex)
     }
 
-    private fun drawFontSlider(panel: LayoutBounds) {
+    private fun drawFontSlider(panel: LayoutBounds, song: NeteaseTrack?) {
         val setting = module.lyricsPageSize
-        ui.ctx.drawGlass(panel, (if (UiStyle.continuous) PopupLook.CONTINUOUS_GLASS else PopupLook.CLASSIC_GLASS)
-            .copy(radius = 8f, bevel = 6f, refraction = 4f))
+        backdrop.drawLyrics(panel, song, 8f)
+        ui.ctx.drawShape(panel, ShapeStyle(radius = 8f, borderWidth = 0.65f, borderColor = Theme.HAIRLINE))
         val x = panel.x + 16f
         val rail = LayoutBounds(x - 2f, panel.y + 32f, 4f, panel.height - 64f)
         fontSliderTrack = rail
@@ -560,8 +560,12 @@ internal class LyricsPage(
     }
 
     private fun drawMenu(b: LayoutBounds) {
-        ui.ctx.drawShape(b, ShapeStyle(Color.fromHex("#513332"), 13f, 1f, white.copy(a = 0.18f)))
         val more = menu == Menu.MORE
+        if (more) ui.ctx.drawShape(b, ShapeStyle(Color.fromHex("#513332"), 13f, 1f, white.copy(a = 0.18f)))
+        else {
+            backdrop.drawLyrics(b, track, 13f)
+            ui.ctx.drawShape(b, ShapeStyle(radius = 13f, borderWidth = 0.65f, borderColor = Theme.HAIRLINE))
+        }
         ui.text(I18n.text(if (more) "Lyrics settings" else "Lyrics font size"), b.x + 14f, b.y + 12f, 15f, white, Theme.FONT_SEMIBOLD)
         val size = module.lyricsPageSize.value
         val sizeY = b.y + 37f
@@ -606,11 +610,12 @@ internal class LyricsPage(
     }
 
     private fun drawTooltip(anchor: LayoutBounds, text: String, left: Boolean) {
-        val width = ui.width(text, 12f) + 18f
+        val size = if (left) 9f else 12f
+        val width = ui.width(text, size) + 18f
         val box = if (left) LayoutBounds(anchor.x - width - 9f, anchor.y - 24f, width, 22f)
             else LayoutBounds(anchor.right + 9f, anchor.y + 7f, width, 22f)
         ui.card(box, Color.fromHex("#513332"), 7f)
-        ui.text(text, box.x + 9f, box.y + 5f, 12f, white)
+        ui.text(text, box.x + 9f, box.y + (box.height - size) / 2f, size, white)
     }
 }
 

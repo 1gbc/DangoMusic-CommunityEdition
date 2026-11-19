@@ -230,22 +230,30 @@ public class AppleLyricsMenuCheck {
         labels.clear();
         icons.clear();
         int beforeGlass = glassDraws[0];
+        var playerPanel = bottom.getPlayerPanel();
+        var bottomPanel = new AtomicReference<LayoutBounds>();
+        bottom.setPlayerPanel(box -> { bottomPanel.set(box); return playerPanel.invoke(box); });
         bottom.draw(frame, track, barAnchor);
         ui.getMt().flush(1f);
-        check(labels.equals(List.of("插播", "最后播放", "个人收藏", "查看制作人员", "拷贝链接")),
-            "Bottom menu contains only the five supported and localized actions: " + labels);
-        check(icons.size() == 5, "All bottom menu actions have vector icons");
-        var bounds = glassMenuBounds.get();
-        var style = glassMenuStyle.get();
-        check(glassDraws[0] == beforeGlass + 1 && style.equals(lyricsGlass) && style.getRadius() == 5f * MENU_SCALE
+        check(labels.equals(List.of("插播", "最后播放", "个人收藏", "查看制作人员", "拷贝链接", "收藏到歌单", "停止播放")),
+            "Bottom menu contains the seven supported and localized actions: " + labels);
+        check(icons.size() == 7, "All bottom menu actions have vector icons");
+        var bounds = bottomPanel.get();
+        check(bounds != null && glassDraws[0] == beforeGlass
                 && Math.abs(bounds.getWidth() - lyricsBounds.getWidth()) < .001f
-                && Math.abs(bounds.getHeight() - 128f * MENU_SCALE) < .001f,
-            "Bottom popup uses the same frosted glass and width with five compact rows");
+                && Math.abs(bounds.getHeight() - 176f * MENU_SCALE) < .001f,
+            "Bottom popup reuses the control panel background with seven compact rows");
         check(Math.abs(bounds.getRight() - (2430f - 2f * MENU_SCALE)) < .001f
                 && Math.abs(bounds.getBottom() - (1240f - 2f * MENU_SCALE)) < .001f,
             "Menu flips left and up when necessary and stays anchored to the original click");
         var queue = (AppleQueuePanel)field(screen, "appleQueue").get(screen);
         queue.toggle();
+        I18n.INSTANCE.setLanguage(I18n.ENGLISH);
+        labels.clear();icons.clear();ui.getHits().clear();
+        bottom.draw(frame, track, barAnchor);ui.getMt().flush(1f);
+        check(labels.contains("Add to Playlist") && labels.contains("Stop playback"), "Bottom menu follows English interface language");
+        I18n.INSTANCE.setLanguage(I18n.CHINESE);
+
         var window = new LayoutBounds(245f, 27f, 980f, 734f);
         var fitted = queue.layoutIn(window);
         check(fitted.getWidth() == 226f && fitted.getBottom() == window.getBottom()
@@ -278,7 +286,7 @@ public class AppleLyricsMenuCheck {
         MusicPlayer.INSTANCE.acceptAppleState(track, 5_000L, true);
         for (float available : new float[]{900f, 420f}) {
             float baseWidth = Math.min(540f, available - 12f);
-            var bar = PlayerBar.Companion.appleBarBounds(240f, available, 784f);
+            var bar = PlayerBar.Companion.appleBarBounds(240f, available, 784f, false);
             check(Math.abs(bar.getWidth() - .8f * baseWidth) < .001f && bar.getHeight() == .8f * 45f
                     && Math.abs(bar.getX() + bar.getWidth() / 2f - (240f + available / 2f)) < .001f
                     && bar.getBottom() == 784f, "Apple bar is 80% of Major 11 and retains its anchor");
@@ -324,7 +332,7 @@ public class AppleLyricsMenuCheck {
         backdrop.prepareMenuFrame(nextTrack);
         float windowRadius = Theme.INSTANCE.getGLASS_WINDOW().getRadius();
         backdrop.drawMenuPanel(window, windowRadius, Color.Companion.getTRANSPARENT(), 1f);
-        var narrowerBar = PlayerBar.Companion.appleBarBounds(240f, 800f, 784f);
+        var narrowerBar = PlayerBar.Companion.appleBarBounds(240f, 800f, 784f, false);
         backdrop.drawMenuPanel(narrowerBar, narrowerBar.getHeight() / 2f, Color.Companion.getTRANSPARENT(), 1f);
         float lower = flowingAlpha.get(0);
         float upper = flowingAlpha.get(1);

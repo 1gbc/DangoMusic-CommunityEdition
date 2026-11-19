@@ -1,5 +1,7 @@
 package me.sorihiko.dangomusicgtnh.legacy
 
+import me.sorihiko.dangomusicgtnh.DangoMusic
+
 import me.sorihiko.dangomusicgtnh.platform.KeyBindingLink
 import me.sorihiko.dangomusicgtnh.platform.NativePlayerKey
 import me.sorihiko.dangomusicgtnh.platform.PlayerAction
@@ -60,11 +62,13 @@ object LegacyKeyBindings {
         var refresh = false
         if (links == null) {
             val saved = savedPlayerKeys(mc.mcDataDir.toPath().resolve("options.txt"))
+            val imported = DangoMusic.instance.configManager.importedPlayerKeys
             links = bindings.map { binding ->
                 val mapping = mappings.getValue(binding.action)
                 val before = read(mapping)
                 val savedKey = saved[binding.action.translationKey]?.let(::parse)
-                KeyBindingLink(binding, { read(mapping) }, { write(mapping, it) }, savedKey).also {
+                val importedKey = imported[binding.action.translationKey]?.let(::parse)
+                KeyBindingLink(binding, { read(mapping) }, { write(mapping, it) }, importedKey ?: savedKey).also {
                     val current = read(mapping)
                     if (current != before) refresh = true
                     if (current != (savedKey ?: before)) dirty = true
@@ -75,6 +79,12 @@ object LegacyKeyBindings {
         if (refresh || dirty) KeyBinding.resetKeyBindingArrayAndHash()
         if (dirty) settings.saveOptions()
     }
+
+    fun exportSnapshot(): Map<String, String> = mappings.map { (action, mapping) ->
+        val key = read(mapping)
+        val value = key.modifier?.let { "${key.code}:$it" } ?: key.code.toString()
+        action.translationKey to value
+    }.toMap()
 
     fun isModifierKey(keyCode: Int): Boolean = modifiers?.isModifierKey(keyCode) == true
 

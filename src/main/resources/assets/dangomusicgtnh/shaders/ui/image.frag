@@ -6,6 +6,12 @@ uniform float u_Radius;
 uniform float u_Continuous;
 uniform float u_FlowPhase;
 uniform float u_CaptionShade;
+uniform vec4 u_Occluders[12];
+uniform int u_OccluderCount;
+uniform float u_OccluderRadiusRatio;
+uniform float u_Brightness;
+uniform float u_Placeholder;
+uniform float u_HorizontalBlur;
 varying vec2 uv;
 varying vec2 v_Position;
 
@@ -52,7 +58,15 @@ void main() {
         // Mirror the edges so drifting colours never expose a fixed strip.
         sampleUv = vec2(1.0) - abs(vec2(1.0) - mod(sampleUv, 2.0));
     }
-    vec4 color = texture2D(u_Texture, sampleUv);
+    vec4 color = u_Placeholder > 0.5 ? vec4(0.16, 0.16, 0.18, 1.0) : texture2D(u_Texture, sampleUv);
+    // Filter the artwork in its direction of travel. The silhouette and overlap masks stay sharp.
+    if (u_Placeholder < 0.5 && u_HorizontalBlur > 0.001) {
+        vec2 offset = vec2(u_HorizontalBlur, 0.0);
+        vec2 left = vec2(max(0.0, sampleUv.x - offset.x), sampleUv.y);
+        vec2 right = vec2(min(1.0, sampleUv.x + offset.x), sampleUv.y);
+        color = color * 0.58 + (texture2D(u_Texture, left) + texture2D(u_Texture, right)) * 0.21;
+    }
+    color.rgb *= u_Brightness;
     if (u_CaptionShade > 0.0) {
         float height = (v_Position.y - u_Bounds.y) / max(1.0, u_Bounds.w);
         color.rgb *= 1.0 - u_CaptionShade * smoothstep(0.52, 0.98, height);
@@ -68,6 +82,13 @@ void main() {
         float d = sdRoundBox(v_Position - u_Bounds.xy - halfSize, halfSize, u_Radius);
         float aa = max(fwidth(d), 0.0001);
         mask = 1.0 - smoothstep(-aa, 0.0, d);
+    }
+    for (int i = 0; i < 12; i++) {
+        if (i >= u_OccluderCount) break;
+        vec4 box = u_Occluders[i];
+        float d = sdRoundBox(v_Position - box.xy - box.zw * 0.5, box.zw * 0.5,
+            box.z * u_OccluderRadiusRatio);
+        mask *= smoothstep(-max(fwidth(d), 0.0001), 0.0, d);
     }
     gl_FragColor = vec4(color.rgb, color.a * mask * u_Opacity);
 }

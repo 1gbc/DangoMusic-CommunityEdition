@@ -51,7 +51,7 @@ class NeteaseMusicModule : Module() {
     }
 
     @ModuleValue("Volume", "Playback volume")
-    private val volume = FloatValue(0f, 1f, 0.2f, 2)
+    private val volume = FloatValue(0f, 1f, MusicPlayer.DEFAULT_VOLUME, 2)
 
     @ModuleValue("Audio output", "Where the music plays through")
     // 0 自动（安卓用游戏的 OpenAL，电脑用 Java Sound），1 Java Sound，2 游戏的 OpenAL
@@ -98,7 +98,7 @@ class NeteaseMusicModule : Module() {
     private val repeatOne = BooleanValue(false)
 
     @ModuleValue("Open key", "Key that opens the player")
-    val openKey = IntValue(-100, 255, Keys.M)
+    val openKey = IntValue(-100, 255, PlayerAction.OPEN.defaultKey)
 
     // 其它快捷键：默认都不绑定（0 = 无），在播放器设置里自己设
     @ModuleValue("Play / Pause", "Hotkey to play or pause")
@@ -135,7 +135,7 @@ class NeteaseMusicModule : Module() {
     private val playbackFades = BooleanValue(true)
 
     @ModuleValue("Interface style", "Classic: rounded corners, capsule switches with round knobs. Continuous corners: smoother squircle corners everywhere")
-    private val uiStyle = IntValue(0, 1, 0)
+    private val uiStyle = IntValue(0, 1, 1)
 
     @ModuleValue("Apple Music sidebar style", "Choose between blue icons with flowing cover colors and red icons with dark glass. Also applies to NetEase in Apple style.")
     private val appleSidebarStyle = IntValue(0, 1, 0)
@@ -143,7 +143,7 @@ class NeteaseMusicModule : Module() {
     internal val appleSidebarUsesDarkGlass get() = appleSidebarStyle.value == 1
 
     @ModuleValue("NetEase interface style", "Choose the interface layout for NetEase Music")
-    private val neteaseInterfaceStyle = IntValue(0, 1, 0)
+    private val neteaseInterfaceStyle = IntValue(0, 1, 1)
 
     internal val neteaseUsesAppleLayout get() = neteaseInterfaceStyle.value == 1
 
@@ -154,7 +154,7 @@ class NeteaseMusicModule : Module() {
     private val audioBuffer = FloatValue(100f, 1500f, 400f, 0)
 
     @ModuleValue("Environment audio", "Echo follows the room you are in (size and materials), muffled underwater")
-    private val envAudio = BooleanValue(true)
+    private val envAudio = BooleanValue(false)
 
     @ModuleValue("Rain", "A little quieter in rain and thunder")
     private val envRain = BooleanValue(true)
@@ -402,13 +402,15 @@ class NeteaseMusicModule : Module() {
 
     private var appleWasAuthorized = false
 
+    internal fun syncPlayerKeys() = DangoMusic.instance.platform.syncKeyBindings(keyBindings.values)
+
     @EventHandler
     fun onTick(e: TickEvent) {
         // 即使播放器被关闭，也要初始化并保存界面语言。
         applyLanguage()
         me.sorihiko.dangomusicgtnh.ui.UiStyle.continuous = uiStyle.value == 1
         MusicSources.selected = MusicSource.fromConfig(musicSource.value)
-        DangoMusic.instance.platform.syncKeyBindings(keyBindings.values)
+        syncPlayerKeys()
         if (!enabled) return
         // 歌词模块一直开着（显示与否由 3D lyrics 控制）；等配置读回之后再检查
         if (++tickCount > 5) lyrics()?.let { if (!it.enabled) it.enabled = true }

@@ -397,3 +397,47 @@ test('rapid track changes wait for a prior queue mutation and skip its playback'
   await latest;
   assert.deepEqual(calls, ['queue:456','queue:789','play:789']);
 });
+
+test('playlist add checks all duplicate pages and writes the selected resource type', async()=>{
+  const vm=require('node:vm');const calls=[];let duplicate=false;
+  const player={isAuthorized:true,api:{music:async(path,params,options)=>{
+    calls.push({path,params,options});
+    if(!path.endsWith('/tracks'))return {data:{data:[{attributes:{canEdit:true}}]}};
+    if(options){assert.equal(options.method,'POST');assert.deepEqual(JSON.parse(options.body),{data:[{id:'123',type:'songs'}]});return {};}
+    if(params.offset===0)return {data:{data:[{id:'i.other'}],next:'/v1/me/library/playlists/p.test/tracks?offset=100'}};
+    return {data:{data:duplicate?[{id:'i.alias',attributes:{playParams:{catalogId:'123'}}}]:[]}};
+  }}};
+  const context=vm.createContext({location:{origin:'https://music.apple.com'},MusicKit:{getInstance:()=>player},URL,setTimeout,clearTimeout});
+  vm.runInContext(fs.readFileSync(__dirname+'/extension/adapter.js','utf8'),context);
+  const query=()=>context.appleAdapter({name:'query',value:{op:'playlistAdd',id:'p.test:songs:123',offset:0}});
+  assert.equal((await query()).result,'added');
+  assert.equal(calls.filter(call=>call.options).length,1);
+  calls.length=0;duplicate=true;
+  assert.equal((await query()).result,'duplicate');
+  assert.equal(calls.filter(call=>call.options).length,0);
+});
+test('playlist add rejects read-only lists, invalid targets and API failures', async()=>{
+  const vm=require('node:vm');let reads=0;
+  const player={isAuthorized:true,api:{music:async()=>{reads++;return {data:{data:[{attributes:{canEdit:false}}]}};}}};
+  const context=vm.createContext({location:{origin:'https://music.apple.com'},MusicKit:{getInstance:()=>player},URL,setTimeout,clearTimeout});
+  vm.runInContext(fs.readFileSync(__dirname+'/extension/adapter.js','utf8'),context);
+  const query=id=>context.appleAdapter({name:'query',value:{op:'playlistAdd',id,offset:0}});
+  assert.ok((await query('p.test:songs:123')).error);
+  assert.equal(reads,1);
+  await assert.rejects(query('../outside:songs:123'));
+  player.api.music=async()=>{throw {status:403,message:'PRIVATE_TOKEN'};};
+  const denied=await query('p.test:songs:123');
+  assert.ok(denied.error);assert.ok(!JSON.stringify(denied).includes('PRIVATE_TOKEN'));
+});
+
+test('library songs retain their catalog recording IDs for favorite cache reconciliation',async()=>{
+  const vm=require('node:vm');const player={isAuthorized:true,api:{music:async(path,params)=>{
+    assert.equal(path,'/v1/me/library/songs');assert.equal(params.include,'catalog');
+    return {data:{data:[{id:'i.library',type:'library-songs',attributes:{name:'Song',inFavorites:true},
+      relationships:{catalog:{data:[{id:'123',attributes:{}}]}}}]}};
+  }}};
+  const context=vm.createContext({location:{origin:'https://music.apple.com'},MusicKit:{getInstance:()=>player},URL,setTimeout,clearTimeout});
+  vm.runInContext(fs.readFileSync(__dirname+'/extension/adapter.js','utf8'),context);
+  const result=await context.appleAdapter({name:'query',value:{op:'favoriteSongs',offset:0}});
+  assert.equal(result.items[0].id,'i.library');assert.equal(result.items[0].playId,'123');assert.equal(result.items[0].library,false);
+});

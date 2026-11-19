@@ -239,6 +239,19 @@ object CoverCache {
     /** Upload full square art so both resolutions use the same on-screen antialiased mask. */
     fun lyricsArtwork(track: NeteaseTrack): Texture? = squareArtwork("t:${track.key}", track.coverUrl)
 
+    fun coverflowArtwork(track: NeteaseTrack, moving: Boolean): Texture? {
+        if (!moving) return lyricsArtwork(track) ?: track(track)
+        val key = "t:${track.key}"
+        for (source in arrayOf(LARGE_PREFIX + key, key)) {
+            val textureKey = source + LYRICS_ARTWORK_SUFFIX
+            textures[textureKey]?.let {
+                lastUsed[textureKey] = now
+                return it
+            }
+        }
+        return track(track)
+    }
+
     fun playlistArtwork(playlist: NeteasePlaylist): Texture? = squareArtwork("p:${playlist.id}", playlist.coverUrl)
 
     private fun squareArtwork(sourceKey: String, url: String): Texture? {

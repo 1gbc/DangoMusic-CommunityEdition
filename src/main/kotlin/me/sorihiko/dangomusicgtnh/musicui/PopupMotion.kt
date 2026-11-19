@@ -16,3 +16,28 @@ internal class PopupMotion {
             anchor.width+(target.width-anchor.width)*p, anchor.height+(target.height-anchor.height)*p)
     }
 }
+
+/** Draw the panel and reveal its contents from the control that opened it. */
+internal fun PopupMotion.draw(
+    ui: Ui, anchor: LayoutBounds, target: LayoutBounds, open: Boolean,
+    panel: (LayoutBounds) -> Unit,
+    content: (LayoutBounds, Boolean, LayoutBounds) -> Unit,
+): LayoutBounds {
+    val bounds = bounds(anchor, target)
+    val amount = progress.coerceIn(0f, 1f)
+    if (!visible) return bounds
+
+    ui.ctx.pushOpacity(amount)
+    try { panel(bounds) } finally { ui.ctx.popOpacity() }
+    ui.beginClip(bounds)
+    ui.ctx.pushOpacity(contentOpacity)
+    try {
+        ui.popup(bounds) { content(target.copy(y = target.y + 10f * (1f - amount)), open && amount > 0.6f, bounds) }
+    } finally {
+        ui.ctx.popOpacity()
+        ui.endClip()
+    }
+    return bounds
+}
+
+internal const val CONTROL_POPUP_GAP = 8f
