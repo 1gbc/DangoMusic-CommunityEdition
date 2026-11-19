@@ -6,10 +6,10 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 enum class PlayerAction(val id: String, val defaultKey: Int = Keys.NONE) {
-    OPEN("open_player", Keys.M), PAUSE("play_pause"), PREVIOUS("previous"), NEXT("next"),
+    OPEN("open_player"), PAUSE("play_pause"), PREVIOUS("previous"), NEXT("next"),
     VOLUME_UP("volume_up"), VOLUME_DOWN("volume_down"), LYRICS("toggle_lyrics"), STOP("stop_playback"),
-    /** 按住时滚轮翻看驾驶舱歌词（默认左 Alt） */
-    LYRIC_PREVIEW("lyric_preview", Keys.LMENU);
+    /** 按住时滚轮翻看驾驶舱歌词 */
+    LYRIC_PREVIEW("lyric_preview");
 
     val translationKey: String get() = "key.dangomusicgtnh.$id"
 }

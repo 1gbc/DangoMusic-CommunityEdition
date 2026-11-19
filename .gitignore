@@ -40,3 +40,6 @@ layout.json
 /tools/apple-native-player/bin/
 /tools/apple-native-player/obj/
 /tools/release/__pycache__/
+
+# Keep packaged mods in CI artifacts and GitHub Releases.
+/*.jar

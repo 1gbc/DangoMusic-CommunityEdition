@@ -796,6 +796,10 @@ Style C	样式 C
 Playback tab	播放
 Interface & HUD	界面与 HUD
 Reset all settings	恢复全部设置
+Export settings	导出设置
+Replace the existing configuration file?	要替换现有的配置文件吗？
+Settings exported	设置已导出
+Could not export settings	无法导出设置
 Lyric details	歌词细项
 Cockpit layout	驾驶舱布局
 Cockpit font and colors	驾驶舱字体与配色

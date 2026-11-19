@@ -2,6 +2,9 @@ package me.sorihiko.dangomusicgtnh.musicui
 
 import me.sorihiko.dangomusicgtnh.DangoClient
 import me.sorihiko.dangomusicgtnh.DangoMusic
+import me.sorihiko.dangomusicgtnh.DangoLogger
+import me.sorihiko.dangomusicgtnh.client.ClientMusic
+import me.sorihiko.dangomusicgtnh.client.SettingsExport
 import me.sorihiko.dangomusicgtnh.i18n.I18n
 import me.sorihiko.dangomusicgtnh.module.Module
 import me.sorihiko.dangomusicgtnh.module.impls.music.DynamicIslandModule
@@ -474,13 +477,18 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         ui.headerAnim {
             val resetLabel = I18n.text(if (System.currentTimeMillis() < resetArmedUntil) "Click again to confirm" else "Reset all settings")
             val resetWidth = (ui.width(resetLabel, 11f, Theme.FONT_SEMIBOLD) + 22f).coerceAtMost(page.width * 0.52f)
-            val title = ui.trim(I18n.text("Settings"), page.width - resetWidth - 12f, 22f, Theme.FONT_DISPLAY)
+            val exportLabel = I18n.text("Export settings")
+            val exportWidth = (ui.width(exportLabel, 11f, Theme.FONT_SEMIBOLD) + 22f).coerceAtMost(page.width * 0.35f)
+            val title = ui.trim(I18n.text("Settings"), page.width - resetWidth - exportWidth - 18f, 22f, Theme.FONT_DISPLAY)
             ui.text(title, page.x, page.y, 22f, Theme.TEXT_PRIMARY, Theme.FONT_DISPLAY)
             if (!UiStyle.continuous) {
                 val subtitle = ui.trim(I18n.text("Changes apply instantly and are saved automatically"), page.width, 11f, Theme.FONT_SEMIBOLD)
                 ui.text(subtitle, page.x, page.y + 30f, 11f, Theme.TEXT_SECONDARY, Theme.FONT_SEMIBOLD)
             }
-            drawResetButton(LayoutBounds(page.right - resetWidth, page.y + 2f, resetWidth, 24f), resetLabel)
+            val reset = LayoutBounds(page.right - resetWidth, page.y + 2f, resetWidth, 24f)
+            val export = LayoutBounds(reset.x - exportWidth - 6f, reset.y, exportWidth, reset.height)
+            drawHeaderButton(export, exportLabel, enabled = !exporting, action = ::exportSettings)
+            drawResetButton(reset, resetLabel)
             drawTabs(page, tabTop, names, tabsPerRow)
         }
 
@@ -511,6 +519,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             ui.ctx.drawShape(LayoutBounds(view.right - 4f, ty, 4f, th), ShapeStyle(Color(1f, 1f, 1f, 0.30f), 2f))
         }
         drawResetNotice(page, top)
+        drawExportNotice(page, top)
         if (picker != null || fontChoice != null) ui.mt.flush(ui.scale)
         drawPicker(view)
         drawFontList(view)
@@ -1195,13 +1204,59 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
     private var resetArmedUntil = 0L
     private var resetNoticeAt: Long? = null
 
-    private fun drawResetButton(b: LayoutBounds, label: String) {
-        val armed = System.currentTimeMillis() < resetArmedUntil
+    @Volatile private var exporting = false
+    @Volatile private var exportNotice = TimedNotice("")
+
+    private fun exportSettings() {
+        if (exporting) return
+        commitEdit()
+        exporting = true
+        try {
+            SettingsExport.chooseAndSave(I18n.text("Export settings"), I18n.text("Replace the existing configuration file?"),
+                ClientMusic.settingsExportSnapshot()) { result ->
+                result.onSuccess { saved ->
+                    if (saved) exportNotice = TimedNotice(I18n.text("Settings exported"))
+                }.onFailure(::reportExportFailure)
+                exporting = false
+            }
+        } catch (failure: Exception) {
+            reportExportFailure(failure)
+            exporting = false
+        }
+    }
+
+    private fun reportExportFailure(failure: Throwable) {
+        DangoLogger.warn("Settings export failed: {}", failure.toString())
+        exportNotice = TimedNotice(I18n.text("Could not export settings"))
+    }
+
+    private fun drawExportNotice(page: LayoutBounds, contentTop: Float) {
+        val notice = exportNotice
+        val opacity = notice.opacity()
+        if (opacity <= 0f) return
+        val font = Theme.FONT_SEMIBOLD
+        val label = ui.trim(notice.text, (page.width - 36f).coerceAtLeast(0f), 11f, font)
+        val width = ui.width(label, 11f, font) + 22f
+        val bounds = LayoutBounds(page.x + (page.width - width) / 2f, contentTop + 12f, width, 28f)
+        ui.mt.flush(ui.scale)
+        ui.shifted(0f, 0f, opacity) {
+            PopupLook.panel(ui.ctx, bounds)
+            ui.text(label, bounds.x + 11f, bounds.y + 9f, 11f, Theme.TEXT_PRIMARY, font)
+        }
+    }
+
+    private fun drawHeaderButton(b: LayoutBounds, label: String, armed: Boolean = false,
+                                 enabled: Boolean = true, action: () -> Unit) {
         val shown = ui.trim(label, b.width - 12f, 11f, Theme.FONT_SEMIBOLD)
-        ui.card(b, if (armed) RED else if (ui.hover(b)) Theme.CARD_HOVER else Theme.CARD, 8f)
+        ui.card(b, if (armed) RED else if (enabled && ui.hover(b)) Theme.CARD_HOVER else Theme.CARD, 8f)
         ui.text(shown, b.x + (b.width - ui.width(shown, 11f, Theme.FONT_SEMIBOLD)) / 2f,
-            b.y + 12f - 11f * 0.39f - 0.5f, 11f, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
-        ui.hits += b to {
+            b.y + 12f - 11f * 0.39f - 0.5f, 11f,
+            if (enabled) Theme.TEXT_PRIMARY else Theme.TEXT_TERTIARY, Theme.FONT_SEMIBOLD)
+        if (enabled) ui.hits += b to action
+    }
+
+    private fun drawResetButton(b: LayoutBounds, label: String) {
+        drawHeaderButton(b, label, armed = System.currentTimeMillis() < resetArmedUntil) {
             if (System.currentTimeMillis() < resetArmedUntil) {
                 resetArmedUntil = 0L
                 resetAll()

@@ -47,7 +47,9 @@ object MusicPlayer {
         private set
     private var appleQueuePausePending = false
     /** 0..1 */
-    @Volatile var volume = 0.2f
+    const val DEFAULT_VOLUME = 0.1f
+
+    @Volatile var volume = DEFAULT_VOLUME
     @Volatile var playbackFades = true
 
     /** 声音从哪里放：0 自动（安卓用游戏的 OpenAL，电脑用 Java Sound），1 Java Sound，2 游戏的 OpenAL。换了就从当前位置重新开始放 */

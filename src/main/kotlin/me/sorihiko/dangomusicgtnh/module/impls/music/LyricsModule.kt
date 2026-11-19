@@ -88,10 +88,10 @@ class LyricsModule : Module() {
     internal val worldMode = BooleanValue(true)
 
     @ModuleValue("Lyric style", "Where lyrics appear: floating in the world, cockpit-style on the screen edge, both, or nowhere")
-    internal val lyricStyle = IntValue(STYLE_WORLD, STYLE_OFF, STYLE_WORLD)
+    internal val lyricStyle = IntValue(STYLE_WORLD, STYLE_OFF, STYLE_OFF)
 
     @ModuleValue("Side position", "Where the side lyric list sits")
-    internal val sidePosition = IntValue(0, 2, 0)
+    internal val sidePosition = IntValue(0, 2, 2)
 
     @ModuleValue("Horizontal offset", "Moves the list right (positive) or left (negative) from its position")
     internal val sideOffsetX = FloatValue(-300f, 300f, 0f, 0)
@@ -124,7 +124,7 @@ class LyricsModule : Module() {
     internal val sideGlass = BooleanValue(false)
 
     @ModuleValue("Text opacity", "Lower it so the lyrics cover less of the game")
-    internal val sideOpacity = FloatValue(0.1f, 1f, 0.85f, 2)
+    internal val sideOpacity = FloatValue(0.1f, 1f, 0.8f, 2)
 
     @ModuleValue("Refraction", "How strongly the glass bends the game behind it")
     internal val sideRefraction = FloatValue(0f, 1f, 0.2f, 2)
@@ -136,7 +136,7 @@ class LyricsModule : Module() {
     internal val sideGlowStrength = FloatValue(0f, 1f, 0.5f, 2)
 
     @ModuleValue("Halo", "A soft light spreading around the text")
-    internal val sideTextGlow = BooleanValue(true)
+    internal val sideTextGlow = BooleanValue(false)
 
     @ModuleValue("Guide line", "A thin glowing line beside the list with a tick at the current line")
     internal val sideGuide = BooleanValue(true)
@@ -148,7 +148,7 @@ class LyricsModule : Module() {
     internal val sideInertiaStrength = FloatValue(0.1f, 1f, 0.5f, 2)
 
     @ModuleValue("Cockpit font", "The default bold font, a font from config/dangomusicgtnh/fonts, another mod's font folder, or a system font")
-    internal val sideFont = TextValue("")
+    internal val sideFont = TextValue("sys:AniMe Vision - MB_EN")
 
     /** 驾驶舱字体那一行里选“像素字体”时为 false（和 3D 歌词的 smoothFont 一样，设置页里合进字体那一行） */
     @ModuleValue("Cockpit smooth font", "")
@@ -161,10 +161,10 @@ class LyricsModule : Module() {
     internal val sideColor = ColorValue(0x8EC5FF)
 
     @ModuleValue("Color in letters", "How much of the color goes into the letters themselves; 0 keeps white letters with a colored glow")
-    internal val sideTint = FloatValue(0f, 1f, 0.2f, 2)
+    internal val sideTint = FloatValue(0f, 1f, 0.6f, 2)
 
     @ModuleValue("Text brightness", "Makes the lyrics brighter or darker")
-    internal val sideBrightness = FloatValue(0.3f, 1.6f, 1f, 2)
+    internal val sideBrightness = FloatValue(0.3f, 1.6f, 0.8f, 2)
 
     @ModuleValue("Other lines", "How visible the lines before and after the current one are")
     internal val sideOtherLines = FloatValue(0.1f, 1f, 0.45f, 2)
@@ -238,13 +238,13 @@ class LyricsModule : Module() {
     private val glow = BooleanValue(true)
 
     @ModuleValue("Night glow only", "Turn glow off in daylight and back on when it gets dark")
-    private val glowNightOnly = BooleanValue(false)
+    private val glowNightOnly = BooleanValue(true)
 
     @ModuleValue("Glow strength", "Glow brightness")
     private val glowStrength = FloatValue(0f, 3f, 0.3f, 2)
 
     @ModuleValue("Glow radius", "Halo spread: higher is wider and softer")
-    private val glowRadius = FloatValue(0f, 1f, 0.5f, 2)
+    private val glowRadius = FloatValue(0f, 1f, 0.25f, 2)
 
     /** 平滑字体还是原版像素字体：设置页里和"歌词字体"合成一项，不单独显示 */
     @ModuleValue("Smooth font", "Smooth font instead of the Minecraft pixel font")
@@ -315,7 +315,7 @@ class LyricsModule : Module() {
     private val keepAway = BooleanValue(true)
 
     @ModuleValue("Stay on screen", "Lyrics glide back into view when you turn away, so they never leave the screen")
-    private val stayOnScreen = BooleanValue(false)
+    private val stayOnScreen = BooleanValue(true)
 
     @ModuleValue("Above ground", "Lyrics never appear below your eyes, so they don't sink into the ground")
     private val aboveGround = BooleanValue(false)
@@ -330,7 +330,7 @@ class LyricsModule : Module() {
     private val splitLines = BooleanValue(true)
 
     @ModuleValue("Translation", "Show the translation under each lyric line when the song has one")
-    private val translation = BooleanValue(false)
+    private val translation = BooleanValue(true)
 
     @ModuleValue("Show phonetic lyrics", "Show phonetic lyrics under the original when available")
     private val romanization = BooleanValue(false)
@@ -363,7 +363,7 @@ class LyricsModule : Module() {
     private val danceOffset = IntValue(-300, 300, 0)
 
     @ModuleValue("Lyric colors", "Where the lyric and translation colors come from")
-    internal val lyricColors = IntValue(COLORS_CUSTOM, COLORS_RAINBOW, COLORS_CUSTOM)
+    internal val lyricColors = IntValue(COLORS_CUSTOM, COLORS_RAINBOW, COLORS_GRADIENT)
 
     @ModuleValue("Rainbow speed", "How fast the rainbow flows across the lyrics")
     private val rainbowSpeed = FloatValue(0.05f, 1f, 0.25f, 2)

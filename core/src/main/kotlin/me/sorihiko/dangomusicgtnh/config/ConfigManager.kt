@@ -41,6 +41,8 @@ class ConfigManager(
     private var ticks = 0
     private var ready = false
     private var lastSaved: String? = null
+    var importedPlayerKeys: Map<String, String> = emptyMap()
+        private set
 
     private fun modules(): List<Module> = moduleManager.modules.values.flatten()
 
@@ -55,6 +57,7 @@ class ConfigManager(
     private var fresh = false
 
     fun load() {
+        importedPlayerKeys = emptyMap()
         if (!Files.exists(file)) {
             fresh = true
             DangoLogger.info("No config found, using defaults: {}", file.toString())
@@ -85,6 +88,10 @@ class ConfigManager(
                 if (!enabledMap.containsKey(module)) enabledMap[module] = module.enabledByDefault
             }
             pendingEnabled = enabledMap
+            val playerKeys = root.get("playerKeyBindings") as? JsonObject
+            importedPlayerKeys = playerKeys?.entrySet()?.mapNotNull { (key, value) ->
+                (value as? JsonPrimitive)?.takeIf { it.isString }?.let { key to it.asString }
+            }?.toMap().orEmpty()
             DangoLogger.info("Config loaded: {}", file.toString())
         } catch (e: Exception) {
             DangoLogger.error("Config load failed, using defaults. {}", e)
@@ -103,7 +110,7 @@ class ConfigManager(
 
     // ---------------------------------------------------------------- 保存
 
-    private fun serialize(): String {
+    private fun settingsSnapshot(): JsonObject {
         val root = JsonObject()
         for (module in modules()) {
             val obj = JsonObject()
@@ -121,6 +128,15 @@ class ConfigManager(
             obj.add("values", values)
             root.add(module.name, obj)
         }
+        return root
+    }
+
+    /** Same JSON read by load(), with the platform modifiers needed to restore shortcuts elsewhere. */
+    fun exportSnapshot(playerKeys: Map<String, String>): String {
+        val root = settingsSnapshot()
+        val bindings = JsonObject()
+        playerKeys.forEach { (key, value) -> bindings.addProperty(key, value) }
+        root.add("playerKeyBindings", bindings)
         return gson.toJson(root)
     }
 
@@ -128,7 +144,7 @@ class ConfigManager(
     fun saveIfChanged() {
         if (!ready) return
         try {
-            val text = serialize()
+            val text = gson.toJson(settingsSnapshot())
             if (text == lastSaved) return
             Files.createDirectories(file.parent)
             // 先写临时文件再替换，避免写到一半崩溃把配置弄坏
