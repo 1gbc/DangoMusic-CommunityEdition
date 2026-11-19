@@ -32,6 +32,11 @@ internal class AppleLyricsMenu(
     private var details: CompletableFuture<AppleMusicSource.SongDetails>? = null
     private var notice = TimedNotice("")
 
+    private data class Action(
+        val label: String, val icon: VectorIcon, val enabled: Boolean = true,
+        val highlighted: Boolean = false, val checked: Boolean = false, val run: () -> Unit,
+    )
+
     val capturesInput get() = menuOpen || creditsOpen
 
     fun toggle() {
@@ -85,12 +90,31 @@ internal class AppleLyricsMenu(
         if (song == null) return
 
         val hitStart = ui.hits.size
-        if (menuOpen) {
-            if (bottomAnchor == null) drawMenu(frame, song) else drawBottomMenu(frame.viewport, song)
-        }
+        if (menuOpen) drawMenu(frame.viewport, if (bottomAnchor != null) bottomActions(song) else lyricActions(song),
+            if (bottomAnchor != null) "Apple Player Menu" else "Apple Lyrics Menu")
         if (creditsOpen) drawCredits(frame, song, metadata, complete)
+        prioritizeHits(frame.viewport, hitStart)
+    }
+
+    fun drawNetease(viewport: LayoutBounds, anchor: LayoutBounds, openQuality: (LayoutBounds) -> Unit) {
+        if (!menuOpen) return
+        val hitStart = ui.hits.size
+        drawMenu(viewport, listOf(
+            Action("Quality", QUALITY) {
+                menuOpen = false
+                openQuality(anchor)
+            },
+            Action("Stop playback", PlayerIcons.stop, MusicPlayer.current?.source == MusicSource.NETEASE) {
+                menuOpen = false
+                ClientMusic.control { if (MusicPlayer.current?.source == MusicSource.NETEASE) Library.stopPlayback() }
+            },
+        ), "NetEase Player Menu")
+        prioritizeHits(viewport, hitStart)
+    }
+
+    private fun prioritizeHits(viewport: LayoutBounds, hitStart: Int) {
         if (capturesInput) {
-            ui.hits += frame.viewport to { dismiss() }
+            ui.hits += viewport to { dismiss() }
             val overlayHits = ui.hits.subList(hitStart, ui.hits.size).toList()
             ui.hits.subList(hitStart, ui.hits.size).clear()
             ui.hits.addAll(0, overlayHits)
@@ -103,9 +127,9 @@ internal class AppleLyricsMenu(
         }
     }
 
-    private fun menuBounds(viewport: LayoutBounds, width: Float, height: Float): LayoutBounds {
-        val gap = 2f
-        val padding = 4f
+    private fun menuBounds(viewport: LayoutBounds, width: Float, height: Float, scale: Float): LayoutBounds {
+        val gap = 2f * scale
+        val padding = 4f * scale
         val left = viewport.x + padding
         val top = viewport.y + padding
         val maxX = (viewport.right - padding - width).coerceAtLeast(left)
@@ -115,94 +139,83 @@ internal class AppleLyricsMenu(
         return LayoutBounds(x.coerceIn(left, maxX), y.coerceIn(top, maxY), width, height)
     }
 
-    private fun drawWhiteMenu(panel: LayoutBounds, scale: Float = 1f) {
-        ui.ctx.drawShape(panel, ShapeStyle(MENU_WHITE, 5f * scale, shadow =
-            ShadowStyle(Color(0f, 0f, 0f, 0.23f), 10f * scale, Vec2(0f, 2f * scale))))
+    private fun drawMenu(viewport: LayoutBounds, actions: List<Action>, context: String) {
+        // Menus share GUI coordinates even when the full lyrics layout uses its own reference scale.
+        val scale = minOf(MENU_SCALE, viewport.width / (MENU_WIDTH + 8f), viewport.height / (ROW_HEIGHT * 5f + 16f))
+        val rowHeight = ROW_HEIGHT * scale
+        val inset = 4f * scale
+        val panel = menuBounds(viewport, MENU_WIDTH * scale, rowHeight * actions.size + 2f * inset, scale)
+        ui.ctx.pushOpacity(0.94f)
+        try {
+            val glass = MENU_GLASS
+            ui.ctx.drawGlass(panel, glass.copy(radius = glass.radius * scale,
+                refraction = glass.refraction * scale, bevel = glass.bevel * scale,
+                shadow = glass.shadow.copy(size = glass.shadow.size * scale,
+                    offset = Vec2(0f, 2f * scale))))
+        } finally {
+            ui.ctx.popOpacity()
+        }
+        ui.popup(panel) {
+            actions.forEachIndexed { index, action ->
+                val bounds = LayoutBounds(panel.x + inset, panel.y + inset + index * rowHeight,
+                    panel.width - 2f * inset, rowHeight)
+                if (index > 0) ui.card(bounds.copy(height = scale), Theme.HAIRLINE, 0f)
+                drawRow(bounds, action, context, scale)
+            }
+        }
     }
 
-    private fun drawBottomMenu(viewport: LayoutBounds, song: NeteaseTrack) {
-        val width = minOf(186f, viewport.width - 16f)
-        val rowHeight = minOf(24f, (viewport.height - 16f) / 5f)
-        if (width < 80f || rowHeight < 14f) return
-        val panel = menuBounds(viewport, width, rowHeight * 5f + 8f)
-        drawWhiteMenu(panel)
+    private fun bottomActions(song: NeteaseTrack): List<Action> {
         val canQueue = !AppleWebPlayer.stationActive && MusicPlayer.state != MusicPlayer.State.LOADING
         val favorite = Library.favoriteState(song)
-        ui.popup(panel) {
-            fun item(index: Int, label: String, icon: VectorIcon, enabled: Boolean = true, selected: Boolean = false,
-                action: () -> Unit) {
-                val box = LayoutBounds(panel.x + 4f, panel.y + 4f + index * rowHeight, panel.width - 8f, rowHeight)
-                val hovered = enabled && ui.hover(box)
-                if (hovered) ui.card(box, MENU_HOVER, 3f)
-                if (index > 0) ui.card(box.copy(height = 1f), MENU_DIVIDER, 0f)
-                val color = if (enabled) MENU_TEXT else MENU_TEXT.copy(a = 0.40f)
-                ui.text(I18n.text(label, "Apple Player Menu"), box.x + 7f, box.y + (rowHeight - 11f) / 2f,
-                    11f, color, Theme.FONT_MEDIUM)
-                PlayerIcons.draw(ui.ctx, icon, box.right - 13f, box.y + rowHeight / 2f, if (hovered) 14f else 12.5f,
-                    if (selected && enabled) MENU_ACCENT else color)
-                if (enabled) ui.hits += box to action
-            }
-            item(0, "Play Next", PLAY_NEXT, canQueue) {
+        return listOf(
+            Action("Play Next", PLAY_NEXT, canQueue) {
                 ClientMusic.control { MusicPlayer.enqueueApple(song, next = true) }
                 menuOpen = false
-            }
-            item(1, "Play Last", PLAY_LAST, canQueue) {
+            },
+            Action("Play Last", PLAY_LAST, canQueue) {
                 ClientMusic.control { MusicPlayer.enqueueApple(song, next = false) }
                 menuOpen = false
-            }
-            item(2, "Personal Favorite", STAR, favorite?.selected != null && !favorite.pending,
-                favorite?.selected == true) { Library.toggleAppleFavorite(song) }
-            item(3, "View Credits", INFO) {
-                menuOpen = false
-                creditsOpen = true
-                load(song)
-            }
-            item(4, "Copy Link", LINK) {
-                menuOpen = false
-                copyPending = true
-                load(song)
-            }
-        }
+            },
+            Action("Personal Favorite", STAR, favorite?.selected != null && !favorite.pending,
+                highlighted = favorite?.selected == true) { Library.toggleAppleFavorite(song) },
+            creditsAction(song), linkAction(song),
+        )
     }
 
-    private fun drawMenu(frame: AppleLyricsLayout, song: NeteaseTrack) {
-        val scale = frame.scale
-        val rowHeight = 26f * scale
-        val panel = menuBounds(frame.viewport, 169f * scale, 104f * scale)
-        drawWhiteMenu(panel, scale)
-        fun item(index: Int, label: String, icon: VectorIcon, checked: Boolean = false, action: () -> Unit) {
-            val bounds = panel.copy(y = panel.y + index * rowHeight, height = rowHeight)
-            if (index > 0) {
-                ui.card(LayoutBounds(bounds.x, bounds.y, bounds.width, scale), MENU_DIVIDER, 0f)
-            }
-            row(bounds, I18n.text(label, "Apple Lyrics Menu"), icon, scale, checked, action)
-        }
-        item(0, "View Credits", INFO) {
-            menuOpen = false
-            creditsOpen = true
-            load(song)
-        }
-        item(1, "Copy Link", LINK) {
-            menuOpen = false
-            copyPending = true
-            load(song)
-        }
-        item(2, "Romanization", AppleLyricsIcons.romanization, romanization.get(), romanization::toggle)
-        item(3, "Translation", AppleLyricsIcons.translation, translation.get(), translation::toggle)
+    private fun lyricActions(song: NeteaseTrack) = listOf(
+        creditsAction(song), linkAction(song),
+        Action("Romanization", AppleLyricsIcons.romanization, checked = romanization.get(), run = romanization::toggle),
+        Action("Translation", AppleLyricsIcons.translation, checked = translation.get(), run = translation::toggle),
+    )
+
+    private fun creditsAction(song: NeteaseTrack) = Action("View Credits", INFO) {
+        menuOpen = false
+        creditsOpen = true
+        load(song)
     }
 
-    private fun row(
-        bounds: LayoutBounds, text: String, icon: VectorIcon, scale: Float, checked: Boolean, action: () -> Unit,
-    ) {
-        if (ui.hover(bounds)) ui.card(bounds, MENU_HOVER, 3f * scale)
-        val fontSize = 11.5f * scale
-        ui.text(text, bounds.x + 9f * scale, bounds.y + (bounds.height - fontSize) / 2f, fontSize,
-            MENU_TEXT, Theme.FONT_MEDIUM)
+    private fun linkAction(song: NeteaseTrack) = Action("Copy Link", LINK) {
+        menuOpen = false
+        copyPending = true
+        load(song)
+    }
+
+    private fun drawRow(bounds: LayoutBounds, action: Action, context: String, scale: Float) {
+        val hovered = action.enabled && ui.hover(bounds)
+        if (hovered) ui.card(bounds, Theme.CARD_HOVER, 3f * scale)
+        val fontSize = 11f * scale
+        val color = if (action.enabled) Theme.TEXT_PRIMARY else Theme.TEXT_TERTIARY
+        val font = Theme.FONT_MEDIUM
+        val text = ui.trim(I18n.text(action.label, context), bounds.width - (if (action.checked) 48f else 32f) * scale,
+            fontSize, font)
+        ui.text(text, bounds.x + 7f * scale, bounds.y + (bounds.height - fontSize) / 2f, fontSize, color, font)
         val centerY = bounds.y + bounds.height / 2f
-        PlayerIcons.draw(ui.ctx, icon, bounds.right - 15f * scale, centerY, 13.5f * scale, MENU_TEXT)
-        if (checked) PlayerIcons.draw(ui.ctx, PlayerIcons.check, bounds.right - 33f * scale,
-            centerY, 10f * scale, MENU_ACCENT)
-        ui.hits += bounds to action
+        PlayerIcons.draw(ui.ctx, action.icon, bounds.right - 13f * scale, centerY, (if (hovered) 14f else 12.5f) * scale,
+            if (action.highlighted && action.enabled) APPLE_CONTROL_BLUE else color)
+        if (action.checked) PlayerIcons.draw(ui.ctx, PlayerIcons.check, bounds.right - 31f * scale,
+            centerY, 10f * scale, APPLE_CONTROL_BLUE)
+        if (action.enabled) ui.hits += bounds to action.run
     }
 
     private fun drawCredits(
@@ -253,11 +266,22 @@ internal class AppleLyricsMenu(
     }
 
     private companion object {
-        val MENU_WHITE = Color(1f, 1f, 1f, 0.96f)
-        val MENU_TEXT = Color.fromHex("#242329")
-        val MENU_ACCENT = Color.fromHex("#0068D4")
-        val MENU_HOVER = Color(0f, 0f, 0f, 0.06f)
-        val MENU_DIVIDER = Color(0f, 0f, 0f, 0.12f)
+        val QUALITY = VectorIcon.path {
+            move(4.0, 5.0); line(20.0, 5.0)
+            move(4.0, 12.0); line(20.0, 12.0)
+            move(4.0, 19.0); line(20.0, 19.0)
+            move(8.0, 2.5); line(8.0, 7.5)
+            move(15.0, 9.5); line(15.0, 14.5)
+            move(10.0, 16.5); line(10.0, 21.5)
+        }
+        const val MENU_SCALE = 0.85f
+        const val MENU_WIDTH = 186f
+        const val ROW_HEIGHT = 24f
+        val MENU_GLASS = Theme.GLASS_SIDEBAR.copy(
+            radius = 5f, tint = Color(0.09f, 0.09f, 0.12f, 0.24f), maxLuma = 0.23f,
+            saturation = 1.12f, frost = 0.64f, refraction = 3f, bevel = 3f, highlight = 0.65f,
+            shadow = ShadowStyle(Color(0f, 0f, 0f, 0.25f), 10f, Vec2(0f, 2f), outside = true),
+        )
         val PLAY_NEXT = VectorIcon.path {
             move(3.0, 4.0); line(9.0, 8.0); line(3.0, 12.0); close()
             move(13.0, 8.0); line(21.0, 8.0)

@@ -237,8 +237,11 @@ object CoverCache {
     }
 
     /** Upload full square art so both resolutions use the same on-screen antialiased mask. */
-    fun lyricsArtwork(track: NeteaseTrack): Texture? {
-        val sourceKey = "t:${track.key}"
+    fun lyricsArtwork(track: NeteaseTrack): Texture? = squareArtwork("t:${track.key}", track.coverUrl)
+
+    fun playlistArtwork(playlist: NeteasePlaylist): Texture? = squareArtwork("p:${playlist.id}", playlist.coverUrl)
+
+    private fun squareArtwork(sourceKey: String, url: String): Texture? {
         val largeKey = LARGE_PREFIX + sourceKey
         for (key in listOf(largeKey, sourceKey)) {
             val textureKey = key + LYRICS_ARTWORK_SUFFIX
@@ -246,8 +249,8 @@ object CoverCache {
                 lastUsed[textureKey] = now
                 return it
             }
-            val img = if (key == largeKey) largeSource(key, track.coverUrl) else {
-                get(key, track.coverUrl)
+            val img = if (key == largeKey) largeSource(key, url) else {
+                get(key, url)
                 sources[key]
             }
             if (img != null && roundQueued.add(textureKey)) ready.add(textureKey to img)
@@ -257,12 +260,9 @@ object CoverCache {
 
     /** Cover colours for the shared flowing lyrics backdrop. */
     fun trackBackdrop(track: NeteaseTrack): Texture? {
+        cachedTrackBackdrop(track)?.let { return it }
         val sourceKey = "t:${track.key}"
         val key = LARGE_PREFIX + sourceKey + LYRICS_BACKDROP_SUFFIX
-        textures[key]?.let {
-            lastUsed[key] = now
-            return it
-        }
         get(sourceKey, track.coverUrl)
         val source = sources[sourceKey] ?: return null
         if (roundQueued.add(key)) {
@@ -280,6 +280,12 @@ object CoverCache {
             }
         }
         return null
+    }
+
+    /** A transitioning window can keep using a palette without reloading an evicted cover. */
+    internal fun cachedTrackBackdrop(track: NeteaseTrack): Texture? {
+        val key = LARGE_PREFIX + "t:${track.key}" + LYRICS_BACKDROP_SUFFIX
+        return textures[key]?.also { lastUsed[key] = now }
     }
 
     internal fun sampleBackdropColours(source: BufferedImage): BufferedImage {
@@ -350,7 +356,7 @@ object CoverCache {
     }
 
     private val qqSize = Regex("R\\d{2,4}x\\d{2,4}M")
-    private val appleSize = Regex("/\\d{2,4}x\\d{2,4}(bb|cc)(-\\d+)?\\.(jpg|png|webp)(\\?.*)?$")
+    private val appleSize = Regex("/\\d{2,4}x\\d{2,4}([a-z]{0,4})(-\\d+)?\\.(jpg|png|webp)(\\?.*)?$")
     private val neteaseParam = Regex("param=\\d{2,4}y\\d{2,4}")
 
     /** 按平台的规则要 [px] 像素的图：网易云加 param，QQ 换 R300x300，Apple 换 256x256bb；认不出的原样用 */
@@ -404,7 +410,7 @@ object CoverCache {
     fun playlist(p: NeteasePlaylist) = get("p:${p.id}", p.coverUrl)
     fun playlistRounded(p: NeteasePlaylist, ratio: Float = DEFAULT_CORNER_RATIO) = rounded("p:${p.id}", p.coverUrl, ratio)
     fun featuredPlaylist(p: NeteasePlaylist, artwork: String) =
-        get("featured:${p.id}", artwork.ifEmpty { p.coverUrl }, 640, 360)
+        if (artwork.isBlank()) null else get("featured:${p.id}", artwork, 640, 360)
 
     private fun crop(src: BufferedImage, width: Int, height: Int): BufferedImage {
         val cropWidth = min(src.width, (src.height.toLong() * width / height).toInt()).coerceAtLeast(1)

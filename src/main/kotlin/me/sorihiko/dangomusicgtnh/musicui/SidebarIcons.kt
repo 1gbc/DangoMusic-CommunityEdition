@@ -107,15 +107,106 @@ internal object SidebarIcons {
         move(3.0,7.0); line(21.0,7.0); move(17.0,3.0); line(21.0,7.0); line(17.0,11.0)
         move(21.0,17.0); line(3.0,17.0); move(7.0,13.0); line(3.0,17.0); line(7.0,21.0)
     }
-    fun draw(ctx: RenderContext,glyph: String,cx: Float,cy: Float,color: Color,size: Float=20f) {
-        val path=when(glyph) {
-            "⌂"->home; "▤"->chart; "♫"->music; "♬"->people; "☁"->cloud; "⚙"->settings; "♥"->heart
-            "search" -> search; "user" -> user; "up" -> up; "down" -> down; "⇄" -> swap
-            "discover" -> discover; "radio" -> radio; "pin" -> pin; "clock" -> clock; "artist" -> artist
-            "album" -> album; "screen" -> screen; "video" -> video; "genre" -> chart; "compilation" -> people
-            "right" -> right; "left" -> left; "clear" -> clear; "check" -> check; "star" -> star; "filledStar" -> filledStar
-            else -> playlist
+    private val appleSong = VectorIcon.path(filled = true) {
+        move(19.5, 3.0); line(19.5, 6.0); line(12.0, 8.0); line(12.0, 17.5)
+        curve(12.0, 20.0, 10.0, 21.5, 7.5, 21.5)
+        curve(5.4, 21.5, 4.1, 20.5, 4.1, 18.8)
+        curve(4.1, 16.5, 6.7, 15.3, 9.6, 15.8)
+        line(9.6, 5.6); close()
+    }
+    private val nowPlaying = VectorIcon.path(filled = true) {
+        move(10.0, 16.0); line(10.0, 3.0); line(12.0, 3.0)
+        curve(13.5, 6.2, 19.0, 6.0, 20.0, 10.5)
+        curve(17.4, 8.8, 14.9, 8.7, 12.5, 8.0)
+        line(12.5, 17.0)
+        curve(12.5, 19.8, 10.1, 21.5, 7.2, 21.5)
+        curve(4.9, 21.5, 3.5, 20.3, 3.5, 18.6)
+        curve(3.5, 16.5, 6.4, 15.0, 10.0, 16.0); close()
+    }
+    private val applePlaylist = VectorIcon.path {
+        move(3.0, 5.0); line(13.0, 5.0)
+        move(3.0, 10.0); line(11.0, 10.0)
+        move(3.0, 15.0); line(8.0, 15.0)
+        move(17.0, 17.0); line(17.0, 9.0); line(21.0, 8.0)
+        circle(14.7, 17.5, 2.3)
+    }
+    private val appleVideo = VectorIcon.path {
+        roundRect(2.0, 3.5, 20.0, 14.0, 2.0)
+        move(9.0, 21.0); line(15.0, 21.0)
+        move(13.3, 11.4); line(13.3, 7.0); line(16.0, 6.3)
+        circle(11.7, 12.0, 1.6)
+    }
+    private val appleProfile = VectorIcon.path {
+        roundRect(3.0, 3.0, 18.0, 18.0, 3.0)
+        circle(12.0, 9.1, 2.5)
+        move(6.5, 17.8); curve(7.4, 12.6, 16.6, 12.6, 17.5, 17.8)
+    }
+    private val locateTrack = VectorIcon.path(strokeWidth = 1.8f) {
+        move(4.0, 10.0); line(4.0, 14.0)
+        move(8.0, 7.0); line(8.0, 17.0)
+        move(12.0, 4.0); line(12.0, 20.0)
+        move(16.0, 8.0); line(16.0, 16.0)
+        move(20.0, 10.0); line(20.0, 14.0)
+    }
+    private val trackList = VectorIcon.path(strokeWidth = 1.7f) {
+        for (y in listOf(6.0, 12.0, 18.0)) {
+            move(4.0, y); line(4.1, y)
+            move(8.0, y); line(20.0, y)
         }
-        ctx.drawIcon(LayoutBounds(cx-size/2f,cy-size/2f,size,size),path,color)
+    }
+    private val coverWall = VectorIcon.path(strokeWidth = 1.55f) {
+        roundRect(3.0, 3.0, 7.0, 7.0, 1.3)
+        roundRect(14.0, 3.0, 7.0, 7.0, 1.3)
+        roundRect(3.0, 14.0, 7.0, 7.0, 1.3)
+        roundRect(14.0, 14.0, 7.0, 7.0, 1.3)
+    }
+
+    private fun path(glyph: String) = when (glyph) {
+        "⌂" -> home
+        "▤", "genre" -> chart
+        "♫" -> music
+        "♬", "compilation" -> people
+        "☁" -> cloud
+        "⚙" -> settings
+        "♥" -> heart
+        "search" -> search
+        "user" -> user
+        "up" -> up
+        "down" -> down
+        "⇄" -> swap
+        "discover" -> discover
+        "radio" -> radio
+        "pin" -> pin
+        "clock" -> clock
+        "artist" -> artist
+        "album" -> album
+        "screen" -> screen
+        "video" -> video
+        "right" -> right
+        "left" -> left
+        "clear" -> clear
+        "check" -> check
+        "star" -> star
+        "filledStar" -> filledStar
+        else -> playlist
+    }
+
+    fun drawApple(ctx: RenderContext, glyph: String, cx: Float, cy: Float, color: Color, size: Float = 16f) {
+        val icon = when (glyph) {
+            "♫" -> appleSong
+            "nowPlaying" -> nowPlaying
+            "≡" -> applePlaylist
+            "video" -> appleVideo
+            "user" -> appleProfile
+            "locateTrack" -> locateTrack
+            "trackList" -> trackList
+            "coverWall" -> coverWall
+            else -> path(glyph)
+        }
+        ctx.drawIcon(LayoutBounds(cx - size / 2f, cy - size / 2f, size, size), icon, color)
+    }
+
+    fun draw(ctx: RenderContext,glyph: String,cx: Float,cy: Float,color: Color,size: Float=20f) {
+        ctx.drawIcon(LayoutBounds(cx-size/2f,cy-size/2f,size,size),path(glyph),color)
     }
 }

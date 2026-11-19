@@ -5,6 +5,7 @@ uniform vec4 u_Bounds;
 uniform float u_Radius;
 uniform float u_Continuous;
 uniform float u_FlowPhase;
+uniform float u_CaptionShade;
 varying vec2 uv;
 varying vec2 v_Position;
 
@@ -52,6 +53,10 @@ void main() {
         sampleUv = vec2(1.0) - abs(vec2(1.0) - mod(sampleUv, 2.0));
     }
     vec4 color = texture2D(u_Texture, sampleUv);
+    if (u_CaptionShade > 0.0) {
+        float height = (v_Position.y - u_Bounds.y) / max(1.0, u_Bounds.w);
+        color.rgb *= 1.0 - u_CaptionShade * smoothstep(0.52, 0.98, height);
+    }
     if (u_FlowPhase >= 0.0) {
         // Subtle screen-space dithering removes visible steps in dark gradients.
         float noise = fract(52.9829189 * fract(dot(floor(gl_FragCoord.xy), vec2(0.06711056, 0.00583715))));

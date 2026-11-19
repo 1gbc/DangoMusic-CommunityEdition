@@ -15,11 +15,12 @@ object AppleMusicSource : MusicSourceApi {
     override val source = MusicSource.APPLE
     private val ids = ConcurrentHashMap<Long, String>()
     private val cardRefs = ConcurrentHashMap<Long, JsonObject>()
-    private val sections = ConcurrentHashMap<Long, String>()
+    enum class HomeFeed { RECOMMENDATIONS, RECENT, HEAVY_ROTATION, SHORTCUTS }
+    private val homeFeeds = ConcurrentHashMap<Long, HomeFeed>()
     private val groupedTracks = ConcurrentHashMap<Long, List<NeteaseTrack>>()
     @Volatile var homeWarning = ""
         private set
-    fun homeSection(id: Long) = sections[id] ?: "常用入口"
+    fun homeFeed(id: Long) = homeFeeds[id] ?: HomeFeed.SHORTCUTS
     private val libraryId = MusicSources.stableId(source, "library:songs")
     private val chartId = MusicSources.stableId(source, "catalog:charts")
     fun libraryEntry() = NeteasePlaylist(libraryId, I18n.text("Library songs"), 0, "", true)
@@ -80,7 +81,8 @@ object AppleMusicSource : MusicSourceApi {
             if (compilations && row.get("compilation")?.asBoolean != true) return@mapNotNull null
             val id = MusicSources.stableId(source, "$type:${str(row, "id")}")
             cardRefs[id] = row
-            NeteasePlaylist(id, str(row, "title"), 0, str(row, "cover"), type.startsWith("library-"))
+            NeteasePlaylist(id, str(row, "title"), 0, str(row, "cover"), type.startsWith("library-"),
+                description = cleanSourceText(str(row, "description")))
         }
 
     private fun libraryGroups(section: Section): List<NeteasePlaylist> {
@@ -117,6 +119,11 @@ object AppleMusicSource : MusicSourceApi {
             if (includePersonalSections) add("heavyRotation" to I18n.text("Heavy rotation"))
         }
         for ((op, defaultSection) in feeds) {
+            val feed = when (op) {
+                "recommend" -> HomeFeed.RECOMMENDATIONS
+                "recent" -> HomeFeed.RECENT
+                else -> HomeFeed.HEAVY_ROTATION
+            }
             try {
                 for (row in rows(op, pages = if (includePersonalSections && op == "recent") 2 else 1)) {
                     val kind = str(row,"kind")
@@ -125,8 +132,9 @@ object AppleMusicSource : MusicSourceApi {
                         str(row, "sectionTitle").ifBlank { defaultSection } else defaultSection
                     val key = MusicSources.stableId(source, "$section:$kind:${str(row,"id")}")
                     cardRefs[key] = row
-                    sections[key] = section
-                    result += NeteasePlaylist(key,str(row,"title"),0,str(row,"cover"),kind.startsWith("library-"))
+                    homeFeeds[key] = feed
+                    result += NeteasePlaylist(key, str(row, "title"), 0, str(row, "cover"), kind.startsWith("library-"),
+                        description = cleanSourceText(str(row, "description")))
                 }
             } catch (_: SourceAccessException) {
                 if (op != "heavyRotation")
@@ -136,7 +144,7 @@ object AppleMusicSource : MusicSourceApi {
         return result.distinctBy { it.id } + listOf(chartEntry(), libraryEntry())
     }
     override fun charts() = listOf(chartEntry())
-    fun clear() { ids.clear();cardRefs.clear();sections.clear();groupedTracks.clear();homeWarning="" }
+    fun clear() { ids.clear();cardRefs.clear();homeFeeds.clear();groupedTracks.clear();homeWarning="" }
     override val libraryWarning get() = "Apple Music: sign in once, then search and play in the game"
     data class SongDetails(val artist: String, val composer: String, val link: String)
 
@@ -186,7 +194,8 @@ object AppleMusicSource : MusicSourceApi {
             val local = MusicSources.stableId(source, "playlist:$id")
             if (ids.size >= 1024) throw SourceAccessException("Too many Apple Music playlists; reconnect to refresh")
             ids[local] = id
-            NeteasePlaylist(local, str(o, "title"), 0, str(o, "cover"), true)
+            NeteasePlaylist(local, str(o, "title"), 0, str(o, "cover"), true,
+                description = cleanSourceText(str(o, "description")))
         }
         return listOf(libraryEntry()) + lists
     }

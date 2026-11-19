@@ -97,6 +97,8 @@ interface Textures {
 
 interface GuiCanvas : RenderContext {
     fun drawFlowingBackdrop(bounds: LayoutBounds, image: Texture, phase: Float, radius: Float)
+    /** Fill the rounded bounds by center-cropping square artwork, with a fade behind the lower caption. */
+    fun drawCroppedSquareImage(bounds: LayoutBounds, image: Texture, radius: Float)
 
     /**
      * 开始画一帧：保存渲染状态、设好混合。

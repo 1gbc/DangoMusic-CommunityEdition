@@ -7,6 +7,7 @@ import me.sorihiko.dangomusicgtnh.gfx.Texture
 import me.sorihiko.dangomusicgtnh.ui.LayoutBounds
 import me.sorihiko.dangomusicgtnh.ui.ShapeStyle
 import me.sorihiko.dangomusicgtnh.ui.Theme
+import me.sorihiko.dangomusicgtnh.ui.UiStyle
 import me.sorihiko.dangomusicgtnh.utils.Color
 
 import kotlin.math.abs
@@ -17,7 +18,22 @@ import kotlin.math.min
 /** 网易云红（和菜单里 Music 分类同色） */
 internal val RED = Color.fromHex("#FF375F")
 internal val APPLE_CONTROL_BLUE = Color.fromHex("#56A9FF")
-internal const val APPLE_COVER_RADIUS_RATIO = 0.065f
+internal val APPLE_SIDEBAR_BLUE = Color.fromHex("#70C8F5")
+internal val APPLE_ROW_SELECTION = Color(1f, 1f, 1f, 0.085f)
+internal val APPLE_ROW_HOVER = Color(1f, 1f, 1f, 0.045f)
+internal const val APPLE_ROW_RADIUS = 8f
+// Previous preview's normal-width bottom title: 11.4 * 0.70, plus three logical pixels.
+internal const val APPLE_MENU_TEXT_SIZE = 10.98f
+internal fun Ui.advanceAppleHover(spring: Spring, hovered: Boolean): Float {
+    spring.step(if (hovered) 1f else 0f, frameDt / 1000f)
+    return spring.x.coerceIn(0f, 1f)
+}
+
+internal fun Ui.appleHoverScale(spring: Spring, hovered: Boolean): Float =
+    1f + 0.12f * advanceAppleHover(spring, hovered)
+
+internal fun appleCoverRadius(bounds: LayoutBounds) =
+    minOf(bounds.width, bounds.height) * if (UiStyle.continuous) 0.02f else 0.03f
 
 /** 一块可点击区域和点下去要做的事 */
 internal typealias Hit = Pair<LayoutBounds, () -> Unit>
@@ -54,24 +70,64 @@ internal class Ui {
 
     /** 中英混排：英文用菜单字体，中日韩 / 符号用系统字体（玻璃层画完后统一画） */
     val mt = MixedText()
+    var compactAppleText = false
+
+    private fun textSize(size: Float): Float = if (compactAppleText) min(size, APPLE_MENU_TEXT_SIZE) else size
+
+    fun drawNeteaseAppleSearchField(
+        box: LayoutBounds, value: String, placeholder: String, focused: Boolean,
+        iconX: Float, iconSize: Float, textX: Float, textRight: Float, size: Float,
+    ) {
+        val centerY = box.y + box.height / 2f
+        val fill = if (focused) Theme.CARD_HOVER else Theme.CARD
+        val radius = box.height / 2f
+        val stroke = 1.5f
+        if (focused) {
+            // ShapeStyle draws its stroke outside the fill. Inset once so both end caps share one outline.
+            ctx.drawShape(box.expand(-stroke, -stroke), ShapeStyle(fill, radius - stroke, stroke, APPLE_CONTROL_BLUE))
+        } else card(box, fill, radius)
+        SidebarIcons.draw(ctx, "search", iconX, centerY, if (focused) APPLE_CONTROL_BLUE else Theme.TEXT_SECONDARY, iconSize)
+
+        val width = (textRight - textX).coerceAtLeast(0f)
+        val caretGap = if (focused) 3f else 0f
+        val available = (width - caretGap).coerceAtLeast(0f)
+        val textTop = centerY - textSize(size) / 2f
+        val showingCaret = focused && width >= 1f && caretVisible()
+        val shown = if (value.isEmpty()) {
+            trim(placeholder, available, size)
+        } else {
+            var first = 0
+            while (first < value.length && width(value.substring(first), size) > available) {
+                first += Character.charCount(value.codePointAt(first))
+            }
+            value.substring(first)
+        }
+        val labelX = textX + if (value.isEmpty()) caretGap else 0f
+        text(shown, labelX, textTop, size, if (value.isEmpty()) Theme.TEXT_TERTIARY else Theme.TEXT_PRIMARY)
+        if (showingCaret) {
+            val caretX = textX + if (value.isEmpty()) 0f else width(shown, size) + 1f
+            val height = minOf(12f, box.height - 4f)
+            card(LayoutBounds(caretX, centerY - height / 2f, 1f, height), Theme.TEXT_PRIMARY, 0f)
+        }
+    }
 
     // ---------------------------------------------------------------- 文字
 
     /** y 是文字顶部 */
     fun text(s: String, x: Float, y: Float, size: Float, color: Color, font: String = Theme.FONT_REGULAR) =
-        mt.text(ctx, s, x, y, size, color, font)
+        mt.text(ctx, s, x, y, textSize(size), color, font)
 
     /** 图标符号（⌂ ≡ ♫ ♥ ↻ ⇄ ▶ ◀ …），按中心点放 */
     fun icon(s: String, cx: Float, cy: Float, size: Float, color: Color) =
         mt.icon(ctx, s, cx, cy, size, color)
 
-    fun width(s: String, size: Float, font: String = Theme.FONT_REGULAR): Float = mt.width(s, size, font)
+    fun width(s: String, size: Float, font: String = Theme.FONT_REGULAR): Float = mt.width(s, textSize(size), font)
 
     fun trim(s: String, maxW: Float, size: Float, font: String = Theme.FONT_REGULAR): String =
-        mt.trim(s, maxW, size, font)
+        mt.trim(s, maxW, textSize(size), font)
 
     fun wrap2(s: String, maxW: Float, size: Float, font: String = Theme.FONT_REGULAR): List<String> =
-        mt.wrap2(s, maxW, size, font)
+        mt.wrap2(s, maxW, textSize(size), font)
 
     // ---------------------------------------------------------------- 裁剪
 
@@ -145,22 +201,24 @@ internal class Ui {
         if (tex != null) ctx.drawImage(b, tex) else card(b, Theme.TRACK, radius)
     }
 
-    fun drawAppleCover(bounds: LayoutBounds, texture: Texture?) {
-        val radius = minOf(bounds.width, bounds.height) * APPLE_COVER_RADIUS_RATIO
+    fun drawAppleCover(bounds: LayoutBounds, texture: Texture?, cropSquare: Boolean = false,
+                       radius: Float = appleCoverRadius(bounds)) {
         if (texture == null) card(bounds, Theme.TRACK, radius)
+        else if (cropSquare) ctx.drawCroppedSquareImage(bounds, texture, radius)
         else ctx.drawRoundedImage(bounds, texture, radius)
     }
 
     /** 胶囊按钮：可选左侧图标 */
     fun pill(b: LayoutBounds, fill: Color, label: String, glyph: String? = null, action: () -> Unit) {
         ctx.drawShape(b, ShapeStyle(if (hover(b)) fill.copy(a = fill.a * 0.85f) else fill, b.height / 2f))
-        val tw = width(label, 12f, Theme.FONT_SEMIBOLD) + (if (glyph != null) 18f else 0f)
+        val size = textSize(12f)
+        val tw = width(label, size, Theme.FONT_SEMIBOLD) + (if (glyph != null) 18f else 0f)
         var tx = b.x + (b.width - tw) / 2f
         if (glyph != null) {
-            icon(glyph, tx + 6f, b.y + b.height / 2f, 12f, Theme.TEXT_PRIMARY)
+            icon(glyph, tx + 6f, b.y + b.height / 2f, size, Theme.TEXT_PRIMARY)
             tx += 18f
         }
-        text(label, tx, b.y + b.height / 2f - 12f * 0.39f - 0.5f, 12f, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
+        text(label, tx, b.y + b.height / 2f - size * 0.39f - 0.5f, size, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
         hits += b to action
     }
 

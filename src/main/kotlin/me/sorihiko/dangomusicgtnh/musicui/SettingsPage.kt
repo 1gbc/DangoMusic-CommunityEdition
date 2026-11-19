@@ -76,6 +76,8 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         "audioOutput" to listOf("Auto", "Java Sound", "Game audio (OpenAL)"),
         "islandLayout" to listOf("Style C", "Style A", "Style B"),
         "uiStyle" to listOf("Classic", "Continuous corners"),
+        "appleSidebarStyle" to listOf("Flowing cover colors", "Dark glass"),
+        "neteaseInterfaceStyle" to listOf("NetEase classic style", "NetEase Apple style"),
         "lyricStyle" to listOf("3D world lyrics", "Cockpit lyrics", "Both", "Hidden"),
         "sidePosition" to listOf("Left middle", "Left bottom", "Right middle"),
         "sideColors" to listOf("Cover color", "Custom color", "Cover gradient", "Rainbow", "Aurora"),
@@ -411,7 +413,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         val island = Src(islandModule, fmts = mapOf("posX" to ::percent, "posY" to ::percent))
         val playback = player.take(listOf("volume", "originalAudio", "normalize", "playbackFades", "resumeSession"))
         val environment = player.take(listOf("envAudio", "envRain", "envStrength", "envRays"))
-        val looks = player.take(listOf("uiStyle", "language", "songCommentsEnabled"))
+        val looks = player.take(listOf("uiStyle", "neteaseInterfaceStyle", "appleSidebarStyle", "language", "songCommentsEnabled"))
         val advanced = player.take(listOf("audioOutput", "audioBuffer")) + listOf(
             Row("Open cache folder", "Open the NetEase audio cache location", CacheAction.OPEN, Ctl.CACHE, null, { "" }),
             Row("Clear cache", "Remove downloaded NetEase audio from disk", CacheAction.CLEAR, Ctl.CACHE, null, { "" }),
