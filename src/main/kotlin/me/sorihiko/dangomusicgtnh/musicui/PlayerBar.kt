@@ -690,20 +690,13 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
     private fun drawPopup(anchor: LayoutBounds,target: LayoutBounds,motion: PopupMotion,open: Boolean,
         smallApplePanel: Boolean = false,
         content: (LayoutBounds,Boolean,LayoutBounds)->Unit): LayoutBounds {
-        val b=motion.bounds(anchor,target)
-        val p=motion.progress.coerceIn(0f,1f)
-        if(p<=0.002f) return b
-        val before=ui.hits.size
-        val trigger=ui.hits.subList(hitStart.coerceAtMost(before),before).firstOrNull { it.first === anchor }
-        ui.ctx.pushOpacity(p)
-        if (smallApplePanel) screen.coverBackdrop.drawControlPanel(b, 8f)
-        else PopupLook.panel(ui.ctx, b)
-        ui.ctx.popOpacity()
-        ui.beginClip(b)
-        ui.ctx.pushOpacity(motion.contentOpacity)
-        try {
-            ui.popup(b) { content(target.copy(y=target.y+10f*(1f-p)),open && p>0.6f,b) }
-        } finally { ui.ctx.popOpacity(); ui.endClip() }
+        if (!motion.visible) return motion.bounds(anchor, target)
+        val before = ui.hits.size
+        val trigger = ui.hits.subList(hitStart.coerceAtMost(before), before).firstOrNull { it.first === anchor }
+        val b = motion.draw(ui, anchor, target, open, panel = { bounds ->
+            if (smallApplePanel) screen.coverBackdrop.drawControlPanel(bounds, 8f)
+            else PopupLook.panel(ui.ctx, bounds)
+        }, content = content)
         ui.hits += b to {}
         // Animated glass can overlap transport controls. Keep popup hits above them,
         // while its own trigger remains clickable for a quick close/reopen.
@@ -750,7 +743,7 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         val height = 92f + tiers.size * rowH + 8f
         val left = if (appleStyle) (qualityButton.right - width).coerceIn(8f, (ui.lw - width - 8f).coerceAtLeast(8f))
             else (qualityButton.right - width).coerceAtMost(bar.right - width - 8f).coerceAtLeast(bar.x + 8f)
-        val target = LayoutBounds(left, max(8f, bar.y - height - 8f), width, height)
+        val target = LayoutBounds(left, max(8f, bar.y - height - CONTROL_POPUP_GAP), width, height)
         qualityMenu = drawPopup(qualityButton, target, qualityMotion, qualityOpen, smallApplePanel = appleStyle) { content, interactive, clip ->
             ui.text(I18n.text("Playback quality"), content.x + 14f, content.y + 12f, 11f, Theme.TEXT_SECONDARY, Theme.FONT_MEDIUM)
             val now = when {

@@ -437,7 +437,7 @@ class MusicScreen(
             ui.frameDt = if (lastNanos == 0L) 16f else ((now - lastNanos) / 1e6f).coerceAtMost(50f)
             lastNanos = now
             grid.tick()
-            tracks.tick()
+            tracks.tick(platform.mouseX / ui.scale)
             artistPage.tick()
             settings.tick()
 
@@ -622,6 +622,7 @@ class MusicScreen(
                 ui.ctx.recaptureBackdrop()
             }
             val viewport = LayoutBounds(0f, 0f, ui.lw, ui.lh)
+            appleBarMenu.playerBarTop = barRect.y
             if (neteaseUsesAppleLayout) appleBarMenu.drawNetease(viewport, bar.appleMenuAnchor, bar::openQualityFromMenu)
             else {
                 val playback = PlaybackView.snapshot()
@@ -809,7 +810,7 @@ class MusicScreen(
         }
         if (bar.mouseDown(mx, my)) return
         if (!lyricsOpen && tracks.scrollbarDown(mx, my)) return
-        if (!lyricsOpen && !barRect.contains(mx, my) && tracks.coverDown(mx, my)) return
+        if (!lyricsOpen && !barRect.contains(mx, my) && tracks.coverDown(mx, my, platform.mouseX / ui.scale)) return
         val hit = ui.hits.firstOrNull { it.first.contains(mx, my) }
         if (!lyricsOpen && ScreenState.page == Page.GROUP) groupPage.clearFocus()
         if (lyricsOpen) {
@@ -833,10 +834,7 @@ class MusicScreen(
             updateLibraryPull()
             return
         }
-        if (mouseButton == 0 && tracks.coverPressed) {
-            tracks.coverDrag((platform.mouseX / ui.scale).toInt())
-            return
-        }
+        if (mouseButton == 0 && tracks.coverPressed) return
         if (tracks.sbDragging) {
             tracks.scrollbarDrag((platform.mouseY / ui.scale).toInt())
             return
@@ -855,7 +853,7 @@ class MusicScreen(
     fun mouseReleased(mouseButton: Int) {
         if (module.openKey.value < 0) openKeyHeld = false
         if (mouseButton == 0) lyricsPage.stopFontSliderDrag()
-        if (mouseButton == 0 && tracks.coverPressed) tracks.coverUp((platform.mouseX / ui.scale).toInt())
+        if (mouseButton == 0 && tracks.coverPressed) tracks.coverUp(platform.mouseX / ui.scale)
         bar.mouseUp()
         tracks.scrollbarUp()
         settings.stopDrag()

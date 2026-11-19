@@ -151,6 +151,7 @@ object MusicPlayer {
 
     private var originalQueue: List<NeteaseTrack> = emptyList()
     @Volatile private var heartMode = false
+    val heartModeActive get() = heartMode
 
     val mode: Mode get() = when {
         heartMode -> Mode.SEQUENTIAL

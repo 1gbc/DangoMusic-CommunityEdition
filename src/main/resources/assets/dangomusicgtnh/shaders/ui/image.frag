@@ -11,6 +11,7 @@ uniform int u_OccluderCount;
 uniform float u_OccluderRadiusRatio;
 uniform float u_Brightness;
 uniform float u_Placeholder;
+uniform float u_HorizontalBlur;
 varying vec2 uv;
 varying vec2 v_Position;
 
@@ -58,6 +59,13 @@ void main() {
         sampleUv = vec2(1.0) - abs(vec2(1.0) - mod(sampleUv, 2.0));
     }
     vec4 color = u_Placeholder > 0.5 ? vec4(0.16, 0.16, 0.18, 1.0) : texture2D(u_Texture, sampleUv);
+    // Filter the artwork in its direction of travel. The silhouette and overlap masks stay sharp.
+    if (u_Placeholder < 0.5 && u_HorizontalBlur > 0.001) {
+        vec2 offset = vec2(u_HorizontalBlur, 0.0);
+        vec2 left = vec2(max(0.0, sampleUv.x - offset.x), sampleUv.y);
+        vec2 right = vec2(min(1.0, sampleUv.x + offset.x), sampleUv.y);
+        color = color * 0.58 + (texture2D(u_Texture, left) + texture2D(u_Texture, right)) * 0.21;
+    }
     color.rgb *= u_Brightness;
     if (u_CaptionShade > 0.0) {
         float height = (v_Position.y - u_Bounds.y) / max(1.0, u_Bounds.w);
