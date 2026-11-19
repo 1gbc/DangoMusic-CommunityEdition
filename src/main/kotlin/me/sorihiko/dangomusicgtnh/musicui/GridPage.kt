@@ -1,6 +1,8 @@
 package me.sorihiko.dangomusicgtnh.musicui
 
 import me.sorihiko.dangomusicgtnh.i18n.I18n
+import me.sorihiko.dangomusicgtnh.music.AppleMusicSource
+import me.sorihiko.dangomusicgtnh.music.AppleMusicSource.HomeFeed
 
 import me.sorihiko.dangomusicgtnh.music.CoverCache
 import me.sorihiko.dangomusicgtnh.music.MusicScreen
@@ -23,15 +25,18 @@ internal class GridPage(private val screen: MusicScreen) {
     private var target = 0f
     private var pos = 0f
     private var maxScroll = 0f
+    private val shelfStarts = mutableMapOf<HomeFeed, Int>()
     val atTop get() = target == 0f && pos < 1f
 
     fun tick() {
         pos = ui.approach(pos, target, 70f)
+        if (kotlin.math.abs(pos - target) < 0.5f) pos = target
     }
 
     fun resetScroll() {
         target = 0f
         pos = 0f
+        shelfStarts.clear()
     }
 
     fun scroll(wheel: Int) {
@@ -39,8 +44,7 @@ internal class GridPage(private val screen: MusicScreen) {
     }
 
     fun draw(page: LayoutBounds, title: String, sub: String, items: List<NeteasePlaylist>, loading: Boolean,
-             sectionFor: ((Long) -> String)? = null, pullOffset: Float = 0f, categoryTiles: Boolean = false,
-             wideCards: Boolean = false) {
+             categoryTiles: Boolean = false, wideCards: Boolean = false) {
         ui.headerAnim {
             ui.text(title, page.x, page.y, 22f, Theme.TEXT_PRIMARY, Theme.FONT_DISPLAY)
             if (loading || sub.isNotEmpty())
@@ -49,7 +53,7 @@ internal class GridPage(private val screen: MusicScreen) {
         }
         val top = page.y + if (!loading && sub.isEmpty()) 38f else 54f
         area = LayoutBounds(page.x, top, page.width, (page.bottom - top).coerceAtLeast(0f))
-        drawGrid(area, items, sectionFor, pullOffset, categoryTiles, wideCards)
+        drawGrid(area, items, categoryTiles, wideCards)
     }
 
     /** 只画封面墙（歌手页的专辑用，标题自己画） */
@@ -58,8 +62,92 @@ internal class GridPage(private val screen: MusicScreen) {
         drawGrid(area, items)
     }
 
-    private fun drawGrid(area: LayoutBounds, items: List<NeteasePlaylist>, sectionFor: ((Long) -> String)? = null,
-                         pullOffset: Float = 0f, categoryTiles: Boolean = false, wideCards: Boolean = false) {
+    fun drawAppleHome(page: LayoutBounds, items: List<NeteasePlaylist>, loading: Boolean, warning: String, pull: Float,
+                      neteaseHeading: String? = null) {
+        ui.text(I18n.text(if (neteaseHeading == null) "Home" else "Welcome to Dango Music!"),
+            page.x, page.y + 3f, APPLE_MENU_TEXT_SIZE, Theme.TEXT_PRIMARY, Theme.FONT_DISPLAY)
+        if (loading || warning.isNotEmpty()) {
+            val status = if (loading) I18n.text("Loading...") else warning
+            ui.text(ui.trim(status, page.width - 120f, 9f), page.x, page.y + 22f, 9f, Theme.TEXT_SECONDARY)
+        }
+        val top = page.y + if (loading || warning.isNotEmpty()) 39f else 27f
+        area = page.copy(y = top, height = (page.bottom - top).coerceAtLeast(0f))
+        if (area.width <= 0f || area.height <= 0f) return
+        val grouped = if (neteaseHeading == null) items.groupBy { AppleMusicSource.homeFeed(it.id) }
+            else mapOf(HomeFeed.RECOMMENDATIONS to items)
+        val order = if (neteaseHeading != null) listOf(HomeFeed.RECOMMENDATIONS to neteaseHeading)
+            else listOf(HomeFeed.RECOMMENDATIONS to I18n.text("Recommended for you"), HomeFeed.RECENT to I18n.text("Recently played"),
+                HomeFeed.HEAVY_ROTATION to I18n.text("Heavy rotation"), HomeFeed.SHORTCUTS to I18n.text("Shortcuts"))
+        var offset = 3f
+        ui.beginClip(area)
+        try {
+            for ((feed, heading) in order) {
+                val cards = grouped[feed].orEmpty()
+                if (cards.isEmpty()) continue
+                val featured = feed == HomeFeed.RECOMMENDATIONS
+                val columns = minOf(if (featured) 5 else 6, ((area.width + 12f) / (if (featured) 126f else 108f)).toInt().coerceAtLeast(1))
+                val width = (area.width - 12f * (columns - 1)) / columns
+                val artworkHeight = if (featured) width * 4f / 3f else width
+                val rowHeight = 26f + artworkHeight + (if (featured) 0f else 32f) + 22f
+                val y = area.y + offset - pos + pull
+                offset += rowHeight
+                if (y + rowHeight <= area.y || y >= area.bottom) continue
+                drawHomeShelf(feed, heading, cards, y, columns, width, artworkHeight, featured)
+            }
+        } finally {
+            ui.endClip()
+        }
+        maxScroll = (offset + ui.bottomInset - area.height).coerceAtLeast(0f)
+        target = target.coerceIn(0f, maxScroll)
+        pos = pos.coerceIn(0f, maxScroll)
+    }
+
+    private fun drawHomeShelf(feed: HomeFeed, heading: String, cards: List<NeteasePlaylist>, y: Float,
+                              columns: Int, width: Float, artworkHeight: Float, featured: Boolean) {
+        val first = (shelfStarts[feed] ?: 0).coerceIn(0, (cards.size - columns).coerceAtLeast(0))
+        ui.text(heading, area.x, y + (22f - APPLE_MENU_TEXT_SIZE) / 2f,
+            APPLE_MENU_TEXT_SIZE, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
+        for (direction in listOf(-1, 1)) {
+            val enabled = if (direction < 0) first > 0 else first + columns < cards.size
+            if (!enabled) continue
+            val button = LayoutBounds(area.right - if (direction < 0) 46f else 22f, y, 22f, 22f)
+            val hit = button.intersect(area)
+            if (hit.height <= 0f) continue
+            ui.card(button, if (ui.hover(hit)) Theme.CARD_HOVER else Theme.CARD, 11f)
+            SidebarIcons.draw(ui.ctx, if (direction < 0) "left" else "right", button.x + 11f, button.y + 11f,
+                APPLE_CONTROL_BLUE, 10f)
+            ui.hits += hit to { shelfStarts[feed] = first + direction * columns }
+        }
+        for ((index, item) in cards.drop(first).take(columns).withIndex()) {
+            val bounds = LayoutBounds(area.x + index * (width + 12f), y + 23f, width, artworkHeight)
+            val cell = bounds.copy(height = bounds.height + if (featured) 0f else 28f)
+            if (cell.intersect(area).height <= 0f) continue
+            val cover = CoverCache.playlistArtwork(item)
+            val artist = if (screen.appleNavigation) AppleMusicSource.cardArtist(item.id) else ""
+            if (featured) {
+                val radius = appleCoverRadius(bounds)
+                if (cover != null) ui.ctx.drawCroppedSquareImage(bounds, cover, radius)
+                else ui.card(bounds, Theme.TRACK, radius)
+                if (ui.hover(cell.intersect(area))) ui.card(bounds, Theme.CARD, radius)
+                val textX = bounds.x + 9f
+                val textWidth = (bounds.width - 18f).coerceAtLeast(0f)
+                val titleY = bounds.bottom - if (artist.isBlank()) 20f else 32f
+                ui.text(ui.trim(item.name, textWidth, APPLE_MENU_TEXT_SIZE, Theme.FONT_SEMIBOLD), textX,
+                    titleY, APPLE_MENU_TEXT_SIZE, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
+                if (artist.isNotBlank()) ui.text(ui.trim(artist, textWidth, 9f), textX,
+                    bounds.bottom - 17f, 9f, Theme.TEXT_SECONDARY)
+            } else {
+                ui.drawAppleCover(bounds, cover)
+                ui.text(ui.trim(item.name, width, APPLE_MENU_TEXT_SIZE), bounds.x, bounds.bottom + 5f,
+                    APPLE_MENU_TEXT_SIZE, Theme.TEXT_PRIMARY)
+                if (artist.isNotBlank()) ui.text(ui.trim(artist, width, 9f), bounds.x, bounds.bottom + 19f, 9f, Theme.TEXT_SECONDARY)
+            }
+            ui.hits += cell.intersect(area) to { screen.openGridCard(item) }
+        }
+    }
+
+    private fun drawGrid(area: LayoutBounds, items: List<NeteasePlaylist>,
+                         categoryTiles: Boolean = false, wideCards: Boolean = false) {
         val gap = if (categoryTiles) 12f else 22f
         val cols = if (wideCards) (if (area.width < 440f) 1 else 2)
             else max(2, ((area.width + gap) / (160f + gap)).toInt())
@@ -69,13 +157,8 @@ internal class GridPage(private val screen: MusicScreen) {
             wideCards -> cw * 0.57f + 32f
             else -> cw + 46f
         }
-        val rows = mutableListOf<Pair<String?, List<NeteasePlaylist>>>()
-        if (sectionFor == null) items.chunked(cols).forEach { rows += null to it }
-        else items.groupBy { sectionFor(it.id) }.forEach { (title, cards) ->
-            rows += title to emptyList()
-            cards.chunked(cols).forEach { rows += null to it }
-        }
-        val totalHeight = rows.sumOf { if (it.first != null) 32.0 else rowH.toDouble() }.toFloat()
+        val rows = items.chunked(cols)
+        val totalHeight = rowH * rows.size
         maxScroll = max(0f, totalHeight + ui.bottomInset - area.height)
         target = target.coerceIn(0f, maxScroll)
         pos = pos.coerceIn(0f, maxScroll)
@@ -83,17 +166,10 @@ internal class GridPage(private val screen: MusicScreen) {
         // 上下多留一点空间给悬停时放大的边框
         val clip = LayoutBounds(area.x - 6f, area.y - 6f, area.width + 12f, area.height + 6f)
         ui.beginClip(clip)
-        var offset = 0f
         var visible = 0
-        for ((heading, cards) in rows) {
-            val height = if (heading != null) 32f else rowH
-            val y = area.y + offset - pos + pullOffset
-            offset += height
-            if (y + height < area.y || y > area.bottom) continue
-            if (heading != null) {
-                ui.text(heading,area.x,y+5f,15f,Theme.TEXT_PRIMARY,Theme.FONT_SEMIBOLD)
-                continue
-            }
+        for ((row, cards) in rows.withIndex()) {
+            val y = area.y + row * rowH - pos
+            if (y + rowH < area.y || y > area.bottom) continue
             for ((c,p) in cards.withIndex()) {
                 val x = area.x + c * (cw + gap)
                 ui.itemAnim(visible++) {
@@ -111,7 +187,7 @@ internal class GridPage(private val screen: MusicScreen) {
                         ui.card(tile, if (ui.hover(tile)) Theme.CARD_HOVER else Theme.CARD, 15f)
                         val coverSize = tile.height - 16f
                         val cover = LayoutBounds(x + 8f, y + 8f, coverSize, coverSize)
-                        if (screen.appleNavigation) ui.drawAppleCover(cover, CoverCache.playlist(p))
+                        if (screen.usesAppleLayout) ui.drawAppleCover(cover, CoverCache.playlistArtwork(p), cropSquare = true)
                         else ui.drawCover(cover, CoverCache.playlistRounded(p, 0.10f), 12f)
                         val titleX = cover.right + 13f
                         for ((line, label) in ui.wrap2(p.name, tile.right - titleX - 12f, 15f).withIndex()) {
@@ -125,13 +201,12 @@ internal class GridPage(private val screen: MusicScreen) {
                     val cell = LayoutBounds(x, y, cw, rowH - 6f)
                     val hov = ui.hover(cell) && clip.contains(ui.mx, ui.my)
                     if (hov) ui.ctx.drawShape(LayoutBounds(x - 5f, y - 5f, cw + 10f, rowH + 2f), ShapeStyle(Theme.CARD_HOVER, 14f))
-                    val radiusRatio = if (screen.appleNavigation) APPLE_COVER_RADIUS_RATIO else 0.08f
-                    ui.drawCover(cover, CoverCache.playlistRoundedLarge(p, radiusRatio),
-                        if (screen.appleNavigation) cover.width * radiusRatio else 12f)
+                    if (screen.usesAppleLayout) ui.drawAppleCover(cover, CoverCache.playlistArtwork(p))
+                    else ui.drawCover(cover, CoverCache.playlistRoundedLarge(p, 0.08f), 12f)
                     if (hov) {
                         // 悬停：右下角一个播放按钮
                         val pb = LayoutBounds(cover.right - 40f, cover.bottom - 40f, 30f, 30f)
-                        ui.ctx.drawShape(pb, ShapeStyle(RED, 15f))
+                        ui.ctx.drawShape(pb, ShapeStyle(if (screen.neteaseUsesAppleLayout) APPLE_CONTROL_BLUE else RED, 15f))
                         PlayerIcons.draw(ui.ctx, PlayerIcons.play, pb.x + 15f, pb.y + 15f, 17f, Theme.TEXT_PRIMARY)
                     }
                     val lines = ui.wrap2(p.name, cw - 4f, 12f, Theme.FONT_MEDIUM)

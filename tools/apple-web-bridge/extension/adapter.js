@@ -281,9 +281,11 @@ async function appleAdapter(command) {
     const kinds=cards?['albums','playlists','library-albums','library-playlists','stations','genres']:['songs','library-songs'];
     const items=rows.filter(row=>kinds.includes(row.type)&&(op!=='favoriteSongs'||row.attributes?.inFavorites===true)).slice(0,op==='recommend'?40:25).map(row=>{
       const a=row.attributes||{},catalog=a.playParams?.catalogId||row.relationships?.catalog?.data?.[0]?.id;
+      const description=row.type.endsWith('playlists')?text(a.description?.standard||a.description?.short):'';
       return {id:text(row.id),kind:text(row.type),playId:text(catalog||a.playParams?.id||row.id),library:!catalog&&String(row.type).startsWith('library-'),
         title:text(a.name),artist:text(a.artistName),album:text(a.albumName),
         cover:coverUrl(a.artwork?.url||row.relationships?.catalog?.data?.[0]?.attributes?.artwork?.url),
+        ...(description?{description}:{}),
         ...(op==='recommend'?{sectionTitle:row.sectionTitle}:{}),
         ...(op==='discover'?{featuredCover:coverUrl(a.artwork?.url,'768'),releaseDate:text(a.releaseDate)}:{}),
         genre:text(a.genreNames?.[0]), compilation:a.isCompilation===true||row.relationships?.catalog?.data?.[0]?.attributes?.isCompilation===true,

@@ -1,5 +1,6 @@
 """Prepare the development artifact revision for a GitHub Actions push."""
 
+import argparse
 import html
 import json
 import os
@@ -15,6 +16,7 @@ BOT_NAME = "github-actions[bot]"
 BOT_EMAIL = "41898282+github-actions[bot]@users.noreply.github.com"
 VERSION_FILE = Path("build.gradle.kts")
 CHANGELOG = Path("CHANGELOG.md")
+RELEASE_VERSION = re.compile(r"\d+\.\d+\.\d+")
 VERSION_LINE = re.compile(r'^version = "(\d+)\.(\d+)\.(\d+)(?:-dev(?:\.\d+)+)?"$', re.M)
 HEADER = re.compile(r"(?P<type>[A-Za-z][\w-]*)(?:\([^()]+\))?(?P<breaking>!)?: \S")
 BREAKING_FOOTER = re.compile(r"^BREAKING[ -]CHANGE: \S", re.M)
@@ -35,12 +37,38 @@ def classify(message):
     return {"feat": 2, "fix": 1, "perf": 1}.get(header["type"].lower(), 0) if header else 0
 
 
-def update_version(level, subjects, pull_number, pull_url):
-    gradle = VERSION_FILE.read_text(encoding="utf-8")
+def version_line(gradle):
     versions = list(VERSION_LINE.finditer(gradle))
     if len(versions) != 1:
-        raise ValueError("Expected one literal release or development version in build.gradle.kts")
-    current = versions[0]
+        raise ValueError("build.gradle.kts must declare one version such as 0.5.3 or 0.5.4-dev.1")
+    return versions[0]
+
+
+def check_pr():
+    version_line(VERSION_FILE.read_text(encoding="utf-8"))
+    jars = git("ls-files", "--", ":(top,glob)*.jar")
+    if jars:
+        raise ValueError(f"Move packaged JARs to GitHub Releases or workflow artifacts:\n{jars}")
+
+
+def is_release_sync(before, after):
+    current = version_line(git("show", f"{after}:{VERSION_FILE}"))[0].split('"')[1]
+    if not RELEASE_VERSION.fullmatch(current):
+        return False
+    previous = VERSION_LINE.search(git("show", f"{before}:{VERSION_FILE}"))
+    if previous and previous[0].split('"')[1] == current:
+        return False
+    tag = f"refs/tags/{current}"
+    if not git("tag", "--list", current):
+        return False
+    already_merged = subprocess.run(["git", "merge-base", "--is-ancestor", tag, before], check=False)
+    newly_merged = subprocess.run(["git", "merge-base", "--is-ancestor", tag, after], check=False)
+    return already_merged.returncode == 1 and newly_merged.returncode == 0
+
+
+def update_version(level, subjects, pull_number, pull_url):
+    gradle = VERSION_FILE.read_text(encoding="utf-8")
+    current = version_line(gradle)
     major, minor, patch = map(int, current.groups())
     if level == 3:
         major, minor, patch = major + 1, 0, 0
@@ -133,6 +161,10 @@ def prepare(event):
         print("This push does not match a PR merged into the development branch.")
         return after
 
+    if is_release_sync(event["before"], after):
+        print(f"PR #{pull['number']} syncs an existing release tag; preserving the release version.")
+        return after
+
     # The push range includes every newly introduced commit for merge and rebase,
     # and the resulting commit message for squash merges.
     before = event["before"]
@@ -148,6 +180,12 @@ def prepare(event):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--check-pr", action="store_true", help="Check version and root JARs without changing files")
+    if parser.parse_args().check_pr:
+        check_pr()
+        raise SystemExit(0)
+
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
     revision = prepare(event)
     with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:

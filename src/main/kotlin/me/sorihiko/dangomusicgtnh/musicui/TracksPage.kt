@@ -4,6 +4,7 @@ import me.sorihiko.dangomusicgtnh.client.ClientMusic
 import me.sorihiko.dangomusicgtnh.i18n.I18n
 
 import me.sorihiko.dangomusicgtnh.DangoClient
+import me.sorihiko.dangomusicgtnh.music.AppleMusicSource
 import me.sorihiko.dangomusicgtnh.music.CoverCache
 import me.sorihiko.dangomusicgtnh.music.CloudDrives
 import me.sorihiko.dangomusicgtnh.music.MusicPlayer
@@ -11,6 +12,7 @@ import me.sorihiko.dangomusicgtnh.music.MusicScreen
 import me.sorihiko.dangomusicgtnh.music.MusicSource
 import me.sorihiko.dangomusicgtnh.music.MusicSources
 import me.sorihiko.dangomusicgtnh.music.NeteaseApi
+import me.sorihiko.dangomusicgtnh.music.NeteasePlaylist
 import me.sorihiko.dangomusicgtnh.music.NeteaseTrack
 import me.sorihiko.dangomusicgtnh.platform.Keys
 import me.sorihiko.dangomusicgtnh.ui.LayoutBounds
@@ -66,6 +68,11 @@ internal class TracksPage(private val screen: MusicScreen) {
     private val tracksPage: Boolean
         get() = ScreenState.page.let { it == Page.PLAYLIST || it == Page.SEARCH || it == Page.QUEUE }
 
+    private val applePlaylist: Boolean
+        get() = screen.appleNavigation && ScreenState.page == Page.PLAYLIST
+    private val applePlaylistLayout: Boolean
+        get() = screen.usesAppleLayout && ScreenState.page == Page.PLAYLIST
+
     // ---------------------------------------------------------------- 每帧 / 切页
 
     fun tick() {
@@ -81,6 +88,7 @@ internal class TracksPage(private val screen: MusicScreen) {
     fun onPageChanged() {
         listPos = scroll.toFloat()
         selSnap = true
+        selectedAppleTrack = null
     }
 
     // 正在播放那一行的玻璃高亮：换歌时从原来那行滑到新的一行（单位是"第几行"，滚动时跟着列表走）
@@ -89,6 +97,7 @@ internal class TracksPage(private val screen: MusicScreen) {
     private val selPress = Spring(420f, 13f)
     /** 换了页面：高亮直接出现在正确的行，不从上一页的位置滑过来 */
     private var selSnap = true
+    private var selectedAppleTrack: Pair<Int, String>? = null
 
     fun resetScroll() {
         scroll = 0
@@ -210,10 +219,21 @@ internal class TracksPage(private val screen: MusicScreen) {
     private var embedded: List<Pair<Int, NeteaseTrack>> = emptyList()
 
     fun draw(page: LayoutBounds) {
+        if (applePlaylist) {
+            clearFilter()
+            filterRect = LayoutBounds()
+        }
         val (title, tracks) = currentTracks()
         val y = page.y
         var headerH = 62f
-        ui.headerAnim { headerH = drawHeader(page, title, tracks) }
+        val playlist = ScreenState.opened?.takeIf { applePlaylistLayout }
+        ui.headerAnim {
+            headerH = when {
+                playlist != null -> drawApplePlaylistHeader(page, playlist, tracks)
+                screen.neteaseUsesAppleLayout && ScreenState.page == Page.QUEUE -> drawNeteaseAppleQueueHeader(page, title, tracks)
+                else -> drawHeader(page, title, tracks)
+            }
+        }
         area = LayoutBounds(page.x, y + headerH, page.width, page.bottom - (y + headerH))
         if (tracks == null) return
         val list = shown(tracks)
@@ -232,6 +252,13 @@ internal class TracksPage(private val screen: MusicScreen) {
 
     // 列表 / 封面墙切换：红色选中块用弹簧滑过去（滑动时被拉长一点），内容左右滑入滑出（和设置页的标签切换一样）
     private val viewPill = Spring(300f, 23f, if (ScreenState.coverView) 1f else 0f)
+    private val appleViewSlide = Spring(300f, 26f, if (ScreenState.coverView) 1f else 0f)
+    private val appleLocateHover = Spring(300f, 26f)
+    private val appleListHover = Spring(300f, 26f)
+    private val appleCoverWallHover = Spring(300f, 26f)
+    private val appleSelectedIcon = Color.fromHex("#A4DDFF")
+    private val applePlayInk = Color.fromHex("#311725")
+    private val applePlayHovered = Color.fromHex("#EFE9ED")
     private val viewFade = Spring(210f, 24f, 1f)
     private var lastCover = ScreenState.coverView
     private var viewFrom: Boolean? = null
@@ -279,6 +306,119 @@ internal class TracksPage(private val screen: MusicScreen) {
     private var loadKey = -1L
     private var loadBar = Spring(160f, 24f)
 
+    private fun drawApplePlaylistHeader(page: LayoutBounds, playlist: NeteasePlaylist, tracks: List<NeteaseTrack>?): Float {
+        val backW = if (drawBackButton(page.x, page.y)) 36f else 0f
+        val textSize = APPLE_MENU_TEXT_SIZE
+        val coverSize = minOf(152f, page.width * 0.35f, page.height * 0.36f).coerceAtLeast(1f)
+        val netease = screen.neteaseUsesAppleLayout
+        val filterOnSecondLine = drawAppleTrackToolbar(page, backW, netease && tracks != null)
+        val cover = LayoutBounds(page.x, page.y + if (filterOnSecondLine) 70f else 38f, coverSize, coverSize)
+        ui.drawAppleCover(cover, CoverCache.playlistArtwork(playlist))
+        val x = cover.right + minOf(20f, page.width * 0.05f)
+        val width = page.right - x - 8f
+        val titleSize = if (width >= 180f) 23f else 18f
+        val titleY = cover.y + ((cover.height - 112f) * 0.55f).coerceAtLeast(0f)
+        ui.text(ui.trim(playlist.name, width, titleSize, Theme.FONT_SEMIBOLD), x, titleY, titleSize,
+            Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
+
+        val artist = if (screen.appleNavigation) AppleMusicSource.cardArtist(playlist.id) else ""
+        val subtitle = listOf(artist, headerSubtitle(tracks)).filter { it.isNotBlank() }.joinToString(" · ")
+        val metaY = titleY + titleSize + 4f
+        ui.text(ui.trim(subtitle, width, APPLE_PLAYLIST_SECONDARY_SIZE), x, metaY, APPLE_PLAYLIST_SECONDARY_SIZE, Theme.TEXT_SECONDARY)
+        var nextY = metaY + 17f
+        if ((tracks == null || partiallyLoaded()) && width >= 40f) {
+            ui.progressBar(LayoutBounds(x, nextY - 3f, minOf(160f, width), 3f), loadFraction())
+            nextY += 7f
+        }
+        val description = if (playlist.id == CloudDrives.id(MusicSources.selected)) I18n.text(CloudDrives.note(MusicSources.selected))
+            else playlist.description
+        if (description.isNotBlank() && width >= 32f) {
+            for (line in ui.wrap2(description, minOf(width, 330f), APPLE_PLAYLIST_SECONDARY_SIZE)) {
+                ui.text(line, x, nextY, APPLE_PLAYLIST_SECONDARY_SIZE, Theme.TEXT_SECONDARY)
+                nextY += 13f
+            }
+            nextY += 6f
+        }
+        if (!tracks.isNullOrEmpty()) {
+            val label = I18n.text("Play all")
+            val playW = minOf(ui.width(label, textSize, Theme.FONT_SEMIBOLD) + 40f, width)
+            val play = LayoutBounds(x, maxOf(nextY + 2f, cover.bottom - 26f), playW, 26f)
+            drawPlayAll(play, label, tracks, apple = true)
+            nextY = play.bottom
+            if (netease && Library.canPlayHeartMode(playlist)) {
+                val heartLabel = I18n.text(if (Library.heartLoading) "Loading Heart mode…" else "Heart mode")
+                val heartWidth = (ui.width(heartLabel, textSize, Theme.FONT_SEMIBOLD) + 38f).coerceAtMost(width)
+                val beside = play.right + 8f + heartWidth <= page.right - 8f
+                val heart = LayoutBounds(if (beside) play.right + 8f else x,
+                    if (beside) play.y else play.bottom + 6f, heartWidth, 26f)
+                ui.card(heart, if (ui.hover(heart)) Theme.CARD_HOVER else Theme.CARD, heart.height / 2f)
+                PlayerIcons.draw(ui.ctx, PlayerIcons.heartOutline, heart.x + 14f, heart.y + 13f, 13f, APPLE_CONTROL_BLUE)
+                ui.text(ui.trim(heartLabel, heart.width - 31f, textSize), heart.x + 26f, heart.y + 8f,
+                    textSize, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
+                ui.hits += heart to { Library.playHeartMode(playlist) }
+                nextY = heart.bottom
+            }
+        }
+        return maxOf(cover.bottom, nextY) - page.y + 20f
+    }
+
+    private fun drawBackButton(x: Float, y: Float): Boolean {
+        if (ScreenState.backPage == null && ScreenState.trail.isEmpty()) return false
+        val back = LayoutBounds(x, y + 2f, 28f, 28f)
+        ui.card(back, if (ui.hover(back)) Theme.CARD_HOVER else Theme.CARD, 14f)
+        if (screen.usesAppleLayout) SidebarIcons.draw(ui.ctx, "left", back.x + 14f, back.y + 14f, Theme.TEXT_PRIMARY, 14f)
+        else ui.icon("◀", back.x + 13.5f, back.y + 14f, 10f, Theme.TEXT_PRIMARY)
+        ui.hits += back to { screen.goBack() }
+        return true
+    }
+
+    private fun headerSubtitle(tracks: List<NeteaseTrack>?): String = when {
+        ScreenState.page == Page.SEARCH && Library.searching -> I18n.text("Searching...")
+        ScreenState.page == Page.SEARCH && tracks.isNullOrEmpty() ->
+            if (Library.searchError.isNotEmpty()) I18n.text("Search failed: ") + I18n.message(Library.searchError) else I18n.text("No results")
+        ScreenState.page == Page.QUEUE && me.sorihiko.dangomusicgtnh.music.AppleWebPlayer.stationActive -> I18n.text("Apple Music radio · Updates as it plays")
+        ScreenState.page == Page.QUEUE && tracks.isNullOrEmpty() -> I18n.text("Nothing in the queue yet")
+        tracks == null || partiallyLoaded() -> loadingProgress()?.takeIf { it[1] > 0 }?.let { I18n.format("Loaded %d of %d songs", it[0], it[1]) } ?: I18n.text("Loading...")
+        filterText.isNotEmpty() -> I18n.format("%d of %d songs", shown(tracks).size, tracks.size)
+        else -> I18n.format("%d songs", tracks.size)
+    }
+
+    private fun loadFraction(): Float? {
+        val key = ScreenState.opened?.id ?: 0L
+        if (key != loadKey) {
+            loadKey = key
+            loadBar = Spring(160f, 24f)
+        }
+        return loadingProgress()?.takeIf { it[1] > 0 }?.let { loadBar.tick((it[0].toFloat() / it[1]).coerceIn(0f, 1f)) }
+    }
+
+    private fun drawPlayAll(bounds: LayoutBounds, label: String, tracks: List<NeteaseTrack>, apple: Boolean = false) {
+        val centerY = bounds.y + bounds.height / 2f
+        val hovered = ui.hover(bounds)
+        val color = Theme.TEXT_PRIMARY
+        if (apple) {
+            val radius = bounds.height / 2f
+            ui.card(bounds, if (hovered) applePlayHovered else Color.WHITE, radius)
+            val size = APPLE_MENU_TEXT_SIZE
+            val iconSize = 12f
+            val gap = 5f
+            val text = ui.trim(label, (bounds.width - 31f).coerceAtLeast(0f), size, Theme.FONT_SEMIBOLD)
+            val textWidth = ui.width(text, size, Theme.FONT_SEMIBOLD)
+            val groupWidth = iconSize + if (text.isEmpty()) 0f else gap + textWidth
+            val x = bounds.x + (bounds.width - groupWidth) / 2f
+            PlayerIcons.draw(ui.ctx, AppleLyricsIcons.play, x + iconSize / 2f, centerY, iconSize, applePlayInk)
+            ui.text(text, x + iconSize + gap, centerY - size / 2f, size, applePlayInk, Theme.FONT_SEMIBOLD)
+        } else {
+            ui.card(bounds, if (hovered) RED.copy(a = 0.85f) else RED, bounds.height / 2f)
+            PlayerIcons.draw(ui.ctx, PlayerIcons.play, bounds.x + 18f, centerY, 13f, color)
+            ui.text(label, bounds.x + 30f, bounds.y + 9f, 12f, color, Theme.FONT_SEMIBOLD)
+        }
+        ui.hits += bounds to {
+            val continuation = radio()
+            ClientMusic.control { MusicPlayer.playAll(tracks, continuation) }
+        }
+    }
+
     /** 标题区，返回它的高度 */
     private fun drawHeader(page: LayoutBounds, title: String, tracks: List<NeteaseTrack>?): Float {
         val ctx = ui.ctx
@@ -288,13 +428,7 @@ internal class TracksPage(private val screen: MusicScreen) {
         var headerH = 62f
 
         // 返回
-        if (state.backPage != null || state.trail.isNotEmpty()) {
-            val bb = LayoutBounds(x, y + 2f, 28f, 28f)
-            ctx.drawShape(bb, ShapeStyle(if (ui.hover(bb)) Theme.CARD_HOVER else Theme.CARD, 14f))
-            ui.icon("◀", bb.x + 13.5f, bb.y + 14f, 10f, Theme.TEXT_PRIMARY)
-            ui.hits += bb to { screen.goBack() }
-            x += 40f
-        }
+        if (drawBackButton(x, y)) x += 40f
 
         // 歌单封面
         val p = state.opened
@@ -313,29 +447,13 @@ internal class TracksPage(private val screen: MusicScreen) {
         val segW = 132f
         // 标题最后再画：要等右边的按钮和筛选框排好，才知道标题最多能有多宽（窗口拉窄时不压到它们）
         val titleX = x
-        val sub = when {
-            state.page == Page.SEARCH && Library.searching -> I18n.text("Searching...")
-            state.page == Page.SEARCH && tracks.isNullOrEmpty() ->
-                if (Library.searchError.isNotEmpty()) I18n.text("Search failed: ") + I18n.message(Library.searchError) else I18n.text("No results")
-            state.page == Page.QUEUE && me.sorihiko.dangomusicgtnh.music.AppleWebPlayer.stationActive -> I18n.text("Apple Music radio · Updates as it plays")
-            state.page == Page.QUEUE && tracks.isNullOrEmpty() -> I18n.text("Nothing in the queue yet")
-            tracks == null || partiallyLoaded() -> loadingProgress()?.takeIf { it[1] > 0 }?.let { I18n.format("Loaded %d of %d songs", it[0], it[1]) } ?: I18n.text("Loading...")
-            filterText.isNotEmpty() -> I18n.format("%d of %d songs", shown(tracks).size, tracks.size)
-            else -> I18n.format("%d songs", tracks.size)
-        }
+        val sub = headerSubtitle(tracks)
         ui.text(sub, x, y + 34f, 11f, Theme.TEXT_SECONDARY, Theme.FONT_SEMIBOLD)
         // 歌单还在加载：知道总数就按比例走（平滑地追上去），不知道就来回滑，表示没卡住
         // 已经先显示了一部分时（下面已经有"播放全部"和"心动模式"按钮），进度条放到"已加载 x / y 首"这行字的右边
         val partial = tracks != null && partiallyLoaded()
         if ((tracks == null || partial) && state.page != Page.SEARCH && state.page != Page.QUEUE) {
-            val pr = loadingProgress()
-            val key = state.opened?.id ?: 0L
-            if (key != loadKey) {
-                loadKey = key
-                loadBar = Spring(160f, 24f)
-            }
-            val target = pr?.takeIf { it[1] > 0 }?.let { (it[0].toFloat() / it[1]).coerceIn(0f, 1f) }
-            val shownFraction = target?.let { loadBar.tick(it) }
+            val shownFraction = loadFraction()
             val barX = if (partial) x + ui.width(sub, 11f, Theme.FONT_SEMIBOLD) + 12f else x
             val barY = if (partial) y + 38f else y + 54f
             // 窗口窄时别伸到右上角的"列表 / 封面墙"切换下面
@@ -347,14 +465,7 @@ internal class TracksPage(private val screen: MusicScreen) {
         if (!tracks.isNullOrEmpty() && state.page != Page.QUEUE) {
             val label = I18n.text("Play all")
             val pb = LayoutBounds(x, y + (if (headerH > 100f) 64f else 52f) - 6f, ui.width(label, 12f, Theme.FONT_SEMIBOLD) + 44f, 30f)
-            ctx.drawShape(pb, ShapeStyle(if (ui.hover(pb)) RED.copy(a = 0.85f) else RED, 15f))
-            // 图标用矢量（字体里的 ▶ ♡ 小字号下位置不准，会显得歪）
-            PlayerIcons.draw(ctx, PlayerIcons.play, pb.x + 18f, pb.y + pb.height / 2f, 13f, Theme.TEXT_PRIMARY)
-            ui.text(label, pb.x + 30f, pb.y + 9f, 12f, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
-            ui.hits += pb to {
-                val continuation = radio()
-                ClientMusic.control { MusicPlayer.playAll(tracks, continuation) }
-            }
+            drawPlayAll(pb, label, tracks)
             val liked = state.opened?.takeIf {
                 state.page == Page.PLAYLIST && Library.canPlayHeartMode(it)
             }
@@ -371,38 +482,11 @@ internal class TracksPage(private val screen: MusicScreen) {
 
         // 右上角：列表 / 封面墙
         val seg = LayoutBounds(page.right - segW, y + 4f, segW, 26f)
-        ui.card(seg, Theme.CARD, 13f)
-        val half = LayoutBounds(seg.x, seg.y, segW / 2f, seg.height)
-        val other = LayoutBounds(seg.x + segW / 2f, seg.y, segW / 2f, seg.height)
-        val coverView = state.coverView
-        if (ui.hover(if (coverView) half else other)) ui.card(if (coverView) half else other, Theme.CARD_HOVER, 13f)
-        val pill = viewPill.tick(if (coverView) 1f else 0f)
-        val stretch = min(14f, abs(viewPill.v) * 5f)
-        val px = seg.x + pill.coerceIn(-0.06f, 1.06f) * half.width - (if (viewPill.v > 0f) stretch else 0f)
-        ctx.drawShape(LayoutBounds(px, seg.y, half.width + stretch, seg.height), ShapeStyle(RED, 13f))
-        val on = pill.coerceIn(0f, 1f)
-        ui.text(I18n.text("List"), half.x + (half.width - ui.width(I18n.text("List"), 12f, Theme.FONT_MEDIUM)) / 2f, half.y + 8f, 12f,
-            mixColor(Theme.TEXT_SECONDARY, Theme.TEXT_PRIMARY, 1f - on), Theme.FONT_MEDIUM)
-        ui.text(I18n.text("Covers"), other.x + (other.width - ui.width(I18n.text("Covers"), 12f, Theme.FONT_MEDIUM)) / 2f, other.y + 8f, 12f,
-            mixColor(Theme.TEXT_SECONDARY, Theme.TEXT_PRIMARY, on), Theme.FONT_MEDIUM)
-        ui.hits += half to { if (ScreenState.coverView) screen.toggleCoverView() }
-        ui.hits += other to { if (!ScreenState.coverView) screen.toggleCoverView() }
-
-        // 定位到正在播放（列表里有这首歌时才显示）
-        var rightX = seg.x - 10f
-        if (currentInList()) {
-            val label = I18n.text("Locate")
-            val lw = ui.width(label, 11f, Theme.FONT_MEDIUM) + 34f
-            val lb = LayoutBounds(rightX - lw, y + 4f, lw, 26f)
-            ui.card(lb, if (ui.hover(lb)) Theme.CARD_HOVER else Theme.CARD, 13f)
-            ui.icon("◎", lb.x + 14f, lb.y + 13f, 11f, RED)
-            ui.text(label, lb.x + 25f, lb.y + 8f, 11f, Theme.TEXT_PRIMARY, Theme.FONT_MEDIUM)
-            ui.hits += lb to { locateCurrent() }
-            rightX = lb.x - 10f
-        }
+        drawViewSwitch(seg, 12f)
+        var rightX = drawLocate(seg.x - 10f, y, 11f)
 
         // 歌单内筛选框（按歌名 / 歌手，输入即筛选）
-        if (tracks != null && state.page != Page.SEARCH) {
+        if (tracks != null && state.page != Page.SEARCH && !applePlaylist) {
             // 窄的时候筛选框跟着变短，给标题至少留 160
             drawFilter(rightX, y, (rightX - titleX - 160f).coerceIn(110f, 190f))
             rightX = filterRect.x - 10f
@@ -418,19 +502,117 @@ internal class TracksPage(private val screen: MusicScreen) {
         return headerH
     }
 
+    private fun drawNeteaseAppleQueueHeader(page: LayoutBounds, title: String, tracks: List<NeteaseTrack>?): Float {
+        val backW = if (drawBackButton(page.x, page.y)) 36f else 0f
+        val secondLine = drawAppleTrackToolbar(page, backW, tracks != null)
+        val titleY = page.y + if (secondLine) 70f else 38f
+        ui.text(ui.trim(title, page.width, 18f, Theme.FONT_SEMIBOLD), page.x, titleY,
+            18f, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
+        ui.text(ui.trim(headerSubtitle(tracks), page.width, APPLE_PLAYLIST_SECONDARY_SIZE), page.x, titleY + 23f,
+            APPLE_PLAYLIST_SECONDARY_SIZE, Theme.TEXT_SECONDARY)
+        return titleY - page.y + 47f
+    }
+
+    private fun drawAppleTrackToolbar(page: LayoutBounds, backW: Float, filter: Boolean): Boolean {
+        drawApplePlaylistControls(page, backW)
+        val filterWidth = (page.width - backW - 102f).coerceAtMost(190f)
+        val secondLine = filter && filterWidth < 100f
+        when {
+            secondLine -> drawFilter(page.right, page.y + 32f, page.width.coerceAtMost(190f))
+            filter -> drawFilter(page.x + backW + filterWidth, page.y, filterWidth)
+            else -> filterRect = LayoutBounds()
+        }
+        return secondLine
+    }
+
+    private fun drawApplePlaylistControls(page: LayoutBounds, backW: Float) {
+        val height = 26f
+        val gap = 5f
+        val available = page.width - backW - height - gap
+        val viewWidth = (available / 2f).coerceIn(16f, 28f)
+        val y = page.y + 4f
+        val slot = LayoutBounds(page.right - 2f * viewWidth, y, 2f * viewWidth, height)
+        val listBounds = slot.copy(width = viewWidth)
+        val coverBounds = listBounds.copy(x = listBounds.right)
+        val locate = LayoutBounds(slot.x - gap - height, y, height, height)
+        val coverView = ScreenState.coverView
+        val radius = height / 2f
+        ui.card(slot, Color(1f, 1f, 1f, 0.045f), radius)
+        val position = appleViewSlide.tick(if (coverView) 1f else 0f).coerceIn(0f, 1f)
+        ui.ctx.drawShape(listBounds.copy(x = slot.x + position * viewWidth),
+            ShapeStyle(Color(1f, 1f, 1f, 0.10f), clipBounds = slot, clipRadius = radius))
+        ui.ctx.drawShape(slot, ShapeStyle(radius = radius, borderWidth = 0.75f,
+            borderColor = Color(1f, 1f, 1f, 0.24f)))
+
+        val canLocate = currentInList()
+        drawApplePlaylistIcon(locate, "locateTrack", appleLocateHover,
+            if (canLocate) Theme.TEXT_PRIMARY else Theme.TEXT_TERTIARY.copy(a = 0.40f), canLocate)
+        drawApplePlaylistIcon(listBounds, "trackList", appleListHover, if (coverView) Theme.TEXT_PRIMARY else appleSelectedIcon)
+        drawApplePlaylistIcon(coverBounds, "coverWall", appleCoverWallHover, if (coverView) appleSelectedIcon else Theme.TEXT_PRIMARY)
+        if (canLocate) ui.hits += locate to { locateCurrent() }
+        ui.hits += listBounds to { if (ScreenState.coverView) screen.toggleCoverView() }
+        ui.hits += coverBounds to { if (!ScreenState.coverView) screen.toggleCoverView() }
+    }
+
+    private fun drawApplePlaylistIcon(bounds: LayoutBounds, icon: String, hover: Spring, color: Color, enabled: Boolean = true) {
+        val scale = ui.appleHoverScale(hover, enabled && ui.hover(bounds))
+        SidebarIcons.drawApple(ui.ctx, icon, bounds.x + bounds.width / 2f, bounds.y + bounds.height / 2f,
+            color, 14f * scale)
+    }
+
+    private fun drawViewSwitch(seg: LayoutBounds, textSize: Float) {
+        ui.card(seg, Theme.CARD, 13f)
+        val half = seg.copy(width = seg.width / 2f)
+        val other = half.copy(x = half.right)
+        val coverView = ScreenState.coverView
+        if (ui.hover(if (coverView) half else other)) ui.card(if (coverView) half else other, Theme.CARD_HOVER, 13f)
+        val pill = viewPill.tick(if (coverView) 1f else 0f)
+        val stretch = min(14f, abs(viewPill.v) * 5f)
+        val px = seg.x + pill.coerceIn(-0.06f, 1.06f) * half.width - (if (viewPill.v > 0f) stretch else 0f)
+        ui.card(LayoutBounds(px, seg.y, half.width + stretch, seg.height), RED, 13f)
+        val on = pill.coerceIn(0f, 1f)
+        val list = ui.trim(I18n.text("List"), half.width - 8f, textSize, Theme.FONT_MEDIUM)
+        val covers = ui.trim(I18n.text("Covers"), other.width - 8f, textSize, Theme.FONT_MEDIUM)
+        ui.text(list, half.x + (half.width - ui.width(list, textSize, Theme.FONT_MEDIUM)) / 2f, half.y + 8f, textSize,
+            mixColor(Theme.TEXT_SECONDARY, Theme.TEXT_PRIMARY, 1f - on), Theme.FONT_MEDIUM)
+        ui.text(covers, other.x + (other.width - ui.width(covers, textSize, Theme.FONT_MEDIUM)) / 2f, other.y + 8f, textSize,
+            mixColor(Theme.TEXT_SECONDARY, Theme.TEXT_PRIMARY, on), Theme.FONT_MEDIUM)
+        ui.hits += half to { if (ScreenState.coverView) screen.toggleCoverView() }
+        ui.hits += other to { if (!ScreenState.coverView) screen.toggleCoverView() }
+    }
+
+    private fun drawLocate(rightX: Float, y: Float, textSize: Float): Float {
+        if (!currentInList()) return rightX
+        val label = I18n.text("Locate")
+        val width = ui.width(label, textSize, Theme.FONT_MEDIUM) + 34f
+        val bounds = LayoutBounds(rightX - width, y + 4f, width, 26f)
+        ui.card(bounds, if (ui.hover(bounds)) Theme.CARD_HOVER else Theme.CARD, 13f)
+        ui.icon("◎", bounds.x + 14f, bounds.y + 13f, 11f, RED)
+        ui.text(label, bounds.x + 25f, bounds.y + 8f, textSize, Theme.TEXT_PRIMARY, Theme.FONT_MEDIUM)
+        ui.hits += bounds to { locateCurrent() }
+        return bounds.x - 10f
+    }
+
     private fun drawFilter(rightX: Float, y: Float, fw: Float) {
         val ctx = ui.ctx
         filterRect = LayoutBounds(rightX - fw, y + 4f, fw, 26f)
-        ui.card(filterRect, if (filterFocused) Theme.CARD_HOVER else Theme.CARD, 13f)
-        if (filterFocused) ctx.drawShape(filterRect, ShapeStyle(Color(0f, 0f, 0f, 0f), 13f, 1f, RED))
-        ctx.drawShape(LayoutBounds(filterRect.x + 10f, filterRect.y + 8f, 8f, 8f), ShapeStyle(Color(0f, 0f, 0f, 0f), 4f, 1.3f, Theme.TEXT_SECONDARY))
-        ctx.drawShape(LayoutBounds(filterRect.x + 16.5f, filterRect.y + 15f, 4f, 1.5f), ShapeStyle(Theme.TEXT_SECONDARY, 0.75f))
-        val caret = if (filterFocused && caretVisible()) "|" else ""
-        val placeholder = filterText.isEmpty() && !filterFocused
-        var shownText = if (placeholder) I18n.text("Filter this list...") else filterText + caret
-        val maxW = filterRect.width - 30f - (if (filterText.isNotEmpty()) 18f else 0f)
-        while (shownText.length > 1 && ui.width(shownText, 11f) > maxW) shownText = shownText.substring(1)
-        ui.text(shownText, filterRect.x + 26f, filterRect.y + 8f, 11f, if (placeholder) Theme.TEXT_TERTIARY else Theme.TEXT_PRIMARY)
+        val maxRight = filterRect.right - 4f - if (filterText.isNotEmpty()) 18f else 0f
+        if (screen.neteaseUsesAppleLayout) {
+            ui.drawNeteaseAppleSearchField(filterRect, filterText, if (filterFocused) "" else I18n.text("Filter this list..."),
+                filterFocused, filterRect.x + 14f, 13f, filterRect.x + 26f, maxRight, 11f)
+        } else {
+            ui.card(filterRect, if (filterFocused) Theme.CARD_HOVER else Theme.CARD, 13f)
+            if (filterFocused) ctx.drawShape(filterRect, ShapeStyle(Color.TRANSPARENT, 13f, 1f, RED))
+            ctx.drawShape(LayoutBounds(filterRect.x + 10f, filterRect.y + 8f, 8f, 8f),
+                ShapeStyle(Color.TRANSPARENT, 4f, 1.3f, Theme.TEXT_SECONDARY))
+            ctx.drawShape(LayoutBounds(filterRect.x + 16.5f, filterRect.y + 15f, 4f, 1.5f), ShapeStyle(Theme.TEXT_SECONDARY, 0.75f))
+            val caret = if (filterFocused && caretVisible()) "|" else ""
+            val placeholder = filterText.isEmpty() && !filterFocused
+            var shownText = if (placeholder) I18n.text("Filter this list...") else filterText + caret
+            val maxW = maxRight - filterRect.x - 26f
+            while (shownText.length > 1 && ui.width(shownText, 11f) > maxW) shownText = shownText.substring(1)
+            ui.text(shownText, filterRect.x + 26f, filterRect.y + 8f, 11f, if (placeholder) Theme.TEXT_TERTIARY else Theme.TEXT_PRIMARY)
+        }
         ui.hits += filterRect to {
             filterFocused = true
             screen.sidebar.searchFocused = false
@@ -438,7 +620,8 @@ internal class TracksPage(private val screen: MusicScreen) {
         if (filterText.isNotEmpty()) {
             val xb = LayoutBounds(filterRect.right - 22f, filterRect.y + 4f, 18f, 18f)
             if (ui.hover(xb)) ctx.drawShape(xb, ShapeStyle(Theme.CARD_HOVER, 9f))
-            ui.icon("×", xb.x + 9f, xb.y + 9f, 11f, Theme.TEXT_SECONDARY)
+            if (screen.neteaseUsesAppleLayout) SidebarIcons.draw(ctx, "clear", xb.x + 9f, xb.y + 9f, Theme.TEXT_SECONDARY, 12f)
+            else ui.icon("×", xb.x + 9f, xb.y + 9f, 11f, Theme.TEXT_SECONDARY)
             ui.hits.add(0, xb to { clearFilter() })     // 优先于筛选框本身
         }
     }
@@ -507,15 +690,20 @@ internal class TracksPage(private val screen: MusicScreen) {
     /** 列表：序号 / 小封面 / 歌名 / 歌手 / 时长 */
     private fun drawTrackList(list: LayoutBounds, all: List<NeteaseTrack>, tracks: List<Pair<Int, NeteaseTrack>>) {
         val ctx = ui.ctx
-        // 表头
-        ui.text("#", list.x + 12f, list.y, 10f, Theme.TEXT_TERTIARY, Theme.FONT_SEMIBOLD)
-        ui.text(I18n.text("TITLE"), list.x + 84f, list.y, 10f, Theme.TEXT_TERTIARY, Theme.FONT_SEMIBOLD)
         val sbW = 16f   // 右边留给滚动条
-        ui.text(I18n.text("TIME"), list.right - sbW - 12f - ui.width(I18n.text("TIME"), 10f, Theme.FONT_SEMIBOLD), list.y, 10f, Theme.TEXT_TERTIARY, Theme.FONT_SEMIBOLD)
-        ctx.drawShape(LayoutBounds(list.x, list.y + 16f, list.width - sbW, 1f), ShapeStyle(Theme.SEPARATOR))
         val body = LayoutBounds(list.x, list.y + 22f, list.width - sbW, list.height - 22f)
+        val columns = if (applePlaylistLayout || screen.neteaseUsesAppleLayout) AppleTrackColumns(body) else null
+        if (columns != null) drawAppleTrackHeadings(list.y, columns) else {
+            ui.text("#", list.x + 12f, list.y, 10f, Theme.TEXT_TERTIARY, Theme.FONT_SEMIBOLD)
+            ui.text(I18n.text("TITLE"), list.x + 84f, list.y, 10f, Theme.TEXT_TERTIARY, Theme.FONT_SEMIBOLD)
+            ui.text(I18n.text("TIME"), body.right - 12f - ui.width(I18n.text("TIME"), 10f, Theme.FONT_SEMIBOLD),
+                list.y, 10f, Theme.TEXT_TERTIARY, Theme.FONT_SEMIBOLD)
+        }
+        val dividerY = list.y + if (columns != null) 18f else 16f
+        ctx.drawShape(LayoutBounds(list.x, dividerY, body.width, 1f), ShapeStyle(Theme.SEPARATOR))
 
-        val rowH = 44f
+        val rowH = if (columns != null) 32f else 44f
+        val rowGap = if (columns != null) 1f else 4f
         // 能完整看到的行只算播放栏上面的部分；播放栏底下也接着画几行，滚动时从它后面经过
         val rows = max(1, ((body.height - ui.bottomInset) / rowH).toInt())
         val drawnRows = rows + kotlin.math.ceil(ui.bottomInset / rowH).toInt() + 1
@@ -529,7 +717,7 @@ internal class TracksPage(private val screen: MusicScreen) {
         val frac = listPos - first
         val clipArea = LayoutBounds(body.x - 4f, body.y - 2f, body.width + 8f, body.height + 2f)
         ui.beginClip(clipArea)
-        val curRow = if (playing == null) -1 else tracks.indexOfFirst { it.second.key == playing.key }
+        val curRow = if (columns == null && playing != null) tracks.indexOfFirst { it.second.key == playing.key } else -1
         if (curRow >= 0) {
             if (selSnap) { selPos.x = curRow.toFloat(); selPos.v = 0f; selSnap = false }
             // 跨很多行（比如从第 3 首跳到第 400 首）时不从原位置一路飞过去，那样一闪而过很乱：
@@ -542,7 +730,7 @@ internal class TracksPage(private val screen: MusicScreen) {
             val at = selPos.tick(curRow.toFloat())
             val y = body.y + (at - listPos) * rowH
             if (y > body.y - rowH && y < body.bottom) {
-                val sel = LayoutBounds(body.x, y, body.width, rowH - 4f).scaled(1f + selPress.tick(0f) * 0.02f)
+                val sel = LayoutBounds(body.x, y, body.width, rowH - rowGap).scaled(1f + selPress.tick(0f) * 0.02f)
                 ctx.drawGlass(sel, Theme.GLASS_SELECTION)
             }
         }
@@ -552,33 +740,153 @@ internal class TracksPage(private val screen: MusicScreen) {
             if (vi >= tracks.size) break
             val (i, t) = tracks[vi]
             ui.itemAnim(r) {
-                val row = LayoutBounds(body.x, body.y + (r - frac) * rowH, body.width, rowH - 4f)
+                val row = LayoutBounds(body.x, body.y + (r - frac) * rowH, body.width, rowH - rowGap)
                 val isCur = playing != null && playing.key == t.key
-                if (!isCur && ui.hover(row)) ui.card(row, Theme.CARD_HOVER, 10f)
-                if (flash > 0f && t.key == flashId) {
-                    ctx.drawShape(row, ShapeStyle(Color(0f, 0f, 0f, 0f), 10f, 1.5f, RED.copy(a = flash)))
-                }
-                if (isCur && MusicPlayer.state == MusicPlayer.State.PLAYING) {
-                    ui.icon("♫", row.x + 18f, row.y + 20f, 12f, RED)
+                val hit = row.intersect(clipArea)
+                val hovered = ui.hover(hit)
+                val radius = if (columns != null) 6f else 10f
+                if (columns != null) {
+                    val selection = i to t.key
+                    if (isCur || selection == selectedAppleTrack || hovered) {
+                        ui.card(row, if (isCur || selection == selectedAppleTrack) Theme.CARD_HOVER else Theme.CARD, radius)
+                    }
+                    drawAppleTrackRow(row, t, columns, isCur, hovered, clipArea) {
+                        selectedAppleTrack = selection
+                        val state = MusicPlayer.state
+                        if (MusicPlayer.current?.key != t.key || state == MusicPlayer.State.STOPPED || state == MusicPlayer.State.ERROR) {
+                            playFrom(all, i)
+                        } else if (state == MusicPlayer.State.PLAYING || state == MusicPlayer.State.PAUSED) {
+                            ClientMusic.control { if (MusicPlayer.current?.key == t.key) MusicPlayer.togglePause() }
+                        }
+                    }
+                    ui.hits += hit to {
+                        selectedAppleTrack = selection
+                        if (screen.neteaseUsesAppleLayout) playFrom(all, i)
+                    }
                 } else {
-                    ui.text("${i + 1}", row.x + 12f, row.y + 15f, 11f, Theme.TEXT_TERTIARY)
+                    if (!isCur && hovered) ui.card(row, Theme.CARD_HOVER, radius)
+                    drawTrackRow(row, t, i, isCur, clipArea)
+                    ui.hits += hit to {
+                        selPress.v -= 6f
+                        playFrom(all, i)
+                    }
                 }
-                val thumb = LayoutBounds(row.x + 46f, row.y + 4f, row.height - 8f, row.height - 8f)
-                ui.drawCover(thumb, CoverCache.trackRounded(t, 0.15f), 6f)
-                val tx = thumb.right + 12f
-                val durW = 44f
-                val avail = row.right - durW - 12f - tx
-                ui.text(ui.trim(t.name, avail, 13f), tx, row.y + 7f, 13f, if (isCur) RED else Theme.TEXT_PRIMARY)
-                drawArtistLinks(screen, t, tx, row.y + 23f, avail, 11f, Theme.TEXT_SECONDARY, clipArea)
-                val d = fmtTime(t.durationMs)
-                ui.text(d, row.right - 12f - ui.width(d, 11f), row.y + 15f, 11f, Theme.TEXT_TERTIARY)
-                ui.hits += row.intersect(clipArea) to {
-                    selPress.v -= 6f
-                    playFrom(all, i)
+                if (flash > 0f && t.key == flashId) {
+                    ctx.drawShape(row, ShapeStyle(Color.TRANSPARENT, radius, 1.5f, RED.copy(a = flash)))
                 }
             }
         }
         ui.endClip()
+    }
+
+    private fun drawTrackRow(row: LayoutBounds, track: NeteaseTrack, index: Int, isCur: Boolean, clip: LayoutBounds) {
+        if (isCur && MusicPlayer.state == MusicPlayer.State.PLAYING) {
+            ui.icon("♫", row.x + 18f, row.y + 20f, 12f, RED)
+        } else {
+            ui.text("${index + 1}", row.x + 12f, row.y + 15f, 11f, Theme.TEXT_TERTIARY)
+        }
+        val thumb = LayoutBounds(row.x + 46f, row.y + 4f, row.height - 8f, row.height - 8f)
+        if (screen.usesAppleLayout) ui.drawAppleCover(thumb, CoverCache.track(track))
+        else ui.drawCover(thumb, CoverCache.trackRounded(track, 0.15f), 6f)
+        val x = thumb.right + 12f
+        val width = row.right - 56f - x
+        ui.text(ui.trim(track.name, width, 13f), x, row.y + 7f, 13f, if (isCur) RED else Theme.TEXT_PRIMARY)
+        drawArtistLinks(screen, track, x, row.y + 23f, width, 11f, Theme.TEXT_SECONDARY, clip)
+        val time = fmtTime(track.durationMs)
+        ui.text(time, row.right - 12f - ui.width(time, 11f), row.y + 15f, 11f, Theme.TEXT_TERTIARY)
+    }
+
+    private class AppleTrackColumns(body: LayoutBounds) {
+        val song = body.x + 7f
+        val time = body.right - 10f
+        val timeStart = time - 43f
+        private val width = timeStart - song
+        val artist = when {
+            body.width >= 420f -> song + width * 0.40f
+            body.width >= 260f -> song + width * 0.57f
+            else -> null
+        }
+        val album = if (body.width >= 420f) song + width * 0.68f else null
+    }
+
+    private fun drawAppleTrackHeadings(y: Float, columns: AppleTrackColumns) {
+        val size = APPLE_PLAYLIST_SECONDARY_SIZE
+        val color = Theme.TEXT_SECONDARY
+        val font = Theme.FONT_SEMIBOLD
+        ui.text(I18n.text("Song"), columns.song, y, size, color, font)
+        columns.artist?.let { ui.text(I18n.text("Artist"), it, y, size, color, font) }
+        columns.album?.let { ui.text(I18n.text("Album"), it, y, size, color, font) }
+        val time = I18n.text("Time")
+        ui.text(time, columns.time - ui.width(time, size, font), y, size, color, font)
+    }
+
+    private fun drawAppleTrackRow(row: LayoutBounds, track: NeteaseTrack, columns: AppleTrackColumns,
+                                  isCur: Boolean, hovered: Boolean, clip: LayoutBounds, play: () -> Unit) {
+        val thumb = LayoutBounds(columns.song, row.y + (row.height - 24f) / 2f, 24f, 24f)
+        val coverHit = thumb.intersect(clip)
+        val coverRadius = 3f
+        val compact = columns.artist == null
+        val titleSize = APPLE_MENU_TEXT_SIZE
+        val centerY = row.y + (row.height - titleSize) / 2f
+        val titleY = if (compact) row.y + 4f else centerY
+        ui.drawAppleCover(thumb, CoverCache.track(track), radius = coverRadius)
+        val playing = isCur && MusicPlayer.state == MusicPlayer.State.PLAYING
+        if (hovered || playing) {
+            ui.card(thumb, Color.BLACK.copy(a = if (hovered) 0.34f else 0.46f), coverRadius)
+            val cx = thumb.x + 12f
+            val cy = thumb.y + 12f
+            if (playing && !ui.hover(coverHit)) drawAppleTrackWave(cx, titleY + titleSize / 2f)
+            else PlayerIcons.draw(ui.ctx, if (playing) AppleLyricsIcons.pause else AppleLyricsIcons.play,
+                cx, cy, 14f, Theme.TEXT_PRIMARY)
+        }
+        if (coverHit.height > 0f) ui.hits += coverHit to play
+        val x = thumb.right + 9f
+        val songW = (columns.artist ?: columns.timeStart) - x - 8f
+        val secondarySize = APPLE_PLAYLIST_SECONDARY_SIZE
+        val titleColor = if (!isCur) Theme.TEXT_PRIMARY else if (screen.neteaseUsesAppleLayout) APPLE_CONTROL_BLUE else RED
+        if (songW > 12f) ui.text(ui.trim(track.name, songW, titleSize, Theme.FONT_MEDIUM), x,
+            titleY, titleSize, titleColor, Theme.FONT_MEDIUM)
+
+        // 窗口变窄时，先把专辑并到歌手列，再把两者移到歌名下方。
+        val artistX = columns.artist ?: x
+        val albumX = columns.album ?: if (compact) artistX + (columns.timeStart - artistX) * 0.50f else artistX
+        val artistEnd = if (albumX > artistX) albumX else columns.timeStart
+        val artistY = when {
+            compact -> row.y + 17f
+            columns.album == null && track.albumName.isNotBlank() -> row.y + 4f
+            else -> centerY
+        }
+        val artistWidth = artistEnd - artistX - 8f
+        if (artistWidth > 8f) {
+            if (screen.neteaseUsesAppleLayout)
+                drawArtistLinks(screen, track, artistX, artistY, artistWidth, secondarySize, Theme.TEXT_SECONDARY, clip)
+            else ui.text(ui.trim(track.artists.joinToString(" / "), artistWidth, secondarySize),
+                artistX, artistY, secondarySize, Theme.TEXT_SECONDARY)
+        }
+        val albumW = columns.timeStart - albumX - 8f
+        if (track.albumName.isNotBlank() && albumW > 12f) {
+            val albumY = if (columns.album == null) row.y + 17f else centerY
+            ui.text(ui.trim(track.albumName, albumW, secondarySize), albumX, albumY, secondarySize, Theme.TEXT_SECONDARY)
+        }
+        if (track.durationMs > 0L) {
+            val time = fmtTime(track.durationMs)
+            ui.text(time, columns.time - ui.width(time, secondarySize), centerY, secondarySize, Theme.TEXT_SECONDARY)
+        }
+        ui.card(LayoutBounds(row.x + 7f, row.bottom, row.width - 14f, 1f), Theme.SEPARATOR, 0f)
+    }
+
+    private fun drawAppleTrackWave(cx: Float, cy: Float) {
+        val time = System.nanoTime() / 1e9
+        val width = 2.25f
+        val gap = 0.65f
+        val left = cx - (4f * width + 3f * gap) / 2f
+        val baseline = cy + 3.5f
+        for (i in 0..3) {
+            val phase = time * (5.2 + i * 0.83) + i * 1.75
+            val pulse = 0.50 + 0.28 * kotlin.math.sin(phase) + 0.18 * kotlin.math.sin(phase * 1.7)
+            val height = (3 + 9 * pulse).toFloat() * 0.7f
+            ui.card(LayoutBounds(left + i * (width + gap), baseline - height, width, height), Theme.TEXT_PRIMARY, 0.6f)
+        }
     }
 
     // ---------------------------------------------------------------- 封面墙（Coverflow）
@@ -628,10 +936,16 @@ internal class TracksPage(private val screen: MusicScreen) {
             if (a < 0.01f) continue
             ui.ctx.pushOpacity(a)
             // 中间几张很大，用高清版；两边远处的缩得很小，小图就够
-            val cover = if (ad < 2.5f) CoverCache.trackRoundedLarge(tracks[item.i], 0.08f)
-                else CoverCache.trackRounded(tracks[item.i], 0.08f)
-            ui.drawCover(item.b, cover, 12f)
-            if (ad > 0.5f) ui.card(item.b, Color(0f, 0f, 0f, min(0.45f, ad * 0.18f)), 2f)
+            val track = tracks[item.i]
+            if (screen.usesAppleLayout) {
+                val cover = if (ad < 2.5f) CoverCache.lyricsArtwork(track) else CoverCache.track(track)
+                ui.drawAppleCover(item.b, cover)
+            } else {
+                val cover = if (ad < 2.5f) CoverCache.trackRoundedLarge(track, 0.08f) else CoverCache.trackRounded(track, 0.08f)
+                ui.drawCover(item.b, cover, 12f)
+            }
+            if (ad > 0.5f) ui.card(item.b, Color(0f, 0f, 0f, min(0.45f, ad * 0.18f)),
+                if (screen.usesAppleLayout) appleCoverRadius(item.b) else 2f)
             ui.ctx.popOpacity()
         }
         ui.endClip()
@@ -647,7 +961,8 @@ internal class TracksPage(private val screen: MusicScreen) {
         val isCur = MusicPlayer.current?.key == t.key
         val ty = cy + size / 2f + 14f
         val name = ui.trim(t.name, area.width - 40f, 16f, Theme.FONT_SEMIBOLD)
-        ui.text(name, cx - ui.width(name, 16f, Theme.FONT_SEMIBOLD) / 2f, ty, 16f, if (isCur) RED else Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
+        val nameColor = if (isCur && !screen.usesAppleLayout) RED else Theme.TEXT_PRIMARY
+        ui.text(name, cx - ui.width(name, 16f, Theme.FONT_SEMIBOLD) / 2f, ty, 16f, nameColor, Theme.FONT_SEMIBOLD)
         val artist = ui.trim(t.artists.joinToString(" / "), area.width - 40f, 12f)
         ui.text(artist, cx - ui.width(artist, 12f) / 2f, ty + 21f, 12f, Theme.TEXT_SECONDARY)
         val idx = "${cfTarget + 1} / ${tracks.size}"
@@ -658,7 +973,7 @@ internal class TracksPage(private val screen: MusicScreen) {
 
     /** 筛选框有焦点时的按键；返回 true 表示按键被吃掉了 */
     fun filterKeyTyped(typedChar: Char, keyCode: Int): Boolean {
-        if (!filterFocused) return false
+        if (!filterFocused || applePlaylist) return false
         when {
             keyCode == Keys.ESCAPE -> clearFilter()
             keyCode == Keys.RETURN || keyCode == Keys.NUMPADENTER -> filterFocused = false
@@ -683,7 +998,7 @@ internal class TracksPage(private val screen: MusicScreen) {
         if (!tracksPage) return false
         val listView = !ScreenState.coverView
         when {
-            ScreenState.page != Page.SEARCH && DangoClient.platform.ctrlDown && keyCode == Keys.F -> filterFocused = true
+            ScreenState.page != Page.SEARCH && !applePlaylist && DangoClient.platform.ctrlDown && keyCode == Keys.F -> filterFocused = true
             keyCode == Keys.L -> locateCurrent()
             listView && keyCode == Keys.HOME -> scroll = 0
             listView && keyCode == Keys.END -> scroll = Int.MAX_VALUE / 2
@@ -716,3 +1031,4 @@ internal class TracksPage(private val screen: MusicScreen) {
 /** 高亮最多滑过几行，再远就从目标旁边 [SEL_ENTRY] 行开始滑 */
 private const val SEL_MAX_SLIDE = 8f
 private const val SEL_ENTRY = 3f
+private const val APPLE_PLAYLIST_SECONDARY_SIZE = 9.75f

@@ -21,6 +21,7 @@ class NeteasePlaylist @JvmOverloads constructor(
     /** 自己创建的（含"我喜欢的音乐"）还是收藏别人的 */
     val owned: Boolean,
     val likedPlaylist: Boolean = false,
+    val description: String = "",
 )
 
 /**

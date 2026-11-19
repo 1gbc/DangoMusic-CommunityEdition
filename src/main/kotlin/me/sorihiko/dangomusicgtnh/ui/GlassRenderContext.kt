@@ -178,7 +178,17 @@ class GlassRenderContext : GuiCanvas {
         drawTexturedImage(bounds, image, radius, phase)
     }
 
-    private fun drawTexturedImage(bounds: LayoutBounds, image: Texture, radius: Float, phase: Float = -1f) {
+    override fun drawCroppedSquareImage(bounds: LayoutBounds, image: Texture, radius: Float) {
+        if (bounds.width <= 0f || bounds.height <= 0f) return
+        val uInset = (1f - minOf(1f, bounds.width / bounds.height)) / 2f
+        val vInset = (1f - minOf(1f, bounds.height / bounds.width)) / 2f
+        drawTexturedImage(bounds, image, radius, uInset = uInset, vInset = vInset, captionShade = 0.78f)
+    }
+
+    private fun drawTexturedImage(
+        bounds: LayoutBounds, image: Texture, radius: Float, phase: Float = -1f,
+        uInset: Float = 0f, vInset: Float = 0f, captionShade: Float = 0f,
+    ) {
         imageShader.bind()
         imageShader.setup(
             getTransform(),
@@ -186,19 +196,19 @@ class GlassRenderContext : GuiCanvas {
                 mc.displayWidth.toFloat(),
                 mc.displayHeight.toFloat()
             ),
-            getOpacity(), bounds, radius, phase
+            getOpacity(), bounds, radius, phase, captionShade
         )
         GL13.glActiveTexture(GL13.GL_TEXTURE0)
         (image as LegacyTexture).bind()
 
         GL11.glBegin(GL11.GL_QUADS)
-        GL11.glTexCoord2f(0f, 0f)
+        GL11.glTexCoord2f(uInset, vInset)
         GL11.glVertex2f(bounds.x, bounds.y)
-        GL11.glTexCoord2f(0f, 1f)
+        GL11.glTexCoord2f(uInset, 1f - vInset)
         GL11.glVertex2f(bounds.x, bounds.bottom)
-        GL11.glTexCoord2f(1f, 1f)
+        GL11.glTexCoord2f(1f - uInset, 1f - vInset)
         GL11.glVertex2f(bounds.right, bounds.bottom)
-        GL11.glTexCoord2f(1f, 0f)
+        GL11.glTexCoord2f(1f - uInset, vInset)
         GL11.glVertex2f(bounds.right, bounds.y)
         GL11.glEnd()
 
