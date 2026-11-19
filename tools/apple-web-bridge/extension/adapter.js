@@ -187,6 +187,38 @@ async function appleAdapter(command) {
         return {items,hasMore:nextOffset<snapshot.items.length,nextOffset};
       }catch(e){return failure(e,op);}
     }
+    if(op==='playlistAdd') {
+      const match=/^([A-Za-z0-9._-]{1,100}):(songs|library-songs):([A-Za-z0-9._-]{1,95})$/.exec(v.id||'');
+      if(!match)throw Error('Invalid playlist selection');
+      const [,playlist,kind,song]=match;
+      const path='/v1/me/library/playlists/'+encodeURIComponent(playlist);
+      try {
+        const metadata=await player.api.music(path,{});
+        const resource=(metadata?.data?.data||metadata?.data)?.[0];
+        if(resource?.attributes?.canEdit!==true)return {error:'This playlist cannot be edited'};
+        let offset=0;
+        for(let page=0;page<101;page++) {
+          const response=await player.api.music(path+'/tracks',{limit:100,offset,include:'catalog'});
+          const data=response?.data;
+          const rows=Array.isArray(data)?data:(data?.data||[]);
+          if(rows.some(row=>row.id===song||row.attributes?.playParams?.catalogId===song||
+              row.relationships?.catalog?.data?.some(item=>item.id===song)))return {result:'duplicate'};
+          if(!data?.next)break;
+          const next=new URL(data.next,'https://api.music.apple.com');
+          const value=Number(next.searchParams.get('offset'));
+          if(!['api.music.apple.com','amp-api.music.apple.com'].includes(next.hostname)||
+              next.pathname!==path+'/tracks'||!Number.isInteger(value)||value<=offset||value>10000)
+            throw Error('Could not check playlist contents');
+          if(page===100)throw Error('Could not check playlist contents');
+          offset=value;
+        }
+        const body=JSON.stringify({data:[{id:song,type:kind}]});
+        const response=await player.api.music(path+'/tracks',{},
+          {method:'POST',body,fetchOptions:{method:'POST',body,headers:{'Content-Type':'application/json'}}});
+        if(response?.errors?.length||response?.data?.errors?.length)throw response.data?.errors?response.data:response;
+        return {result:'added'};
+      }catch(e){return failure(e,op);}
+    }
     const params={limit:25,offset};let path,legacy;
     if(['favoriteState','favoriteAdd','favoriteRemove'].includes(op)) {
       if(!/^(?:[0-9]{1,20}|i\.[A-Za-z0-9._-]{1,95})$/.test(v.id||''))throw Error('Invalid favorite song');
@@ -243,7 +275,7 @@ async function appleAdapter(command) {
     else if(op==='libraryAlbums') {path='/v1/me/library/albums';params.include='catalog';}
     else if(op==='playlists') {path='/v1/me/library/playlists';legacy=()=>player.api.library.playlists(params);}
     else if(op==='songs'||op==='favoriteSongs') {
-      path='/v1/me/library/songs';params.extend='inFavorites';legacy=()=>player.api.library.songs(params);
+      path='/v1/me/library/songs';params.extend='inFavorites';params.include='catalog';legacy=()=>player.api.library.songs(params);
     }
     else if(op==='recent') {
       path='/v1/me/recent/played';params.limit=10;
@@ -256,7 +288,7 @@ async function appleAdapter(command) {
       if(!match)throw Error('Invalid card resource');
       path=(match[1].startsWith('library-')?'/v1/me/library/'+match[1].slice(8):'/v1/catalog/'+storefront+'/'+match[1])+'/'+encodeURIComponent(match[2])+'/tracks';
     }
-    else if(op==='playlistTracks'&&idOk(v.id)) {path='/v1/me/library/playlists/'+v.id+'/tracks';legacy=()=>player.api.library.playlistRelationship(v.id,'tracks',params);}
+    else if(op==='playlistTracks'&&idOk(v.id)) {path='/v1/me/library/playlists/'+v.id+'/tracks';params.include='catalog';legacy=()=>player.api.library.playlistRelationship(v.id,'tracks',params);}
     else throw Error('Unsupported browse operation');
     let response;
     try {
@@ -290,6 +322,7 @@ async function appleAdapter(command) {
         ...(op==='discover'?{featuredCover:coverUrl(a.artwork?.url,'768'),releaseDate:text(a.releaseDate)}:{}),
         genre:text(a.genreNames?.[0]), compilation:a.isCompilation===true||row.relationships?.catalog?.data?.[0]?.attributes?.isCompilation===true,
         favoriteList:Array.isArray(a.tags)&&a.tags.includes('favorited'),
+        ...(op==='playlists'?{editable:a.canEdit===true}:{}),
         durationMs:Number.isFinite(a.durationInMillis)?a.durationInMillis:0};
     }).filter(row=>idOk(row.id));
     // Never invent a next page from a full batch: the final page may be full,

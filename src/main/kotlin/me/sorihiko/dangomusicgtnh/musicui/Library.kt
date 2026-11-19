@@ -7,6 +7,8 @@ import me.sorihiko.dangomusicgtnh.i18n.I18n
 import me.sorihiko.dangomusicgtnh.music.AppleMusicSource
 import me.sorihiko.dangomusicgtnh.music.AppleWebPlayer
 import me.sorihiko.dangomusicgtnh.music.NeteaseApi
+import me.sorihiko.dangomusicgtnh.music.PlaylistAddResult
+import me.sorihiko.dangomusicgtnh.music.CloudDrives
 import me.sorihiko.dangomusicgtnh.music.NeteasePlaylist
 import me.sorihiko.dangomusicgtnh.music.NeteaseTrack
 import me.sorihiko.dangomusicgtnh.music.MusicSource
@@ -68,6 +70,8 @@ internal object Library {
         private set
     @Volatile var playlistsLoading = false
         private set
+    @Volatile var playlistNotice: Boolean? = null
+        private set
     @Volatile var notice = TimedNotice("")
         private set
     @Volatile var recommend: List<NeteasePlaylist>? = null
@@ -83,6 +87,10 @@ internal object Library {
     @Volatile var searching = false
         private set
     @Volatile var searchError = ""
+        private set
+    private val trackRevisions = mutableMapOf<Long, Int>()
+    private val trackChanges = mutableMapOf<Long, MutableMap<String, Pair<NeteaseTrack, Boolean>>>()
+    @Volatile var addingToPlaylist = false
         private set
     private val tracksCache = ConcurrentHashMap<Long, List<NeteaseTrack>>()
     private val tracksLoading = ConcurrentHashMap.newKeySet<Long>()
@@ -172,8 +180,7 @@ internal object Library {
                 if (desired != null && error.isNotEmpty()) showStatus(I18n.text(error))
                 if (desired != null && selected == desired) {
                     val id = AppleMusicSource.favoritesEntry().id
-                    tracksCache.remove(id)
-                    if (ScreenState.page == Page.PLAYLIST && ScreenState.opened?.id == id) loadTracks(id)
+                    recordTrackChange(id, track, desired)
                 }
             }
         }
@@ -237,30 +244,99 @@ internal object Library {
             publish(request) { charts = if (error.isEmpty()) result else null; chartsLoading = false; if (error.isNotEmpty()) showStatus(error) }
         }
     }
-    @Synchronized fun loadTracks(playlistId: Long) {
-        if ((tracksCache.containsKey(playlistId) && !tracksFailed.remove(playlistId)) || !tracksLoading.add(playlistId)) return
+    @JvmOverloads @Synchronized fun loadTracks(playlistId: Long, force: Boolean = false) {
+        if ((!force && tracksCache.containsKey(playlistId) && !tracksFailed.remove(playlistId)) || !tracksLoading.add(playlistId)) return
         val request = request()
+        val revision = trackRevisions[playlistId] ?: 0
         worker.execute {
             var error = ""
             // 大歌单边加载边显示：每拿到一批就先放进缓存，界面马上能看到、能点歌
-            val partial: (List<NeteaseTrack>) -> Unit = { list -> publish(request) { replaceTracks(playlistId, list) } }
+            val partial: (List<NeteaseTrack>) -> Unit = { list -> publish(request) {
+                if ((trackRevisions[playlistId] ?: 0) == revision) replaceTracks(playlistId, list)
+            } }
             val result = try {
-                TrackLoadProgress.track({ loaded, total -> trackProgress[playlistId] = intArrayOf(loaded, total) }, partial) { request.api.playlistTracks(playlistId) }
+                TrackLoadProgress.track({ loaded, total -> publish(request) {
+                    trackProgress[playlistId] = intArrayOf(loaded, total)
+                } }, partial) { request.api.playlistTracks(playlistId) }
             } catch (e: Exception) { error = publicError(e); null }
-            trackProgress.remove(playlistId)
             publish(request) {
+                trackProgress.remove(playlistId)
                 // 失败时保留已经显示的那部分
-                if (result != null) replaceTracks(playlistId, result) else if (!tracksCache.containsKey(playlistId)) tracksCache[playlistId] = emptyList()
+                if ((trackRevisions[playlistId] ?: 0) == revision) {
+                    if (result != null) replaceTracks(playlistId, result, confirmed = true)
+                    else if (!tracksCache.containsKey(playlistId)) tracksCache[playlistId] = emptyList()
+                }
                 tracksLoading.remove(playlistId)
-                if (error.isNotEmpty()) { tracksFailed.add(playlistId); showStatus(error) }
+                if ((trackRevisions[playlistId] ?: 0) != revision) loadTracks(playlistId, force = true)
+                if (error.isNotEmpty() && (trackRevisions[playlistId] ?: 0) == revision) {
+                    tracksFailed.add(playlistId)
+                    showStatus(error)
+                }
             }
         }
     }
     /** 换上更新（更长）的歌曲列表；如果正在放的就是旧列表，队列也一起换成新的 */
-    private fun replaceTracks(playlistId: Long, tracks: List<NeteaseTrack>) {
+    private fun mutationKey(track: NeteaseTrack): String =
+        if (track.source == MusicSource.APPLE) "apple:${track.mediaId.removePrefix("library:")}" else track.key
+
+    private fun replaceTracks(playlistId: Long, tracks: List<NeteaseTrack>, confirmed: Boolean = false) {
+        val changes = trackChanges[playlistId].orEmpty()
+        val serverKeys = tracks.mapTo(hashSetOf()) { mutationKey(it) }
+        val added = changes.values.filter { it.second && mutationKey(it.first) !in serverKeys }.map { it.first }
+        val retained = tracks.filter { changes[mutationKey(it)]?.second != false }
+        val favoriteList = playlists.any { it.id == playlistId && it.likedPlaylist } ||
+            source == MusicSource.APPLE && playlistId == AppleMusicSource.favoritesEntry().id
+        val updated = if (favoriteList) added + retained else retained + added
         val old = tracksCache[playlistId]
-        tracksCache[playlistId] = tracks
-        if (old != null) MusicPlayer.growQueue(old, tracks)
+        tracksCache[playlistId] = if (changes.isEmpty()) tracks else updated
+        if (old != null) MusicPlayer.growQueue(old, tracksCache[playlistId]!!)
+        if (confirmed && changes.all { (key, change) -> (key in serverKeys) == change.second }) trackChanges.remove(playlistId)
+    }
+
+    private fun recordTrackChange(id: Long, track: NeteaseTrack, present: Boolean) {
+        trackRevisions[id] = (trackRevisions[id] ?: 0) + 1
+        trackChanges.getOrPut(id) { mutableMapOf() }[mutationKey(track)] = track to present
+        val cached = tracksCache[id]
+        val wasPresent = cached?.any { mutationKey(it) == mutationKey(track) }
+        if (wasPresent != present) {
+            playlists = playlists.map { playlist ->
+                if (playlist.id != id) playlist else NeteasePlaylist(playlist.id, playlist.name,
+                    (playlist.trackCount + if (present) 1 else -1).coerceAtLeast(0), playlist.coverUrl,
+                    playlist.owned, playlist.likedPlaylist, playlist.description)
+            }
+            if (ScreenState.opened?.id == id) ScreenState.opened = playlists.firstOrNull { it.id == id } ?: ScreenState.opened
+        }
+        if (cached != null) replaceTracks(id, cached)
+        else if (ScreenState.opened?.id == id) loadTracks(id)
+    }
+
+    fun userPlaylists(): List<NeteasePlaylist> = playlists.filter {
+        it.owned && if (source == MusicSource.APPLE) AppleMusicSource.isUserPlaylist(it.id)
+        else it.id > 0 && it.id != CloudDrives.id(source)
+    }
+
+    @Synchronized fun addToPlaylist(playlist: NeteasePlaylist, track: NeteaseTrack) {
+        if (addingToPlaylist || track.source != source) return
+        val request = request()
+        addingToPlaylist = true
+        val knownDuplicate = tracksCache[playlist.id]?.any { mutationKey(it) == mutationKey(track) } == true ||
+            trackChanges[playlist.id]?.get(mutationKey(track))?.second == true
+        worker.execute {
+            val result = runCatching {
+                if (knownDuplicate) PlaylistAddResult.DUPLICATE else request.api.addToPlaylist(playlist, track)
+            }
+            publish(request) {
+                addingToPlaylist = false
+                result.onSuccess {
+                    if (it == PlaylistAddResult.ADDED) recordTrackChange(playlist.id, track, true)
+                    showStatus(I18n.text(if (it == PlaylistAddResult.ADDED) "Added to playlist" else "Song already in playlist"))
+                    playlistNotice = it == PlaylistAddResult.ADDED
+                }.onFailure {
+                    showStatus(publicError(it as? Exception ?: IllegalStateException()))
+                    playlistNotice = false
+                }
+            }
+        }
     }
 
     /** 这个歌单是不是还在加载（可能已经先显示了一部分） */
@@ -298,8 +374,11 @@ internal object Library {
             val list = try { request.api.playlists() } catch (_: Exception) { emptyList() }
             publish(request) { if (list.isNotEmpty()) playlists = list }
             for (id in ids) {
-                val tracks = try { request.api.playlistTracks(id) } catch (_: Exception) { emptyList() }
-                publish(request) { if (tracks.isNotEmpty()) tracksCache[id] = tracks }
+                val revision = synchronized(this) { trackRevisions[id] ?: 0 }
+                val tracks = try { request.api.playlistTracks(id) } catch (_: Exception) { null }
+                publish(request) {
+                    if (tracks != null && revision == (trackRevisions[id] ?: 0)) replaceTracks(id, tracks, confirmed = true)
+                }
             }
         }
     }
@@ -309,6 +388,7 @@ internal object Library {
         source = MusicSources.selected
         playlists = emptyList(); playlistsLoading = false
         tracksCache.clear(); tracksLoading.clear(); tracksFailed.clear(); trackProgress.clear()
+        trackRevisions.clear(); trackChanges.clear(); addingToPlaylist = false; liking = false; likedCheckedAt = 0L
         recommend = null; recommendLoading = false
         applePages.clear(); appleEditorial.clear(); appleLoading.clear(); catalogGenres = null; catalogGenresLoading = false
         appleFavorite = null
@@ -339,6 +419,7 @@ internal object Library {
         }
 
     fun showStatus(message: String, startedAt: Long = System.nanoTime()) {
+        playlistNotice = null
         val next = TimedNotice(message, startedAt)
         if (message.isEmpty() || next.opacity() > 0f) notice = next
     }
@@ -394,14 +475,18 @@ internal object Library {
         worker.execute { try { NeteaseApi.loadLiked() } catch (_: Exception) { } }
     }
 
-    fun toggleLike(track: NeteaseTrack) {
-        if (liking || track.source != MusicSource.NETEASE) return
+    @Synchronized fun toggleLike(track: NeteaseTrack) {
+        if (liking || track.source != MusicSource.NETEASE || source != track.source) return
+        val request = request()
         liking = true
         val like = !NeteaseApi.isLiked(track.id)
         worker.execute {
             val ok = try { NeteaseApi.setLiked(track.id, like) } catch (_: Exception) { false }
-            liking = false
-            if (!ok) showStatus(if (like) "Could not add to Liked songs. Please retry." else "Could not remove from Liked songs. Please retry.")
+            publish(request) {
+                liking = false
+                if (ok) playlists.firstOrNull { it.owned && it.likedPlaylist }?.let { recordTrackChange(it.id, track, like) }
+                else showStatus(I18n.text(if (like) "Could not add to Liked songs. Please retry." else "Could not remove from Liked songs. Please retry."))
+            }
         }
     }
     // ---------------------------------------------------------------- 歌手（各音源的歌手页）

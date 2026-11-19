@@ -18,6 +18,8 @@ enum class MusicSource(val key: String, val label: String) {
 /** Only locally-authored public messages belong here; never include a token or request URL. */
 open class SourceAccessException(message: String) : IllegalStateException(message)
 
+enum class PlaylistAddResult { ADDED, DUPLICATE }
+
 interface MusicSourceApi {
     val source: MusicSource
     val libraryWarning: String get() = ""
@@ -34,6 +36,8 @@ interface MusicSourceApi {
     fun playlists(): List<NeteasePlaylist> = emptyList()
     fun recommend(): List<NeteasePlaylist> = emptyList()
     fun charts(): List<NeteasePlaylist> = emptyList()
+    fun addToPlaylist(playlist: NeteasePlaylist, track: NeteaseTrack): PlaylistAddResult =
+        throw SourceAccessException("This playlist cannot be edited")
     fun playlistTracks(id: Long): List<NeteaseTrack> = emptyList()
 
     /** 有没有歌手页 */
@@ -73,6 +77,7 @@ object MusicSources {
             }
             return personal + NeteaseApi.recommendPlaylists()
         }
+        override fun addToPlaylist(playlist: NeteasePlaylist, track: NeteaseTrack) = NeteaseApi.addToPlaylist(playlist, track)
         override fun charts() = NeteaseApi.toplists()
         override fun playlistTracks(id: Long) = when (id) {
             NeteaseApi.DAILY_ID -> NeteaseApi.dailySongs()

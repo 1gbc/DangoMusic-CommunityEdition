@@ -133,7 +133,7 @@ public final class AppleWebServer implements AutoCloseable {
             long id=command.get("id").getAsLong();
             if("query".equals(command.get("name").getAsString())&&requests.containsKey(id)){
                 String operation=command.getAsJsonObject("value").get("op").getAsString();
-                if("favoriteAdd".equals(operation)||"favoriteRemove".equals(operation))continue;
+                if("favoriteAdd".equals(operation)||"favoriteRemove".equals(operation)||"playlistAdd".equals(operation))continue;
             }
             if ("volume".equals(command.get("name").getAsString()) && pendingVolume==null) {
                 pendingVolume=command.get("value").getAsDouble();
@@ -148,7 +148,7 @@ public final class AppleWebServer implements AutoCloseable {
     public JsonObject request(String op,String value,int offset)throws Exception{
         if(!Arrays.asList("search","charts","songs","playlists","playlistTracks","recent","recommend","resourceTracks",
             "librarySearch","discover","genres","genreCharts","radio","liveRadio","webDiscover","webRadio","recentlyAdded","libraryAlbums","favoriteSongs",
-            "favoriteState","favoriteAdd","favoriteRemove","heavyRotation","songDetails").contains(op)||value==null||value.length()>200||offset<0||offset>10000)throw new IllegalArgumentException("Invalid browse request");
+            "favoriteState","favoriteAdd","favoriteRemove","playlistAdd","heavyRotation","songDetails").contains(op)||value==null||value.length()>("playlistAdd".equals(op)?300:200)||offset<0||offset>10000)throw new IllegalArgumentException("Invalid browse request");
         CompletableFuture<JsonObject> future=new CompletableFuture<>();long id;
         synchronized(this){
             if(!connected())throw new IOException("Apple player disconnected");
@@ -230,7 +230,7 @@ public final class AppleWebServer implements AutoCloseable {
                             cleaned.addProperty("artist",text(result,"artist",300));
                             cleaned.addProperty("composer",text(result,"composer",300));
                         }
-                        if(result.has("items")&&result.get("items").isJsonArray())for(JsonElement item:result.getAsJsonArray("items")){if(items.size()>=40)break;if(!item.isJsonObject())continue;JsonObject raw=item.getAsJsonObject(),row=sanitize(raw);row.addProperty("playId",text(raw,"playId",100));row.addProperty("genre",text(raw,"genre",100));for(String k:Arrays.asList("library","compilation","favoriteList"))row.addProperty(k,raw.has(k)&&raw.get(k).getAsBoolean());
+                        if(result.has("items")&&result.get("items").isJsonArray())for(JsonElement item:result.getAsJsonArray("items")){if(items.size()>=40)break;if(!item.isJsonObject())continue;JsonObject raw=item.getAsJsonObject(),row=sanitize(raw);row.addProperty("playId",text(raw,"playId",100));row.addProperty("genre",text(raw,"genre",100));for(String k:Arrays.asList("library","compilation","favoriteList","editable"))row.addProperty(k,raw.has(k)&&raw.get(k).getAsBoolean());
                             if(raw.has("featuredCover"))row.addProperty("featuredCover",artwork(raw,"featuredCover"));
                             if(raw.has("releaseDate"))row.addProperty("releaseDate",text(raw,"releaseDate",10));
                             if(raw.has("description"))row.addProperty("description",text(raw,"description",300));
@@ -246,6 +246,10 @@ public final class AppleWebServer implements AutoCloseable {
                         if(result.has("nextOffset")){int next=result.get("nextOffset").getAsInt();if(next>=0&&next<=10025)cleaned.addProperty("nextOffset",next);}
                         if(result.has("favorite")&&result.get("favorite").isJsonPrimitive()&&result.getAsJsonPrimitive("favorite").isBoolean())
                             cleaned.add("favorite",result.get("favorite"));
+                        if("playlistAdd".equals(query.operation)) {
+                            String status=text(result,"result",16);
+                            if("added".equals(status)||"duplicate".equals(status))cleaned.addProperty("result",status);
+                        }
                         cleaned.add("items",items);cleaned.addProperty("hasMore",result.has("hasMore")&&result.get("hasMore").getAsBoolean());cleaned.addProperty("error",text(result,"error",300));query.future.complete(cleaned);
                     }
                 }

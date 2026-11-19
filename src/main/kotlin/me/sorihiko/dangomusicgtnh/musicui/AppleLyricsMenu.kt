@@ -23,6 +23,11 @@ internal class AppleLyricsMenu(
     private val romanization: BooleanValue,
     private val translation: BooleanValue,
 ) {
+    var playerPanel: ((LayoutBounds) -> Unit)? = null
+    private var playlistOpen = false
+    private var playlistScroll = 0
+    private var playlistArea = LayoutBounds()
+    private var playlistMaxScroll = 0
     private var trackKey: String? = null
     private var menuOpen = false
     private var menuX = 0f
@@ -37,7 +42,7 @@ internal class AppleLyricsMenu(
         val highlighted: Boolean = false, val checked: Boolean = false, val run: () -> Unit,
     )
 
-    val capturesInput get() = menuOpen || creditsOpen
+    val capturesInput get() = menuOpen || creditsOpen || playlistOpen
 
     fun toggle() {
         menuOpen = !menuOpen
@@ -51,6 +56,7 @@ internal class AppleLyricsMenu(
         if (!capturesInput) return false
         menuOpen = false
         creditsOpen = false
+        playlistOpen = false
         return true
     }
 
@@ -92,14 +98,16 @@ internal class AppleLyricsMenu(
         val hitStart = ui.hits.size
         if (menuOpen) drawMenu(frame.viewport, if (bottomAnchor != null) bottomActions(song) else lyricActions(song),
             if (bottomAnchor != null) "Apple Player Menu" else "Apple Lyrics Menu")
+        if (playlistOpen && bottomAnchor != null) drawPlaylistMenu(frame.viewport, bottomAnchor, song)
         if (creditsOpen) drawCredits(frame, song, metadata, complete)
         prioritizeHits(frame.viewport, hitStart)
     }
 
     fun drawNetease(viewport: LayoutBounds, anchor: LayoutBounds, openQuality: (LayoutBounds) -> Unit) {
-        if (!menuOpen) return
+        if (!menuOpen && !playlistOpen) return
         val hitStart = ui.hits.size
-        drawMenu(viewport, listOf(
+        val song = MusicPlayer.current?.takeIf { it.source == MusicSource.NETEASE }
+        if (menuOpen) drawMenu(viewport, listOf(
             Action("Quality", QUALITY) {
                 menuOpen = false
                 openQuality(anchor)
@@ -108,7 +116,9 @@ internal class AppleLyricsMenu(
                 menuOpen = false
                 ClientMusic.control { if (MusicPlayer.current?.source == MusicSource.NETEASE) Library.stopPlayback() }
             },
+            saveAction(song),
         ), "NetEase Player Menu")
+        if (playlistOpen && song != null) drawPlaylistMenu(viewport, anchor, song)
         prioritizeHits(viewport, hitStart)
     }
 
@@ -145,6 +155,8 @@ internal class AppleLyricsMenu(
         val rowHeight = ROW_HEIGHT * scale
         val inset = 4f * scale
         val panel = menuBounds(viewport, MENU_WIDTH * scale, rowHeight * actions.size + 2f * inset, scale)
+        if (context.endsWith("Player Menu") && playerPanel != null) playerPanel!!.invoke(panel)
+        else {
         ui.ctx.pushOpacity(0.94f)
         try {
             val glass = MENU_GLASS
@@ -154,6 +166,7 @@ internal class AppleLyricsMenu(
                     offset = Vec2(0f, 2f * scale))))
         } finally {
             ui.ctx.popOpacity()
+        }
         }
         ui.popup(panel) {
             actions.forEachIndexed { index, action ->
@@ -179,8 +192,63 @@ internal class AppleLyricsMenu(
             },
             Action("Personal Favorite", STAR, favorite?.selected != null && !favorite.pending,
                 highlighted = favorite?.selected == true) { Library.toggleAppleFavorite(song) },
-            creditsAction(song), linkAction(song),
+            creditsAction(song), linkAction(song), saveAction(song),
+            Action("Stop playback", PlayerIcons.stop) { menuOpen = false; Library.stopPlayback() },
         )
+    }
+
+    private fun saveAction(song: NeteaseTrack?) = Action("Add to Playlist", SAVE, song != null && !Library.addingToPlaylist) {
+        menuOpen = false
+        playlistScroll = 0
+        playlistOpen = true
+    }
+
+    fun scrollPlaylists(wheel: Int): Boolean {
+        if (!playlistOpen) return false
+        playlistScroll = (playlistScroll + if (wheel > 0) -3 else 3).coerceIn(0, playlistMaxScroll)
+        return true
+    }
+
+    private fun drawPlaylistMenu(viewport: LayoutBounds, anchor: LayoutBounds, song: NeteaseTrack) {
+        val lists = Library.userPlaylists()
+        val rowHeight = 30f
+        val width = minOf(260f, (viewport.width - 16f).coerceAtLeast(1f))
+        val available = (anchor.y - viewport.y - 16f).coerceAtLeast(1f)
+        val rows = ((available - 48f) / rowHeight).toInt().coerceIn(1, 10)
+        val visible = minOf(rows, lists.size.coerceAtLeast(1))
+        val height = minOf(available, 48f + rowHeight * visible)
+        val panel = LayoutBounds((anchor.right - width).coerceIn(viewport.x + 8f,
+            (viewport.right - width - 8f).coerceAtLeast(viewport.x + 8f)),
+            (anchor.y - height - 8f).coerceAtLeast(viewport.y + 8f), width, height)
+        playerPanel?.invoke(panel) ?: PopupLook.panel(ui.ctx, panel)
+        playlistArea = panel.copy(y = panel.y + 45f, height = (panel.height - 48f).coerceAtLeast(0f))
+        playlistMaxScroll = (lists.size - visible).coerceAtLeast(0)
+        playlistScroll = playlistScroll.coerceIn(0, playlistMaxScroll)
+        ui.text(I18n.text("Add to Playlist"), panel.x + 14f, panel.y + 10f, 11f, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
+        ui.text(ui.trim(song.name, width - 28f, 9f), panel.x + 14f, panel.y + 27f, 9f, Theme.TEXT_SECONDARY)
+        ui.beginClip(playlistArea)
+        try {
+            ui.popup(playlistArea) {
+                if (lists.isEmpty()) ui.text(I18n.text("No playlists"), panel.x + 14f, playlistArea.y + 8f, 11f, Theme.TEXT_SECONDARY)
+                lists.drop(playlistScroll).take(visible + 1).forEachIndexed { index, playlist ->
+                    val row = LayoutBounds(panel.x + 8f, playlistArea.y + index * rowHeight, width - 16f, rowHeight - 2f)
+                    val hit = row.intersect(playlistArea)
+                    if (hit.height <= 0f) return@forEachIndexed
+                    val enabled = playlist.owned && !Library.addingToPlaylist
+                    if (enabled && ui.hover(hit)) ui.card(row, PopupLook.hover, 6f)
+                    val color = if (enabled) Theme.TEXT_PRIMARY else Theme.TEXT_TERTIARY
+                    SidebarIcons.draw(ui.ctx, "≡", row.x + 12f, row.y + row.height / 2f, color, 12f)
+                    ui.text(ui.trim(playlist.name, width - 62f, 12f), row.x + 28f, row.y + 7f, 12f, color)
+                    if (enabled) ui.hits += hit to {
+                        if (MusicPlayer.current?.key == song.key) {
+                            Library.addToPlaylist(playlist, song)
+                            dismiss()
+                        }
+                    }
+                }
+            }
+        } finally { ui.endClip() }
+        ui.hits += panel to {}
     }
 
     private fun lyricActions(song: NeteaseTrack) = listOf(
@@ -266,6 +334,13 @@ internal class AppleLyricsMenu(
     }
 
     private companion object {
+        val SAVE = VectorIcon.path {
+            move(3.0, 5.0); line(16.0, 5.0)
+            move(3.0, 10.0); line(13.0, 10.0)
+            move(3.0, 15.0); line(10.0, 15.0)
+            move(17.0, 12.0); line(17.0, 22.0)
+            move(12.0, 17.0); line(22.0, 17.0)
+        }
         val QUALITY = VectorIcon.path {
             move(4.0, 5.0); line(20.0, 5.0)
             move(4.0, 12.0); line(20.0, 12.0)

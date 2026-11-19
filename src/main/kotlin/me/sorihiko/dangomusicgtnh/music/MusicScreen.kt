@@ -20,6 +20,8 @@ import me.sorihiko.dangomusicgtnh.musicui.LyricsPage
 import me.sorihiko.dangomusicgtnh.musicui.SongComments
 import me.sorihiko.dangomusicgtnh.musicui.Page
 import me.sorihiko.dangomusicgtnh.musicui.PageSnapshot
+import me.sorihiko.dangomusicgtnh.musicui.AppleLyricsIcons
+import me.sorihiko.dangomusicgtnh.musicui.PlayerIcons
 import me.sorihiko.dangomusicgtnh.musicui.PlayerBar
 import me.sorihiko.dangomusicgtnh.musicui.RED
 import me.sorihiko.dangomusicgtnh.musicui.ScreenState
@@ -68,7 +70,9 @@ class MusicScreen(
     internal val coverBackdrop = FlowingCoverBackdrop(ui)
     private val lyricsPage = LyricsPage(ui, module, songComments, coverBackdrop)
     private val appleLyricsMenu = AppleLyricsMenu(ui, module.lyricsPageRomanization, module.lyricsPageTranslation)
-    private val appleBarMenu = AppleLyricsMenu(ui, module.lyricsPageRomanization, module.lyricsPageTranslation)
+    private val appleBarMenu = AppleLyricsMenu(ui, module.lyricsPageRomanization, module.lyricsPageTranslation).apply {
+        playerPanel = { bounds -> coverBackdrop.drawControlPanel(bounds, 8f) }
+    }
     private val appleQueue = AppleQueuePanel(ui)
     private var appleQueueArea = LayoutBounds()
     internal val appleQueueOpen get() = appleQueue.open
@@ -133,6 +137,7 @@ class MusicScreen(
         settings.commitEdit()
         settings.stopDrag()
         tracks.scrollbarUp()
+        tracks.resetCoverflow()
     }
 
     private fun opacity(now: Long): Float = if (closingAt == 0L) {
@@ -592,7 +597,20 @@ class MusicScreen(
         if (opacity > 0f && !(UiStyle.continuous && notice.text == AppleMusicSource.libraryWarning)) {
             val font = Theme.FONT_SEMIBOLD
             val text = ui.trim(I18n.message(notice.text), barRect.width, 10f, font)
-            ui.text(text, barRect.x, barRect.y - 20f, 10f, RED.copy(a = opacity), font)
+            val playlistResult = Library.playlistNotice
+            if (playlistResult != null) {
+                val iconSpace = if (playlistResult) 0f else 18f
+                val width = (ui.width(text, 10f, font) + 28f + iconSpace).coerceAtMost(barRect.width)
+                val toast = LayoutBounds(barRect.x + (barRect.width - width) / 2f, barRect.y - 39f, width, 28f)
+                ui.card(toast, me.sorihiko.dangomusicgtnh.utils.Color(0.13f, 0.13f, 0.17f, 0.96f * opacity), 14f)
+                if (!playlistResult) {
+                    val icon = LayoutBounds(toast.x + 12f, toast.y + 9f, 10f, 10f)
+                    ui.card(icon, RED.copy(a = opacity), 5f)
+                    PlayerIcons.draw(ui.ctx, AppleLyricsIcons.close, icon.x + 5f, icon.y + 5f, 6f,
+                        Theme.TEXT_PRIMARY.copy(a = opacity))
+                }
+                ui.text(text, toast.x + 14f + iconSpace, toast.y + 9f, 10f, Theme.TEXT_PRIMARY.copy(a = opacity), font)
+            } else ui.text(text, barRect.x, barRect.y - 20f, 10f, RED.copy(a = opacity), font)
         }
         val barHits = ui.hits.subList(before, ui.hits.size).toList()
         repeat(barHits.size) { ui.hits.removeAt(ui.hits.size - 1) }
@@ -645,7 +663,8 @@ class MusicScreen(
                     libraryPullOffset = distance ?: ui.approach(libraryPullOffset, 0f, 85f)
                     if (libraryPullOffset < 0.5f) libraryPullOffset = 0f
                 }
-                if (usesAppleLayout) grid.drawAppleHome(body, items, Library.recommendLoading,
+                if (MusicSources.selected == MusicSource.NETEASE) grid.drawNeteaseHome(body, items, Library.recommendLoading)
+                else if (usesAppleLayout) grid.drawAppleHome(body, items, Library.recommendLoading,
                     if (apple) AppleMusicSource.homeWarning else "", if (pull) libraryPullOffset else 0f,
                     neteaseHeading = label.takeUnless { apple })
                 else grid.draw(body, I18n.text("Welcome to Dango Music!"), "$label · ${items.size}",
@@ -790,6 +809,7 @@ class MusicScreen(
         }
         if (bar.mouseDown(mx, my)) return
         if (!lyricsOpen && tracks.scrollbarDown(mx, my)) return
+        if (!lyricsOpen && !barRect.contains(mx, my) && tracks.coverDown(mx, my)) return
         val hit = ui.hits.firstOrNull { it.first.contains(mx, my) }
         if (!lyricsOpen && ScreenState.page == Page.GROUP) groupPage.clearFocus()
         if (lyricsOpen) {
@@ -813,6 +833,10 @@ class MusicScreen(
             updateLibraryPull()
             return
         }
+        if (mouseButton == 0 && tracks.coverPressed) {
+            tracks.coverDrag((platform.mouseX / ui.scale).toInt())
+            return
+        }
         if (tracks.sbDragging) {
             tracks.scrollbarDrag((platform.mouseY / ui.scale).toInt())
             return
@@ -831,6 +855,7 @@ class MusicScreen(
     fun mouseReleased(mouseButton: Int) {
         if (module.openKey.value < 0) openKeyHeld = false
         if (mouseButton == 0) lyricsPage.stopFontSliderDrag()
+        if (mouseButton == 0 && tracks.coverPressed) tracks.coverUp((platform.mouseX / ui.scale).toInt())
         bar.mouseUp()
         tracks.scrollbarUp()
         settings.stopDrag()
@@ -851,6 +876,7 @@ class MusicScreen(
         if (wheel == 0 || login.visible) return
         val lx = (x / ui.scale).toInt()
         val ly = (y / ui.scale).toInt()
+        if (appleBarMenu.scrollPlaylists(wheel)) return
         if (bar.menuContains(lx, ly) || appleBarMenu.capturesInput || appleQueue.scroll(wheel, lx, ly)) return
         if (lyricsOpen) {
             if (appleLyricsMenu.capturesInput) return
