@@ -45,7 +45,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
 
     private enum class Ctl { TOGGLE, SLIDER, KEY, LANGUAGE, COLOR, FONT, CHOICE, CACHE, BILIBILI }
     private enum class CacheAction { OPEN, CLEAR }
-    private enum class BilibiliAction { STATUS, IDENTITY, RETRY, MOCK }
+    private enum class BilibiliAction { STATUS, ROOM, RETRY, MOCK }
     private var clearCacheUntil = 0L
     @Volatile private var clearingCache = false
 
@@ -451,7 +451,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                 player.take(listOf("bilibiliRequests", "bilibiliMock")) + listOf(
                     Row("Bilibili connection", "", BilibiliAction.STATUS, Ctl.BILIBILI, null, { "" },
                         show = { module.bilibiliRequests.get() }),
-                    Row("Bilibili identity code", "The identity code is kept for this game session", BilibiliAction.IDENTITY,
+                    Row("Bilibili room number", "Enter the number shown in the livestream link", BilibiliAction.ROOM,
                         Ctl.BILIBILI, null, { "" }, show = { module.bilibiliRequests.get() && !module.bilibiliMock.get() }),
                     Row("Reconnect to Bilibili", "", BilibiliAction.RETRY, Ctl.BILIBILI, null, { "" },
                         show = { module.bilibiliRequests.get() && !module.bilibiliMock.get() }),
@@ -1419,7 +1419,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         }
         val label = I18n.text(when (action) {
             BilibiliAction.STATUS -> error("Already drawn")
-            BilibiliAction.IDENTITY -> "Enter identity code"
+            BilibiliAction.ROOM -> "Enter room number"
             BilibiliAction.RETRY -> "Reconnect Bilibili"
             BilibiliAction.MOCK -> "Send examples"
         })
@@ -1431,7 +1431,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         if (enabled) ui.hits += b.intersect(clip) to {
             when (action) {
                 BilibiliAction.STATUS -> Unit
-                BilibiliAction.IDENTITY -> BilibiliRequests.configureIdentity()
+                BilibiliAction.ROOM -> BilibiliRequests.configureRoom()
                 BilibiliAction.RETRY -> BilibiliRequests.restart()
                 BilibiliAction.MOCK -> BilibiliRequests.sendExamples()
             }

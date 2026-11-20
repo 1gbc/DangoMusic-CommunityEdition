@@ -1,86 +1,66 @@
 using System.Diagnostics;
 using System.Net.WebSockets;
-using System.Text;
 
 namespace DangoMusic.Bilibili;
 
-internal sealed class LiveSession(SignerClient signer, HelperOutput output)
+internal sealed class LiveSession(WebRoomClient roomClient, HelperOutput output)
 {
-    private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(25);
 
-    public async Task RunAsync(string identityCode, CancellationToken stop)
-    {
-        stop.ThrowIfCancellationRequested();
-        // Let the bounded start request settle during shutdown, so a created game ID can be ended.
-        var session = await signer.StartAsync(identityCode);
-        using var active = CancellationTokenSource.CreateLinkedTokenSource(stop);
-        try
-        {
-            await RunTogetherAsync(
-                KeepProjectAliveAsync(session.GameId, active.Token),
-                ListenWithReconnectAsync(session, active.Token),
-                active);
-        }
-        finally
-        {
-            await signer.EndAsync(session.GameId);
-        }
-    }
-
-    private async Task KeepProjectAliveAsync(string gameId, CancellationToken stop)
-    {
-        using var intervals = new PeriodicTimer(HeartbeatInterval);
-        while (await intervals.WaitForNextTickAsync(stop))
-        {
-            try
-            {
-                await signer.HeartbeatAsync(gameId, stop);
-            }
-            catch (LiveFailure failure) when (failure.Reason is "signer_unavailable" or "signer_busy" or "platform_unavailable")
-            {
-                await Task.Delay(TimeSpan.FromSeconds(2), stop);
-                await signer.HeartbeatAsync(gameId, stop);
-            }
-        }
-    }
-
-    private async Task ListenWithReconnectAsync(OpenSession session, CancellationToken stop)
+    public async Task RunAsync(string roomId, CancellationToken stop)
     {
         var failures = 0;
-        var nextLink = 0;
+        var nextHost = 0;
+        WebRoom? room = null;
         while (true)
         {
             stop.ThrowIfCancellationRequested();
-            var link = session.WebSocketLinks[nextLink++ % session.WebSocketLinks.Length];
-            using var socket = new ClientWebSocket();
+            var connectedAt = 0L;
             try
             {
-                IReadOnlyList<LiveEvent> pendingEvents;
+                room ??= await roomClient.ResolveAsync(roomId, stop);
+                var link = room.Hosts[nextHost++];
+                var authPacket = LivePackets.Encode(7, room.AuthBody);
+                if (nextHost == room.Hosts.Count)
+                {
+                    room = null;
+                    nextHost = 0;
+                }
+
+                using var socket = roomClient.NewSocket();
+                IReadOnlyList<LiveEvent> pending;
                 using (var handshake = CancellationTokenSource.CreateLinkedTokenSource(stop))
                 {
                     handshake.CancelAfter(TimeSpan.FromSeconds(8));
                     await socket.ConnectAsync(link, handshake.Token);
-                    var authPacket = LivePackets.Encode(7, Encoding.UTF8.GetBytes(session.AuthBody));
                     await SendAsync(socket, authPacket, handshake.Token);
-                    pendingEvents = await ReadAuthorizationAsync(socket, handshake.Token);
+                    pending = await ReadAuthorizationAsync(socket, handshake.Token);
                 }
 
-                failures = 0;
+                connectedAt = Stopwatch.GetTimestamp();
                 output.Status("connected", "live");
                 using var connection = CancellationTokenSource.CreateLinkedTokenSource(stop);
                 var keepalive = new SocketHeartbeat(socket);
-                Dispatch(pendingEvents, session.GameId, keepalive);
+                Dispatch(pending, keepalive);
                 await RunTogetherAsync(
-                    ReceiveAsync(socket, session.GameId, keepalive, connection.Token),
+                    ReceiveAsync(socket, keepalive, connection.Token),
                     keepalive.RunAsync(connection.Token),
                     connection);
             }
             catch (Exception error) when (!stop.IsCancellationRequested &&
-                error is WebSocketException or OperationCanceledException or SocketLost)
+                (error is WebSocketException or OperationCanceledException or SocketLost or SocketRejected ||
+                 error is LiveFailure { Reason: "platform_unavailable" }))
             {
-                failures++;
-                if (failures >= Math.Max(6, session.WebSocketLinks.Length))
-                    throw new LiveFailure("websocket_unavailable");
+                if (connectedAt != 0 && Stopwatch.GetElapsedTime(connectedAt) > TimeSpan.FromMinutes(1))
+                    failures = 0;
+                if (error is SocketRejected)
+                {
+                    if (failures >= 2) throw new LiveFailure("anonymous_unavailable");
+                    room = null;
+                    nextHost = 0;
+                }
+                if (++failures >= 8)
+                    throw new LiveFailure(error is LiveFailure ? "platform_unavailable" : "websocket_unavailable");
                 output.Status("reconnecting", "connection_lost");
                 await Task.Delay(TimeSpan.FromSeconds(Math.Min(12, 1 << failures)), stop);
             }
@@ -98,7 +78,7 @@ internal sealed class LiveSession(SignerClient signer, HelperOutput output)
                 switch (events[index].Kind)
                 {
                     case LiveEventKind.AuthorizationRejected:
-                        throw new SocketLost();
+                        throw new SocketRejected();
                     case LiveEventKind.Authorized:
                         return events.Skip(index + 1).ToArray();
                 }
@@ -106,18 +86,18 @@ internal sealed class LiveSession(SignerClient signer, HelperOutput output)
         }
     }
 
-    private async Task ReceiveAsync(ClientWebSocket socket, string gameId, SocketHeartbeat keepalive,
+    private async Task ReceiveAsync(ClientWebSocket socket, SocketHeartbeat keepalive,
         CancellationToken stop)
     {
         while (true)
         {
             stop.ThrowIfCancellationRequested();
             var events = await ReadMessageAsync(socket, stop);
-            Dispatch(events, gameId, keepalive);
+            Dispatch(events, keepalive);
         }
     }
 
-    private void Dispatch(IReadOnlyList<LiveEvent> events, string gameId, SocketHeartbeat keepalive)
+    private void Dispatch(IReadOnlyList<LiveEvent> events, SocketHeartbeat keepalive)
     {
         foreach (var item in events)
         {
@@ -129,8 +109,6 @@ internal sealed class LiveSession(SignerClient signer, HelperOutput output)
                 case LiveEventKind.Heartbeat:
                     keepalive.ReceivedReply();
                     break;
-                case LiveEventKind.SessionEnded when item.GameId == gameId:
-                    throw new LiveFailure("session_ended");
             }
         }
     }
@@ -180,6 +158,7 @@ internal sealed class LiveSession(SignerClient signer, HelperOutput output)
     }
 
     private sealed class SocketLost : Exception;
+    private sealed class SocketRejected : Exception;
 
     private sealed class SocketHeartbeat(ClientWebSocket socket)
     {
@@ -189,10 +168,10 @@ internal sealed class LiveSession(SignerClient signer, HelperOutput output)
 
         public async Task RunAsync(CancellationToken stop)
         {
-            var heartbeat = LivePackets.Encode(2, []);
+            var heartbeat = LivePackets.Encode(2, "{}"u8);
             do
             {
-                if (Stopwatch.GetElapsedTime(Volatile.Read(ref lastReply)) > TimeSpan.FromSeconds(35))
+                if (Stopwatch.GetElapsedTime(Volatile.Read(ref lastReply)) > TimeSpan.FromSeconds(50))
                     throw new SocketLost();
                 using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(stop))
                 {

@@ -19,18 +19,13 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.zip.ZipInputStream
 import javax.swing.JOptionPane
-import javax.swing.JPasswordField
+import javax.swing.JTextField
 
 internal enum class BilibiliState { DISCONNECTED, CONNECTING, CONNECTED, RECONNECTING, FAILED }
 
-/** The helper owns Bilibili transport. Only its local pipes carry the identity code and messages. */
+/** The helper owns Bilibili transport. The local pipe carries the room number and incoming messages. */
 internal object BilibiliRequests {
     private const val BUNDLE = "/assets/dangomusicgtnh/bilibili-live/windows-x64.zip"
-    private const val SIGNER_URL = "/assets/dangomusicgtnh/bilibili-live/signer-url.txt"
-    private val endpoint by lazy {
-        System.getProperty("dangomusicgtnh.bilibiliSignerUrl")?.trim()?.takeIf { it.isNotEmpty() }
-            ?: javaClass.getResourceAsStream(SIGNER_URL)?.bufferedReader(Charsets.UTF_8)?.use { it.readText().trim() }.orEmpty()
-    }
     private val helperFiles = setOf(
         "BilibiliLiveHelper.exe", "BilibiliLiveHelper.dll",
         "BilibiliLiveHelper.deps.json", "BilibiliLiveHelper.runtimeconfig.json",
@@ -40,8 +35,8 @@ internal object BilibiliRequests {
     private val supervisor = Executors.newSingleThreadExecutor { task ->
         Thread(task, "Dango-Bilibili-Helper").apply { isDaemon = true }
     }
-    private val enteringCode = AtomicBoolean(false)
-    private data class Config(val mock: Boolean, val identityCode: String)
+    private val enteringRoom = AtomicBoolean(false)
+    private data class Config(val mock: Boolean, val roomId: String)
     private data class Child(val config: Config, val process: Process, val input: BufferedWriter)
 
     @Volatile var enabled = false
@@ -49,7 +44,7 @@ internal object BilibiliRequests {
     @Volatile var state = BilibiliState.DISCONNECTED
         private set
     @Volatile private var reason = ""
-    @Volatile private var identity = ""
+    @Volatile private var roomId = ""
     @Volatile private var desired: Config? = null
     @Volatile private var child: Child? = null
     @Volatile private var useMock = false
@@ -67,7 +62,7 @@ internal object BilibiliRequests {
         val config = when {
             !enabled -> null
             useMock -> Config(true, "")
-            identity.isNotEmpty() -> Config(false, identity)
+            roomId.isNotEmpty() -> Config(false, roomId)
             else -> null
         }
         if (config == desired && !force) return
@@ -77,40 +72,42 @@ internal object BilibiliRequests {
         supervisor.execute { reconcile(force) }
     }
 
-    fun configureIdentity() {
-        if (!enteringCode.compareAndSet(false, true)) return
+    fun configureRoom() {
+        if (!enteringRoom.compareAndSet(false, true)) return
         EventQueue.invokeLater {
             try {
-                val input = JPasswordField(23)
-                val option = JOptionPane(arrayOf(I18n.text("Enter the Bilibili streamer identity code"), input),
+                val input = JTextField(roomId, 23)
+                val title = I18n.text("Bilibili room number")
+                val option = JOptionPane(arrayOf(I18n.text("Enter the Bilibili livestream room number"), input),
                     JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION)
-                val dialog = option.createDialog(I18n.text("Bilibili identity code"))
-                dialog.isAlwaysOnTop = true
-                EventQueue.invokeLater { input.requestFocusInWindow() }
-                dialog.isVisible = true
-                dialog.dispose()
-                val chars = input.password
+                val dialog = option.createDialog(title)
                 try {
-                    if (option.value == JOptionPane.OK_OPTION) saveIdentity(String(chars).trim())
+                    dialog.isAlwaysOnTop = true
+                    EventQueue.invokeLater {
+                        input.requestFocusInWindow()
+                        input.selectAll()
+                    }
+                    dialog.isVisible = true
                 } finally {
-                    chars.fill('\u0000')
-                    input.text = ""
+                    dialog.dispose()
+                }
+                if (option.value == JOptionPane.OK_OPTION && !saveRoom(input.text.trim())) {
+                    JOptionPane.showMessageDialog(null, I18n.text("Invalid Bilibili room number"),
+                        title, JOptionPane.WARNING_MESSAGE)
                 }
             } finally {
-                enteringCode.set(false)
+                enteringRoom.set(false)
             }
         }
     }
 
-    @Synchronized private fun saveIdentity(code: String) {
-        if (closing) return
-        if (code.length > 128 || code.any { it.isWhitespace() || it.isISOControl() }) {
-            reason = "invalid_config"
-            if (desired == null) state = BilibiliState.FAILED
-            return
-        }
-        identity = code
+    @Synchronized private fun saveRoom(value: String): Boolean {
+        if (closing) return true
+        val number = value.toLongOrNull()
+        if (number == null || number <= 0 || value.any { it !in '0'..'9' }) return false
+        roomId = number.toString()
         updateDesired(force = true)
+        return true
     }
 
     @Synchronized fun restart() {
@@ -121,22 +118,16 @@ internal object BilibiliRequests {
         BilibiliState.CONNECTING -> "Connecting to Bilibili…"
         BilibiliState.CONNECTED -> if (desired?.mock == true) "Mock messages connected" else "Bilibili connected"
         BilibiliState.RECONNECTING -> "Reconnecting to Bilibili…"
-        BilibiliState.DISCONNECTED -> when {
-            reason == "session_ended" -> "Bilibili session ended"
-            enabled && !useMock && identity.isEmpty() -> "Enter the streamer identity code"
-            else -> "Bilibili disconnected"
-        }
+        BilibiliState.DISCONNECTED -> if (enabled && !useMock && roomId.isEmpty())
+            "Enter the Bilibili livestream room number" else "Bilibili disconnected"
         BilibiliState.FAILED -> when (reason) {
-            "invalid_config" -> "Invalid Bilibili identity code"
-            "signer_address_missing" -> "This build has no Bilibili request service configured"
-            "signer_unavailable" -> "Bilibili request service is unavailable"
-            "signer_not_configured" -> "Bilibili request service is not configured"
-            "signer_busy" -> "Bilibili request service is busy. Try again shortly."
-            "identity_rejected" -> "Bilibili rejected the identity code"
-            "platform_rejected" -> "Bilibili rejected the session request"
+            "invalid_room" -> "Invalid Bilibili room number"
+            "room_not_found" -> "Bilibili could not find that livestream room"
+            "platform_limited" -> "Bilibili limited the connection. Try again later."
+            "anonymous_unavailable" -> "Bilibili did not allow an anonymous danmaku connection"
+            "platform_rejected" -> "Bilibili rejected the danmaku request"
             "platform_unavailable" -> "Bilibili is temporarily unavailable"
             "websocket_unavailable", "connection_lost" -> "Bilibili livestream connection failed"
-            "session_ended" -> "Bilibili session ended"
             "windows_required" -> "The Bilibili helper requires Windows x64"
             else -> "Bilibili helper failed. Check the .NET 8 runtime."
         }
@@ -158,10 +149,6 @@ internal object BilibiliRequests {
         val config = desired
         if (force || child?.config != config) retire()
         if (config == null || config != desired || child != null) return
-        if (!config.mock && endpoint.isEmpty()) {
-            setStatus(BilibiliState.FAILED, "signer_address_missing")
-            return
-        }
         val arch = System.getProperty("os.arch").lowercase(Locale.ROOT)
         if (!System.getProperty("os.name").startsWith("Windows") || arch !in setOf("amd64", "x86_64")) {
             setStatus(BilibiliState.FAILED, "windows_required")
@@ -173,12 +160,11 @@ internal object BilibiliRequests {
             val builder = ProcessBuilder(dir.resolve("BilibiliLiveHelper.exe").toString())
                 .directory(dir.toFile())
                 .redirectErrorStream(true)
-            builder.environment().keys.removeAll { it.startsWith("BILIBILI_LIVE_", ignoreCase = true) }
             val process = builder.start()
             val running = Child(config, process, process.outputStream.bufferedWriter(Charsets.UTF_8))
             child = running
-            if (!send(running, mapOf("identityCode" to config.identityCode,
-                    "endpoint" to (if (config.mock) "" else endpoint), "mode" to if (config.mock) "mock" else "live"))) {
+            if (!send(running, mapOf("roomId" to config.roomId,
+                    "mode" to if (config.mock) "mock" else "live"))) {
                 retire()
                 if (config == desired) setStatus(BilibiliState.FAILED, "helper_exited")
                 return
@@ -219,7 +205,7 @@ internal object BilibiliRequests {
                 supervisor.execute {
                     if (child === running) {
                         retire()
-                        if (running.config == desired && state != BilibiliState.FAILED && reason != "session_ended") {
+                        if (running.config == desired && state != BilibiliState.FAILED) {
                             setStatus(BilibiliState.FAILED, "helper_exited")
                         }
                     }
@@ -244,7 +230,7 @@ internal object BilibiliRequests {
     @Synchronized fun shutdown() {
         closing = true
         desired = null
-        identity = ""
+        roomId = ""
         SongRequests.enable(false)
         runCatching { supervisor.submit(::retire).get(17, TimeUnit.SECONDS) }
         supervisor.shutdownNow()

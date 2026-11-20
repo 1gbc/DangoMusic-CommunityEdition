@@ -16,9 +16,6 @@ internal static class Program
             stop.Cancel();
         };
 
-        if (args is ["--signer"] or ["--hosted-signer"])
-            return await RunSignerAsync(args[0] == "--hosted-signer", stop.Token);
-
         var output = new HelperOutput(Console.Out);
         try
         {
@@ -40,10 +37,9 @@ internal static class Program
             }
             else
             {
-                var identityCode = json.RootElement.Text("identityCode");
-                var endpoint = json.RootElement.Text("endpoint") ?? SignerClient.DefaultEndpoint;
-                if (!JsonFields.ValidText(identityCode, 256) || !SignerClient.TryEndpoint(endpoint, out var signer))
-                    throw new LiveFailure("invalid_config");
+                var roomId = json.RootElement.Text("roomId");
+                if (!WebRoomClient.IsRoomId(roomId))
+                    throw new LiveFailure("invalid_room");
 
                 // A redirected console read can block synchronously on Windows. Keep it off the session task.
                 _ = Task.Run(async () =>
@@ -63,8 +59,8 @@ internal static class Program
                 });
 
                 output.Status("connecting", "live");
-                using var client = new SignerClient(signer!);
-                await new LiveSession(client, output).RunAsync(identityCode!, stop.Token);
+                using var client = new WebRoomClient();
+                await new LiveSession(client, output).RunAsync(roomId!, stop.Token);
             }
             output.Status("disconnected", "stopped");
             return 0;
@@ -81,9 +77,8 @@ internal static class Program
                 output.Status("disconnected", "stopped");
                 return 0;
             }
-            var ended = failure.Reason == "session_ended";
-            output.Status(ended ? "disconnected" : "failed", failure.Reason);
-            return ended ? 0 : 1;
+            output.Status("failed", failure.Reason);
+            return 1;
         }
         catch (IOException)
         {
@@ -121,28 +116,6 @@ internal static class Program
         catch (JsonException)
         {
             return null;
-        }
-    }
-
-    private static async Task<int> RunSignerAsync(bool hosted, CancellationToken stop)
-    {
-        var credentials = SigningCredentials.FromEnvironment();
-        if (credentials is null)
-        {
-            Console.Error.WriteLine("Bilibili signer: signer_not_configured");
-            return 1;
-        }
-
-        try
-        {
-            using var platform = new SignedPlatform(credentials);
-            await LoopbackSigner.RunAsync(platform.CallAsync, hosted, stop);
-            return 0;
-        }
-        catch (Exception)
-        {
-            Console.Error.WriteLine("Bilibili signer: signer_unavailable");
-            return 1;
         }
     }
 }

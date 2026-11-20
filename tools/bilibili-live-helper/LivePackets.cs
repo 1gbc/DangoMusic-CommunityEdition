@@ -1,12 +1,14 @@
 using System.Buffers.Binary;
 using System.IO.Compression;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace DangoMusic.Bilibili;
 
-internal enum LiveEventKind { Authorized, AuthorizationRejected, Heartbeat, Danmaku, SessionEnded }
+internal enum LiveEventKind { Authorized, AuthorizationRejected, Heartbeat, Danmaku }
 
-internal sealed record LiveEvent(LiveEventKind Kind, Danmaku? Message = null, string? GameId = null);
+internal sealed record LiveEvent(LiveEventKind Kind, Danmaku? Message = null);
 
 internal static class LivePackets
 {
@@ -111,14 +113,32 @@ internal static class LivePackets
             };
         }
 
-        var data = root.Field("data");
-        return root.Text("cmd") switch
-        {
-            "LIVE_OPEN_PLATFORM_DM" when Danmaku.Read(data, "msg_id", "uname", "msg") is { } message
-                => new LiveEvent(LiveEventKind.Danmaku, message),
-            "LIVE_OPEN_PLATFORM_INTERACTION_END" when JsonFields.ValidText(data.Text("game_id"), 256)
-                => new LiveEvent(LiveEventKind.SessionEnded, GameId: data.Text("game_id")),
-            _ => null
-        };
+        var command = root.Text("cmd");
+        if (command != "DANMU_MSG" && command?.StartsWith("DANMU_MSG:", StringComparison.Ordinal) != true)
+            return null;
+
+        var info = root.Field("info");
+        var sender = At(info, 2);
+        var clock = At(At(info, 0), 4);
+        var sequence = At(At(info, 0), 5);
+        var content = Text(At(info, 1));
+        var user = Text(At(sender, 1));
+        if (!JsonFields.ValidText(content, 2048) || !JsonFields.ValidText(user, 256) ||
+            clock.ValueKind != JsonValueKind.Number)
+            return null;
+
+        // The web event has no top-level message ID; the timestamp and sequence survive reconnects.
+        var uid = At(sender, 0);
+        var fingerprint = string.Join('\n', clock.GetRawText(),
+            sequence.ValueKind == JsonValueKind.Number ? sequence.GetRawText() : "",
+            uid.ValueKind == JsonValueKind.Number ? uid.GetRawText() : user, content);
+        var id = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(fingerprint)));
+        return new LiveEvent(LiveEventKind.Danmaku, new Danmaku(id, user!, content!));
     }
+
+    private static JsonElement At(JsonElement array, int index) =>
+        array.ValueKind == JsonValueKind.Array && array.GetArrayLength() > index ? array[index] : default;
+
+    private static string? Text(JsonElement element) =>
+        element.ValueKind == JsonValueKind.String ? element.GetString() : null;
 }
