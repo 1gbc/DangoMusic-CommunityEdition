@@ -113,6 +113,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
     // 滑条拖动
     private var dragValue: Any? = null
     private var dragTrack = LayoutBounds()
+    private var dragScale = 0f
 
     // 点数值手动输入
     private var editRow: Row? = null
@@ -292,7 +293,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                 val (ann, v) = left.remove(k) ?: return@mapNotNull null
                 val ctl = when {
                     k == "language" -> Ctl.LANGUAGE
-                    k == "lyricFont" || k == "sideFont" -> Ctl.FONT
+                    k == "lyricFont" || k == "sideFont" || k.endsWith("MenuFont") -> Ctl.FONT
                     k in choiceLabels -> Ctl.CHOICE
                     v is BooleanValue -> Ctl.TOGGLE
                     k == "openKey" || (k.startsWith("key") && v is IntValue) -> Ctl.KEY
@@ -309,9 +310,16 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                 }
                 // 歌词字体这一行同时管"平滑字体"开关（像素字体 = 关）
                 val value = if (ctl == Ctl.FONT) {
-                    FontChoice(v as TextValue, all.getValue(if (k == "lyricFont") "smoothFont" else "sideSmoothFont").second as BooleanValue)
+                    val smooth = when (k) {
+                        "lyricFont" -> all.getValue("smoothFont").second as BooleanValue
+                        "sideFont" -> all.getValue("sideSmoothFont").second as BooleanValue
+                        else -> null
+                    }
+                    FontChoice(v as TextValue, smooth)
                 } else v
-                Row(ann.name.ifEmpty { k }, ann.desc, value, ctl, conds[k], fmts[k] ?: ::fmtValue, if (k in percentKeys) 100f else 1f, k, show)
+                val format = fmts[k] ?: if (k.endsWith("MenuTextSize") || k.endsWith("PlayerBarSize"))
+                    ({ v: Any -> (v as IntValue).value.toString() + "%" }) else ::fmtValue
+                Row(ann.name.ifEmpty { k }, ann.desc, value, ctl, conds[k], format, if (k in percentKeys) 100f else 1f, k, show)
             }
         }
 
@@ -416,7 +424,9 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         val island = Src(islandModule, fmts = mapOf("posX" to ::percent, "posY" to ::percent))
         val playback = player.take(listOf("volume", "originalAudio", "normalize", "playbackFades", "resumeSession"))
         val environment = player.take(listOf("envAudio", "envRain", "envStrength", "envRays"))
-        val looks = player.take(listOf("uiStyle", "neteaseInterfaceStyle", "appleSidebarStyle", "language", "songCommentsEnabled"))
+        val looks = player.take(listOf("uiStyle", "language", "songCommentsEnabled"))
+        val neteaseLooks = player.take(listOf("neteaseInterfaceStyle", "neteaseMenuTextSize", "neteaseMenuFont", "neteasePlayerBarSize"))
+        val appleLooks = player.take(listOf("appleSidebarStyle", "appleMenuTextSize", "appleMenuFont", "applePlayerBarSize"))
         val advanced = player.take(listOf("audioOutput", "audioBuffer")) + listOf(
             Row("Open cache folder", "Open the NetEase audio cache location", CacheAction.OPEN, Ctl.CACHE, null, { "" }),
             Row("Clear cache", "Remove downloaded NetEase audio from disk", CacheAction.CLEAR, Ctl.CACHE, null, { "" }),
@@ -429,6 +439,8 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         )
         val interfaceGroups = listOf(
             Group("Interface", "Look and language", module, false, looks, collapsible = false, fullWidth = true),
+            Group("NetEase interface settings", "Player menu appearance", module, false, neteaseLooks, fullWidth = true),
+            Group("Apple Music interface settings", "Player menu appearance", module, false, appleLooks, fullWidth = true),
             Group("Dynamic Island", "Overlay", islandModule, true, island.take(listOf(
                 "islandLayout", "islandAnimations", "glass", "scale", "posX", "posY",
             )) + island.take()),
@@ -946,11 +958,17 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
     private var fontAnchorSeen = false
     private val fontHits = mutableListOf<LayoutBounds>()
 
+    private fun defaultFontName(choice: FontChoice): String = I18n.text(when {
+        choice.smooth == null -> "Default menu font"
+        choice.font === cockpitFont -> "Default bold"
+        else -> "Smooth font"
+    })
+
     private fun fontName(choice: FontChoice): String {
         val id = choice.font.value
         return when {
             choice.smooth?.get() == false -> I18n.text("Pixel font")
-            id.isEmpty() -> I18n.text(if (choice.font === cockpitFont) "Default bold" else "Smooth font")
+            id.isEmpty() -> defaultFontName(choice)
             !LyricFonts.exists(id) -> LyricFonts.label(id) + I18n.text(" (missing)")
             else -> LyricFonts.label(id)
         }
@@ -1047,8 +1065,8 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         }
 
         val items = ArrayList<FontItem>()
-        items += FontItem(I18n.text("Pixel font"), true, "", false)
-        items += FontItem(I18n.text(if (choice.font === cockpitFont) "Default bold" else "Smooth font"), false, "", false)
+        if (choice.smooth != null) items += FontItem(I18n.text("Pixel font"), true, "", false)
+        items += FontItem(defaultFontName(choice), false, "", false)
         val entries = LyricFonts.entries()
         for ((kind, title) in listOf(
             LyricFonts.Kind.OWN to "Fonts folder",
@@ -1064,7 +1082,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         val itemH = 28f
         val headerH = 34f
         val bottomLimit = view.bottom - ui.bottomInset
-        val w = 260f
+        val w = (view.width - 16f).coerceIn(1f, 260f)
         val listH = items.sumOf { (if (it.header) 24.0 else itemH.toDouble()) }.toFloat()
         val h = (headerH + listH + 8f).coerceAtMost(360f)
         var top = fontAnchor.bottom + 6f
@@ -1392,7 +1410,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             else -> 0f
         }.coerceIn(0f, 1f)
         val active = dragValue === r.value
-        if (active) dragTrack = track
+        if (active && dragScale == 0f) dragTrack = track
         ctx.drawShape(track, ShapeStyle(Theme.TRACK, 2f))
         ctx.drawShape(LayoutBounds(track.x, track.y, track.width * p, track.height), ShapeStyle(RED, 2f))
         val k = if (active || ui.hover(track.expand(6f, 10f))) 14f else 11f
@@ -1418,6 +1436,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         ui.hits += track.expand(8f, 12f).intersect(clip) to {
             dragValue = r.value
             dragTrack = track
+            dragScale = if (r.key.endsWith("MenuTextSize")) ui.scale else 0f
             applyDrag()
         }
     }
@@ -1476,7 +1495,9 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
     private fun applyDrag() {
         val v = dragValue ?: return
         if (dragTrack.width <= 0f) return
-        val p = ((ui.mx - dragTrack.x) / dragTrack.width).coerceIn(0f, 1f)
+        // Keep the original mouse mapping while the text-size slider reflows its own menu.
+        val x = if (dragScale == 0f) ui.mx.toFloat() else DangoClient.platform.mouseX / dragScale
+        val p = ((x - dragTrack.x) / dragTrack.width).coerceIn(0f, 1f)
         when (v) {
             is IntValue -> v.setValue((v.minRange + p * (v.maxRange - v.minRange)).roundToInt())
             is FloatValue -> v.setValue(v.minRange + p * (v.maxRange - v.minRange))

@@ -73,6 +73,8 @@ object CjkStyle {
     const val SIDE = 4
     const val NOTO_SC = 5
     const val NOTO_SC_BOLD = 6
+    const val MENU = 7
+    const val MENU_BOLD = 8
 }
 
 /** 一段要画的平滑字体文字。centered = (x, y) 是可见部分的中心；否则 y 是基线 */
@@ -143,7 +145,7 @@ interface TextCanvas {
     fun color(r: Float, g: Float, b: Float, a: Float)
 
     /**
-     * 给 [CjkStyle.LYRIC] / [CjkStyle.SIDE] 换字体（null = 默认）。[key] 是字体的版本标记，变了才重新生成字形。
+     * 为允许自定义字体的样式换字体（null = 默认）。[key] 是字体的版本标记，变了才重新生成字形。
      * 只在渲染线程调用
      */
     fun font(style: Int, font: java.awt.Font?, key: String?) {}

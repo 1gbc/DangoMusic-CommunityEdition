@@ -4,6 +4,7 @@ import me.sorihiko.dangomusicgtnh.client.ClientMusic
 import me.sorihiko.dangomusicgtnh.i18n.I18n
 
 import me.sorihiko.dangomusicgtnh.DangoClient
+import me.sorihiko.dangomusicgtnh.gfx.CjkStyle
 import me.sorihiko.dangomusicgtnh.module.impls.music.NeteaseMusicModule
 import me.sorihiko.dangomusicgtnh.musicui.AppleLyricsLayout
 import me.sorihiko.dangomusicgtnh.musicui.AppleLyricsMenu
@@ -29,6 +30,7 @@ import me.sorihiko.dangomusicgtnh.musicui.SettingsPage
 import me.sorihiko.dangomusicgtnh.musicui.Sidebar
 import me.sorihiko.dangomusicgtnh.musicui.TracksPage
 import me.sorihiko.dangomusicgtnh.musicui.Ui
+import me.sorihiko.dangomusicgtnh.musicui.scaleCoordinates
 import me.sorihiko.dangomusicgtnh.platform.Keys
 import me.sorihiko.dangomusicgtnh.ui.LayoutBounds
 import me.sorihiko.dangomusicgtnh.ui.ShapeStyle
@@ -409,7 +411,11 @@ class MusicScreen(
             closeScreen()
             return
         }
-        val scale = min(platform.windowWidth / 1280f, platform.windowHeight / 800f).coerceAtLeast(0.5f)
+        val source = MusicSources.selected
+        val menu = !lyricsOpen
+        menuTextScale = if (menu) module.menuTextScale(source) else 1f
+        val scale = min(platform.windowWidth / 1280f, platform.windowHeight / 800f).coerceAtLeast(0.5f) * menuTextScale
+        applyMenuFont(if (menu) module.menuFont(source) else "")
         ui.scale = scale
         ui.lw = platform.windowWidth / scale
         ui.lh = platform.windowHeight / scale
@@ -484,7 +490,30 @@ class MusicScreen(
         }
     }
 
+    private var menuTextScale = 1f
+    private var loadedMenuFont: String? = null
+    private var menuFontCheckedAt = 0L
+    private var menuFontAvailable = false
+
+    private fun applyMenuFont(id: String) {
+        if (id.isEmpty()) {
+            ui.mt.useMenuFont = false
+            return
+        }
+        val now = System.nanoTime()
+        if (id != loadedMenuFont || now - menuFontCheckedAt >= 2_000_000_000L) {
+            val (font, key) = LyricFonts.load(id)
+            DangoClient.gfx.text.font(CjkStyle.MENU, font, key)
+            DangoClient.gfx.text.font(CjkStyle.MENU_BOLD, font, key)
+            menuFontAvailable = font != null
+            loadedMenuFont = id
+            menuFontCheckedAt = now
+        }
+        ui.mt.useMenuFont = menuFontAvailable
+    }
+
     private fun drawWindow(alpha: Float) {
+        barLayoutScale = 1f
         val win = LayoutBounds(26f, 20f + (1f - alpha) * 12f, ui.lw - 52f, ui.lh - 40f)
         if (appleLyricsOpen) {
             val netease = lyricsSource == MusicSource.NETEASE
@@ -517,7 +546,9 @@ class MusicScreen(
         }
         if (lyricsOpen && !canOpenLyrics) closeLyrics()
         val pad = 10f
-        val sideW = if (usesAppleLayout) 224f * 0.9f else 224f
+        val preferredSideWidth = if (usesAppleLayout) 224f * 0.9f else 224f
+        val sideW = if (menuTextScale == 1f) preferredSideWidth
+            else minOf(preferredSideWidth, win.width * 0.32f).coerceAtLeast(0f)
         if (lyricsOpen) {
             val barH = if (appleNavigation) 45f else 88f
             barRect = LayoutBounds(win.x, win.bottom - barH, win.width, barH)
@@ -543,8 +574,7 @@ class MusicScreen(
         // 播放栏浮在内容上面：左右和底部留出间距；内容延伸到播放栏底边为止，滚动时从播放栏后面经过，
         // 但不会在播放栏下面那道缝里露出来
         val barBottom = win.bottom - pad - 8f
-        val barRect = if (usesAppleLayout) PlayerBar.appleBarBounds(mainX, mainW, barBottom, neteaseUsesAppleLayout)
-            else LayoutBounds(mainX + 2f, barBottom - 88f, win.right - pad - 14f - mainX, 88f)
+        val barRect = layoutMenuBar(mainX, mainW, barBottom, win.height)
         val content = LayoutBounds(mainX, win.y + pad + 14f, mainW, barRect.bottom - (win.y + pad + 14f))
         if (!usesAppleLayout) {
             appleQueue.close()
@@ -568,6 +598,29 @@ class MusicScreen(
 
     /** 这一帧播放栏的位置（[drawWindow] 里算好，内容画完之后再画播放栏） */
     private var barRect = LayoutBounds()
+    private var barLayoutScale = 1f
+
+    private fun layoutMenuBar(left: Float, width: Float, bottom: Float, height: Float): LayoutBounds {
+        if (width <= 14f) return LayoutBounds()
+        val apple = usesAppleLayout
+        val nominalHeight = if (apple) 36f else 88f
+        val usableWidth = if (apple) width else width - 6f
+        val minimumWidth = when {
+            neteaseUsesAppleLayout -> 562f
+            apple -> 444f
+            else -> 490f
+        }
+        val playerSize = module.menuPlayerBarScale(MusicSources.selected)
+        if (playerSize != 1f || menuTextScale != 1f) {
+            barLayoutScale = minOf(playerSize / menuTextScale, usableWidth / minimumWidth,
+                (height - 100f).coerceAtLeast(nominalHeight * 0.5f) / nominalHeight).coerceAtLeast(0.25f)
+        }
+        val k = barLayoutScale
+        return if (apple) PlayerBar.appleBarBounds(left / k, width / k, bottom / k, neteaseUsesAppleLayout).scaleCoordinates(k)
+        else LayoutBounds(left + 2f, bottom - nominalHeight * k, usableWidth, nominalHeight * k)
+    }
+
+    private fun barCoordinate(coordinate: Int) = (coordinate / barLayoutScale).toInt()
     private class LibraryPull(val x: Int, val y: Int, val click: (() -> Unit)?) {
         var moved = false
         var distance = 0f
@@ -593,6 +646,13 @@ class MusicScreen(
                 ui.compactAppleText = false
             }
         }
+        if (barRect.width <= 0f) return
+        ui.scaledLayer(barLayoutScale) {
+            drawBarContents(barRect.scaleCoordinates(1f / barLayoutScale))
+        }
+    }
+
+    private fun drawBarContents(barRect: LayoutBounds) {
         val before = ui.hits.size
         bar.draw(barRect, lyricsOpen)
         val notice = Library.notice
@@ -779,8 +839,10 @@ class MusicScreen(
             login.mouseClicked(mx, my, mouseButton)
             return
         }
-        bar.closeMenuOutside(mx, my)
-        if (mouseButton == 0 && bar.menuContains(mx, my)) {
+        val barX = barCoordinate(mx)
+        val barY = barCoordinate(my)
+        bar.closeMenuOutside(barX, barY)
+        if (mouseButton == 0 && bar.menuContains(barX, barY)) {
             ui.hits.firstOrNull { it.first.contains(mx, my) }?.second?.invoke()
             return
         }
@@ -812,8 +874,8 @@ class MusicScreen(
             ui.hits.firstOrNull { it.first.contains(mx, my) }?.second?.invoke()
             return
         }
-        if (bar.mouseDown(mx, my)) return
-        if (!lyricsOpen && tracks.scrollbarDown(mx, my)) return
+        if (bar.mouseDown(barX, barY)) return
+        if (!lyricsOpen && tracks.scrollbarDown(mx, platform.mouseY / ui.scale)) return
         if (!lyricsOpen && !barRect.contains(mx, my) && tracks.coverDown(mx, my, platform.mouseX / ui.scale)) return
         val hit = ui.hits.firstOrNull { it.first.contains(mx, my) }
         if (!lyricsOpen && ScreenState.page == Page.GROUP) groupPage.clearFocus()
@@ -841,11 +903,14 @@ class MusicScreen(
             return
         }
         if (mouseButton == 0 && (tracks.coverPressed || appleQueue.queueDrag.pressed || tracks.queueDrag.pressed)) return
-        if (tracks.sbDragging) {
-            tracks.scrollbarDrag((platform.mouseY / ui.scale).toInt())
+        if (mouseButton == 0 && tracks.sbDragging) {
+            tracks.scrollbarDrag(platform.mouseY / ui.scale)
             return
         }
-        if (!login.visible) bar.mouseDrag((platform.mouseX / ui.scale).toInt(), (platform.mouseY / ui.scale).toInt())
+        if (!login.visible) {
+            val scale = ui.scale * barLayoutScale
+            bar.mouseDrag((platform.mouseX / scale).toInt(), (platform.mouseY / scale).toInt())
+        }
     }
 
     private fun updateLibraryPull() {
@@ -861,12 +926,16 @@ class MusicScreen(
         if (mouseButton == 0) {
             val x = (platform.mouseX / ui.scale).toInt()
             val y = (platform.mouseY / ui.scale).toInt()
+            if (tracks.sbDragging) {
+                tracks.scrollbarDrag(platform.mouseY / ui.scale)
+                tracks.scrollbarUp()
+                return
+            }
             if (appleQueue.queueDrag.up(x, y) || tracks.queueDrag.up(x, y)) return
             lyricsPage.stopFontSliderDrag()
         }
         if (mouseButton == 0 && tracks.coverPressed) tracks.coverUp(platform.mouseX / ui.scale)
         bar.mouseUp()
-        tracks.scrollbarUp()
         settings.stopDrag()
         if (mouseButton == 0) {
             updateLibraryPull()
@@ -886,7 +955,7 @@ class MusicScreen(
         val lx = (x / ui.scale).toInt()
         val ly = (y / ui.scale).toInt()
         if (appleBarMenu.scrollPlaylists(wheel)) return
-        if (bar.menuContains(lx, ly) || appleBarMenu.capturesInput || appleQueue.scroll(wheel, lx, ly)) return
+        if (bar.menuContains(barCoordinate(lx), barCoordinate(ly)) || appleBarMenu.capturesInput || appleQueue.scroll(wheel, lx, ly)) return
         if (lyricsOpen) {
             if (appleLyricsMenu.capturesInput) return
             lyricsPage.scroll(wheel, lx, ly)

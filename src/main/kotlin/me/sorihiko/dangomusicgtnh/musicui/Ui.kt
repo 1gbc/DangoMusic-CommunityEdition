@@ -38,6 +38,9 @@ internal fun appleCoverRadius(bounds: LayoutBounds) =
 /** 一块可点击区域和点下去要做的事 */
 internal typealias Hit = Pair<LayoutBounds, () -> Unit>
 
+internal fun LayoutBounds.scaleCoordinates(multiplier: Float) =
+    LayoutBounds(x * multiplier, y * multiplier, width * multiplier, height * multiplier)
+
 internal fun fmtTime(ms: Long): String {
     val s = max(0L, ms / 1000)
     return "${s / 60}:${"%02d".format(s % 60)}"
@@ -160,8 +163,10 @@ internal class Ui {
     /** 内容区底部被播放栏盖住的高度：能滚动的页面多留这么多，最后一项才能滚到播放栏上面 */
     var bottomInset = 0f
 
+    private var popupCoordinates = 1f
+
     fun hover(b: LayoutBounds) = b.contains(mx, my) && occluder?.contains(mx, my) != true &&
-        (inPopup || popupsPrev.none { it.contains(mx, my) })
+        (inPopup || popupsPrev.none { it.contains((mx * popupCoordinates).toInt(), (my * popupCoordinates).toInt()) })
 
     /** 上一帧画出来的弹窗（菜单、字体列表、取色器）：鼠标在弹窗上时，下面的内容不显示悬停效果 */
     private var popupsPrev: List<LayoutBounds> = emptyList()
@@ -172,7 +177,7 @@ internal class Ui {
 
     /** 弹窗登记自己这一帧的范围（下一帧的内容按它挡住悬停；内容比弹窗先画，所以用上一帧的） */
     fun registerPopup(b: LayoutBounds) {
-        popupsNow += b
+        popupsNow += b.scaleCoordinates(popupCoordinates)
     }
 
     /** 每帧开头调用：换成这一帧要用的弹窗范围 */
@@ -191,6 +196,58 @@ internal class Ui {
             block()
         } finally {
             inPopup = was
+        }
+    }
+
+    /** A topmost layer with its own logical units, drawn inside the menu viewport. */
+    fun scaledLayer(multiplier: Float, draw: () -> Unit) {
+        if (multiplier == 1f) {
+            draw()
+            return
+        }
+        val backgroundHits = hits.toList()
+        hits.clear()
+        val oldScale = scale
+        val oldWidth = lw
+        val oldHeight = lh
+        val oldX = mx
+        val oldY = my
+        mt.flush(oldScale)
+        scale = oldScale * multiplier
+        lw = oldWidth / multiplier
+        lh = oldHeight / multiplier
+        mx = (oldX / multiplier).toInt()
+        my = (oldY / multiplier).toInt()
+        popupCoordinates = multiplier
+        ctx.pushScale(multiplier, multiplier, 1f)
+        try {
+            draw()
+        } finally {
+            mt.flush(scale)
+            ctx.popTransform()
+            popupCoordinates = 1f
+            scale = oldScale
+            lw = oldWidth
+            lh = oldHeight
+            mx = oldX
+            my = oldY
+            val layerHits = hits.map { (bounds, action) ->
+                bounds.scaleCoordinates(multiplier) to {
+                    val x = mx
+                    val y = my
+                    mx = (x / multiplier).toInt()
+                    my = (y / multiplier).toInt()
+                    try {
+                        action()
+                    } finally {
+                        mx = x
+                        my = y
+                    }
+                }
+            }
+            hits.clear()
+            hits.addAll(layerHits)
+            hits.addAll(backgroundHits)
         }
     }
 
@@ -281,7 +338,9 @@ internal class Ui {
     fun approach(pos: Float, target: Float, timeMs: Float): Float = pos + (target - pos) * (1f - exp(-frameDt / timeMs))
 
     /** 把滚动位置缓动到 target；跳得太远（定位、拖滚动条、Home/End）直接到位，免得中间几百行封面全去下载 */
-    fun easeScroll(pos: Float, target: Int, snapRows: Int): Float {
+    fun easeScroll(pos: Float, target: Int, snapRows: Int): Float = easeScroll(pos, target.toFloat(), snapRows)
+
+    fun easeScroll(pos: Float, target: Float, snapRows: Int): Float {
         if (abs(pos - target) > snapRows) return target.toFloat()
         val next = approach(pos, target.toFloat(), 70f)
         return if (abs(next - target) < 0.002f) target.toFloat() else next

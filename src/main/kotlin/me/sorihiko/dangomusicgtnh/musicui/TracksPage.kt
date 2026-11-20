@@ -47,7 +47,7 @@ internal class TracksPage(private val screen: MusicScreen) {
     private var filterCache: List<Pair<Int, NeteaseTrack>> = emptyList()
 
     // 列表滚动：目标（行）和平滑后的当前位置；一屏放得下几行
-    private var scroll = 0
+    private var scroll = 0f
     private var listPos = 0f
     var listRows = 10
         private set
@@ -112,7 +112,8 @@ internal class TracksPage(private val screen: MusicScreen) {
     /** 换了页面：列表直接从当前滚动位置开始画，不从别处滑过来 */
     fun onPageChanged() {
         queueDrag.cancel()
-        listPos = scroll.toFloat()
+        scrollbarUp()
+        listPos = scroll
         selSnap = true
         selectedAppleTrack = null
         resetCoverflow()
@@ -127,7 +128,7 @@ internal class TracksPage(private val screen: MusicScreen) {
     private var selectedAppleTrack: Pair<Int, String>? = null
 
     fun resetScroll() {
-        scroll = 0
+        scroll = 0f
     }
 
     fun resetCoverflow() {
@@ -247,7 +248,7 @@ internal class TracksPage(private val screen: MusicScreen) {
             idx = currentRow(list, cur.key, listing.fromQueue)
         }
         if (idx < 0) return
-        scroll = (idx - listRows / 2).coerceAtLeast(0)
+        scroll = (idx - listRows / 2).coerceAtLeast(0).toFloat()
         coverMotion.reset(idx)
         flashId = cur.key
         flashAt = System.currentTimeMillis()
@@ -710,60 +711,62 @@ internal class TracksPage(private val screen: MusicScreen) {
 
     // ---------------------------------------------------------------- 列表 + 滚动条
 
-    /** 滚动条滑块的位置和高度 */
     private fun thumbOf(track: LayoutBounds, total: Int, rows: Int): LayoutBounds {
-        val h = max(28f, track.height * rows / total.coerceAtLeast(1))
-        val maxScroll = max(1, total - rows)
-        val pos = if (sbDragging) scroll.toFloat() else listPos
-        val y = track.y + (track.height - h) * (pos / maxScroll).coerceIn(0f, 1f)
+        val proportion = rows.toFloat() / total
+        val h = (track.height * proportion).coerceIn(minOf(28f, track.height * 0.5f), track.height - 1f)
+        val y = track.y + (track.height - h) * (listPos / (total - rows)).coerceIn(0f, 1f)
         return LayoutBounds(track.x, y, track.width, h)
     }
 
-    /**
-     * 歌单右边的滚动条：拖滑块快速滚动，点空白处直接跳过去；
-     * 拖动时旁边显示现在在第几首。
-     */
     private fun drawScrollbar(track: LayoutBounds, total: Int, rows: Int) {
-        sbTrack = track
-        sbTotal = total
-        if (total <= rows) {
+        if (total <= rows || track.height <= 2f) {
+            sbTotal = 0
             sbTrack = LayoutBounds()
+            scrollbarUp()
             return
         }
+        sbTrack = track
+        sbTotal = total
         val hot = sbDragging || track.expand(8f, 0f).contains(ui.mx, ui.my)
         ui.ctx.drawShape(track, ShapeStyle(Color(1f, 1f, 1f, if (hot) 0.10f else 0.05f), track.width / 2f))
         val th = thumbOf(track, total, rows)
-        val thumb = if (hot) LayoutBounds(th.x - 1.5f, th.y, th.width + 3f, th.height) else th
-        ui.ctx.drawShape(thumb, ShapeStyle(if (sbDragging) RED else Color(1f, 1f, 1f, if (hot) 0.55f else 0.30f), thumb.width / 2f))
+        val thumb = if (hot) th.expand(1.5f, 0f) else th
+        if (sbDragging && screen.usesAppleLayout) {
+            val stroke = 1.15f
+            val inner = thumb.expand(-stroke, -stroke)
+            ui.ctx.drawShape(inner, ShapeStyle(Color.TRANSPARENT, inner.width / 2f, stroke, APPLE_CONTROL_BLUE))
+        } else {
+            val color = if (sbDragging) RED else Color(1f, 1f, 1f, if (hot) 0.55f else 0.30f)
+            ui.ctx.drawShape(thumb, ShapeStyle(color, thumb.width / 2f))
+        }
         if (sbDragging) {
-            val label = "${scroll + 1} / $total"
-            val lw = ui.width(label, 11f, Theme.FONT_SEMIBOLD) + 18f
-            val lb = LayoutBounds(track.x - lw - 10f, th.y + th.height / 2f - 12f, lw, 24f)
-            ui.ctx.drawGlass(lb, Theme.GLASS_SELECTION)
-            ui.text(label, lb.x + 9f, lb.y + 7f, 11f, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
+            val label = "${listPos.toInt() + 1} / $total"
+            val width = ui.width(label, 11f, Theme.FONT_SEMIBOLD)
+            ui.text(label, track.x - width - 9f, th.y + (th.height - 11f) / 2f,
+                11f, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
         }
     }
 
-    private fun scrollbarTo(y: Int) {
-        val track = sbTrack
-        val rows = listRows
-        if (sbTotal <= rows || track.height <= 0f) return
-        val th = thumbOf(track, sbTotal, rows)
-        val frac = ((y - sbGrab) - track.y) / max(1f, track.height - th.height)
-        scroll = (frac.coerceIn(0f, 1f) * (sbTotal - rows)).toInt()
+    private fun scrollbarTo(y: Float) {
+        if (sbTotal <= listRows || sbTrack.height <= 2f) return
+        val th = thumbOf(sbTrack, sbTotal, listRows)
+        val frac = (y - sbGrab - sbTrack.y) / (sbTrack.height - th.height)
+        scroll = frac.coerceIn(0f, 1f) * (sbTotal - listRows)
+        listPos = scroll
     }
 
-    /** 按在滚动条上：按在滑块上就拖，按在空白处就把滑块中心跳过去再拖。返回 true 表示按到了 */
-    fun scrollbarDown(mx: Int, my: Int): Boolean {
-        if (ScreenState.coverView || sbTotal <= listRows || sbTrack.height <= 0f || !sbTrack.expand(8f, 0f).contains(mx, my)) return false
+    /** Drag from the current thumb position, or jump to the point clicked on the track. */
+    fun scrollbarDown(mx: Int, y: Float): Boolean {
+        if (ScreenState.coverView || sbTotal <= listRows || sbTrack.height <= 2f ||
+            !sbTrack.expand(8f, 0f).contains(mx, y.toInt())) return false
         val th = thumbOf(sbTrack, sbTotal, listRows)
-        sbGrab = if (my >= th.y && my <= th.bottom) my - th.y else th.height / 2f
+        sbGrab = if (y >= th.y && y <= th.bottom) y - th.y else th.height / 2f
         sbDragging = true
-        scrollbarTo(my)
+        scrollbarTo(y)
         return true
     }
 
-    fun scrollbarDrag(y: Int) = scrollbarTo(y)
+    fun scrollbarDrag(y: Float) = scrollbarTo(y)
 
     fun scrollbarUp() {
         sbDragging = false
@@ -773,7 +776,11 @@ internal class TracksPage(private val screen: MusicScreen) {
     private fun drawTrackList(list: LayoutBounds, all: List<NeteaseTrack>, tracks: List<Pair<Int, NeteaseTrack>>) {
         val ctx = ui.ctx
         val sbW = 16f   // 右边留给滚动条
-        val body = LayoutBounds(list.x, list.y + 22f, list.width - sbW, list.height - 22f)
+        val counter = if (sbDragging) {
+            val total = tracks.size
+            ui.width("$total / $total", 11f, Theme.FONT_SEMIBOLD) + 10f
+        } else 0f
+        val body = LayoutBounds(list.x, list.y + 22f, (list.width - sbW - counter).coerceAtLeast(0f), list.height - 22f)
         val columns = if (applePlaylistLayout || screen.neteaseUsesAppleLayout) AppleTrackColumns(body) else null
         if (columns != null) drawAppleTrackHeadings(list.y, columns) else {
             ui.text("#", list.x + 12f, list.y, 10f, Theme.TEXT_TERTIARY, Theme.FONT_SEMIBOLD)
@@ -790,7 +797,7 @@ internal class TracksPage(private val screen: MusicScreen) {
         val rows = max(1, ((body.height - ui.bottomInset) / rowH).toInt())
         val drawnRows = rows + kotlin.math.ceil(ui.bottomInset / rowH).toInt() + 1
         listRows = rows
-        scroll = scroll.coerceIn(0, max(0, tracks.size - rows))
+        scroll = scroll.coerceIn(0f, max(0, tracks.size - rows).toFloat())
         val queuePage = ScreenState.page == Page.QUEUE
         val selectOnly = queuePage || ScreenState.page == Page.PLAYLIST && MusicSources.selected in listSelectableSources
         val canReorder = queuePage && !ScreenState.coverView &&
@@ -799,9 +806,9 @@ internal class TracksPage(private val screen: MusicScreen) {
         val dragScroll = if (canReorder) queueDrag.edgeScroll(ui.frameDt, ui.mx, ui.my) else 0f
         if (dragScroll != 0f) {
             listPos = (listPos + dragScroll).coerceIn(0f, maxScroll.toFloat())
-            scroll = kotlin.math.round(listPos).toInt()
+            scroll = listPos
         } else {
-            listPos = if (sbDragging) scroll.toFloat() else ui.easeScroll(listPos, scroll, rows * 3)
+            listPos = if (sbDragging) scroll else ui.easeScroll(listPos, scroll, rows * 3)
         }
         drawScrollbar(LayoutBounds(list.right - 9f, body.y + 2f, 5f, rows * rowH - 8f), tracks.size, rows)
         val flash = (1f - (System.currentTimeMillis() - flashAt) / 1400f).coerceIn(0f, 1f)
@@ -1178,8 +1185,8 @@ internal class TracksPage(private val screen: MusicScreen) {
         when {
             ScreenState.page != Page.SEARCH && !applePlaylist && DangoClient.platform.ctrlDown && keyCode == Keys.F -> filterFocused = true
             keyCode == Keys.L -> locateCurrent()
-            listView && keyCode == Keys.HOME -> scroll = 0
-            listView && keyCode == Keys.END -> scroll = Int.MAX_VALUE / 2
+            listView && keyCode == Keys.HOME -> scroll = 0f
+            listView && keyCode == Keys.END -> scroll = Float.MAX_VALUE
             listView && keyCode == Keys.PRIOR -> scroll -= listRows
             listView && keyCode == Keys.NEXT -> scroll += listRows
             else -> return false
