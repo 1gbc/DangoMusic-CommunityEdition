@@ -27,6 +27,9 @@ class MixedText {
     }
 
     var useNotoSansSc = false
+    var useMenuFont = false
+
+    private fun menuStyle(font: String) = if (bold(font)) CjkStyle.MENU_BOLD else CjkStyle.MENU
 
     private fun style(bold: Boolean) =
         if (useNotoSansSc) {
@@ -65,6 +68,7 @@ class MixedText {
     }
 
     fun width(s: String, size: Float, font: String = Theme.FONT_REGULAR): Float {
+        if (useMenuFont) return gfx.cjkWidth(s, size * CJK_SCALE, menuStyle(font))
         var w = 0f
         segments(s) { seg, latin ->
             w += if (latin) Theme.textWidth(seg, size, font) else gfx.cjkWidth(seg, size * CJK_SCALE, style(bold(font)))
@@ -75,6 +79,11 @@ class MixedText {
     fun text(ctx: RenderContext, s: String, x: Float, y: Float, size: Float, color: Color, font: String = Theme.FONT_REGULAR) {
         if (s.isEmpty()) return
         val opacity = ctx.getOpacity()
+        if (useMenuFont) {
+            runs += CjkRun(s, x + shiftX, y + size * BASELINE + shiftY, size * CJK_SCALE,
+                color.r, color.g, color.b, color.a * opacity, menuStyle(font), clip, false)
+            return
+        }
         var pen = x
         segments(s) { seg, latin ->
             if (latin) {
@@ -96,9 +105,17 @@ class MixedText {
 
     fun trim(s: String, maxW: Float, size: Float, font: String = Theme.FONT_REGULAR): String {
         if (width(s, size, font) <= maxW) return s
-        var end = s.length
-        while (end > 0 && width(s.substring(0, end) + "...", size, font) > maxW) end--
-        return s.substring(0, end) + "..."
+        val available = maxW - width("...", size, font)
+        if (available < 0f) return ""
+        var low = 0
+        var high = s.length
+        while (low < high) {
+            val middle = (low + high + 1) / 2
+            if (width(s.substring(0, middle), size, font) <= available) low = middle
+            else high = middle - 1
+        }
+        if (low > 0 && low < s.length && Character.isSurrogatePair(s[low - 1], s[low])) low--
+        return s.substring(0, low) + "..."
     }
 
     /** 最多折成两行，第二行放不下就省略 */

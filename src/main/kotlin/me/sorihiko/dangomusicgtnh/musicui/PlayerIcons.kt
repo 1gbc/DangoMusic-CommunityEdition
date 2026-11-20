@@ -54,6 +54,47 @@ internal object PlayerIcons {
         }
     }
     private val speakers = arrayOf(speakerPath(0,false),speakerPath(1,false),speakerPath(2,false),speakerPath(0,true))
+
+    private val appleSpeakerBody = VectorIcon.path {
+        move(2.5,9.0); line(6.0,9.0); line(10.7,5.0); line(10.7,19.0); line(6.0,15.0); line(2.5,15.0); close()
+    }
+    private val appleSpeakerMute = VectorIcon.path {
+        move(15.0,9.0); line(20.0,15.0); move(15.0,15.0); line(20.0,9.0)
+    }
+    private val appleSpeakerArcs = listOf(
+        VectorIcon.path(strokeWidth = 1.7f) { move(13.0,8.6); curve(15.6,10.4,15.6,13.6,13.0,15.4) },
+        VectorIcon.path(strokeWidth = 1.7f) { move(15.8,5.9); curve(19.5,8.9,19.5,15.1,15.8,18.1) },
+        VectorIcon.path(strokeWidth = 1.7f) { move(18.6,3.3); curve(23.6,7.5,23.6,16.5,18.6,20.7) },
+    )
+
+    fun volumePercent(volume: Float): Int =
+        if (volume <= 0f) 0 else kotlin.math.round(volume * 100f).toInt().coerceIn(1, 100)
+
+    internal class VolumeSpeaker {
+        private val opacity = FloatArray(4)
+        private var initialized = false
+
+        fun draw(ui: Ui, x: Float, y: Float, volume: Float, color: Color, scale: Float) {
+            val percent = volumePercent(volume)
+            val size = 24f * scale
+            draw(ui.ctx, appleSpeakerBody, x, y, size, color)
+            for (i in opacity.indices) {
+                val on = when (i) {
+                    0 -> percent > 0
+                    1 -> percent >= 34
+                    2 -> percent >= 67
+                    else -> percent == 0
+                }
+                val target = if (on) 1f else 0f
+                opacity[i] = if (initialized) ui.approach(opacity[i], target, 48f) else target
+                if (opacity[i] > 0.01f) {
+                    val icon = if (i == 3) appleSpeakerMute else appleSpeakerArcs[i]
+                    draw(ui.ctx, icon, x, y, size, color.copy(a = color.a * opacity[i]))
+                }
+            }
+            initialized = true
+        }
+    }
     /** 红心（和侧栏“我喜欢”同一个形状，宽一点，小字号下也饱满） */
     private fun heartPath(filled: Boolean, strokeWidth: Float = VectorIcon.STROKE) = VectorIcon.path(filled, strokeWidth) {
         move(12.0,21.0); curve(9.5,18.0,2.0,13.8,2.0,8.2)

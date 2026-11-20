@@ -11,7 +11,9 @@ enum class MusicSource(val key: String, val label: String) {
 
     val configId: Int get() = if (this == APPLE) 3 else ordinal
     companion object {
-        fun fromConfig(id: Int) = values().firstOrNull { it.configId == id } ?: NETEASE
+        val selectable = listOf(NETEASE, APPLE)
+
+        fun fromConfig(id: Int) = selectable.firstOrNull { it.configId == id } ?: NETEASE
     }
 }
 

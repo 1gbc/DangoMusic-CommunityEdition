@@ -16,7 +16,11 @@ import java.util.concurrent.Executors
  * 退出游戏时各写一次。主动按停止会清掉进度，下次就不恢复。Apple Music 的队列不存（它由内嵌播放器自己管）。
  */
 object ResumeStore {
-    private class QueueFile(val version: Int = 1, val tracks: List<SharedTrack> = emptyList())
+    private class QueueFile(
+        val version: Int = 2,
+        val tracks: List<SharedTrack> = emptyList(),
+        val playlistId: Long? = null,
+    )
     private class StateFile(
         val version: Int = 1,
         val index: Int = -1,
@@ -25,7 +29,13 @@ object ResumeStore {
         val savedAtMs: Long = 0L,
     )
 
-    class Session(val tracks: List<NeteaseTrack>, val index: Int, val positionMs: Long)
+    class Session @JvmOverloads constructor(
+        val tracks: List<NeteaseTrack>,
+        val index: Int,
+        val positionMs: Long,
+        val playlistId: Long? = null,
+        val legacy: Boolean = false,
+    )
 
     /** 太长的歌单只存当前曲目前后这一段，恢复后照样能上一首 / 下一首 */
     private const val MAX_TRACKS = 5000
@@ -36,6 +46,7 @@ object ResumeStore {
     @Volatile var dir: Path? = null
     /** 上次写进文件的那份队列（按引用比较），队列没换就不重写 */
     @Volatile private var writtenQueue: List<NeteaseTrack>? = null
+    private var writtenPlaylistId: Long? = null
     @Volatile private var writtenOffset = 0
     @Volatile private var writtenCount = 0
 
@@ -48,16 +59,24 @@ object ResumeStore {
 
     /** 换歌、暂停、定时和退出时调用：队列换过（按引用）才重写队列文件，进度每次都写 */
     @Synchronized
-    fun save(queue: List<NeteaseTrack>, index: Int, positionMs: Long, sync: Boolean = false) {
+    fun save(
+        queue: List<NeteaseTrack>,
+        index: Int,
+        positionMs: Long,
+        sync: Boolean = false,
+        playlistId: Long? = null,
+        legacy: Boolean = false,
+    ) {
         if (!storable(queue) || index !in queue.indices) return
         // 队列换了，或者超长歌单里当前曲目移出了已存的那一段：重写队列
-        if (writtenQueue !== queue || index - writtenOffset !in 0 until writtenCount) {
+        if (writtenQueue !== queue || writtenPlaylistId != playlistId || index - writtenOffset !in 0 until writtenCount) {
             val window = window(queue.size, index)
             writtenQueue = queue
+            writtenPlaylistId = playlistId
             writtenOffset = window.first
             writtenCount = window.last - window.first + 1
             val tracks = queue.subList(window.first, window.last + 1).map(SharedTrack::from)
-            write(queueFile(), gson.toJson(QueueFile(tracks = tracks)), sync)
+            write(queueFile(), gson.toJson(QueueFile(version = if (legacy) 1 else 2, tracks = tracks, playlistId = playlistId)), sync)
         }
         val local = index - writtenOffset
         val state = StateFile(index = local, key = queue[index].key, positionMs = positionMs.coerceAtLeast(0L), savedAtMs = System.currentTimeMillis())
@@ -66,8 +85,9 @@ object ResumeStore {
 
     /** 恢复后这份队列就是文件里那份，不用马上重写 */
     @Synchronized
-    fun adopt(queue: List<NeteaseTrack>) {
+    fun adopt(queue: List<NeteaseTrack>, playlistId: Long?) {
         writtenQueue = queue
+        writtenPlaylistId = playlistId
         writtenOffset = 0
         writtenCount = queue.size
     }
@@ -85,7 +105,7 @@ object ResumeStore {
         val tracks = queue?.tracks.orEmpty().mapNotNull { runCatching { it.toTrack() }.getOrNull() }
         val index = state?.index ?: -1
         if (state == null || state.key.isEmpty() || index !in tracks.indices || tracks[index].key != state.key) null
-        else Session(tracks, index, state.positionMs)
+        else Session(tracks, index, state.positionMs, queue?.playlistId, legacy = (queue?.version ?: 0) < 2)
     } catch (e: Exception) {
         DangoLogger.warn("Resume state unreadable: {}", e.javaClass.simpleName)
         null

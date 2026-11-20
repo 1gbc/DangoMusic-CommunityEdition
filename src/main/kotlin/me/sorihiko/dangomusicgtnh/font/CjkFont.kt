@@ -43,7 +43,7 @@ object CjkFont {
     /** 驾驶舱歌词：先用玩家给驾驶舱选的字体，没有的字退回粗体 */
     const val SIDE = 4
     /** 样式槽位数（字形缓存的键 = 字符 × STYLES + 样式） */
-    private const val STYLES = 8
+    private const val STYLES = CjkStyle.MENU_BOLD + 1
 
     /** 字形贴图里的字号（像素），屏幕上按需缩放 */
     private fun baseOf(style: Int) = if (style == DISPLAY) 96f else 48f
@@ -112,9 +112,10 @@ object CjkFont {
                 .map { Font(it, awtStyle, 1).deriveFont(baseOf(style)) }
             return (preferred + fonts(if (bold) BOLD else PLAIN)).distinct()
         }
-        if (style == LYRIC || style == SIDE) {
-            val custom = customFonts[style]?.let { listOf(it.deriveFont(Font.PLAIN, baseOf(style))) } ?: emptyList()
-            return custom + fonts(if (style == SIDE) BOLD else PLAIN)
+        if (hasCustomFont(style)) {
+            val weight = if (style == CjkStyle.MENU_BOLD) Font.BOLD else Font.PLAIN
+            val custom = customFonts[style]?.let { listOf(it.deriveFont(weight, baseOf(style))) }.orEmpty()
+            return custom + fonts(if (style == SIDE || style == CjkStyle.MENU_BOLD) BOLD else PLAIN)
         }
         val base = baseOf(style)
         val awtStyle = if (style == PLAIN) Font.PLAIN else Font.BOLD
@@ -187,12 +188,15 @@ object CjkFont {
     private val customFonts = arrayOfNulls<Font>(STYLES)
     private val customKeys = arrayOfNulls<String>(STYLES)
 
+    private fun hasCustomFont(style: Int) =
+        style == LYRIC || style == SIDE || style == CjkStyle.MENU || style == CjkStyle.MENU_BOLD
+
     /**
-     * 换 [LYRIC] / [SIDE] 槽位的字体（null = 默认）。[key] 是字体的版本标记（同一个文件被替换后会变）：
+     * 换歌词或菜单槽位的字体（null = 默认）。[key] 是字体的版本标记（同一个文件被替换后会变）：
      * 和上次一样就什么都不做，变了就把这个槽位的字形重新画（热重载；贴图页里旧的字形留着，不影响）
      */
     fun setFont(style: Int, font: Font?, key: String?) {
-        if (style != LYRIC && style != SIDE) return
+        if (!hasCustomFont(style)) return
         val k = if (font == null) null else key
         if (k == customKeys[style] && customFonts[style] === font) return
         customKeys[style] = k
