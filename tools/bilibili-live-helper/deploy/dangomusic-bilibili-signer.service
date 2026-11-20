@@ -1,0 +1,18 @@
+[Unit]
+Description=DangoMusic Bilibili Live signing service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+WorkingDirectory=/opt/dangomusic-bilibili-signer
+EnvironmentFile=/etc/dangomusic-bilibili-signer.env
+ExecStart=/usr/bin/dotnet /opt/dangomusic-bilibili-signer/BilibiliLiveHelper.dll --hosted-signer
+KillSignal=SIGINT
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

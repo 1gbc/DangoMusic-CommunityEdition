@@ -6,29 +6,31 @@ namespace DangoMusic.Bilibili;
 
 internal static class LoopbackSigner
 {
-    public static async Task RunAsync(SignedPlatform platform, CancellationToken stop)
+    public static async Task RunAsync(Func<string, string, CancellationToken, Task<JsonElement>> callPlatform,
+        bool hosted, CancellationToken stop, string endpoint = SignerClient.DefaultEndpoint)
     {
         using var listener = new HttpListener();
-        listener.Prefixes.Add(SignerClient.DefaultEndpoint);
+        listener.Prefixes.Add(endpoint);
         listener.Start();
-        Console.Error.WriteLine($"Bilibili signer: listening on {SignerClient.DefaultEndpoint}");
+        Console.Error.WriteLine($"Bilibili signer: listening on {endpoint}");
         using var cancelListener = stop.Register(listener.Stop);
 
         // Keeping a reference to in-flight requests lets shutdown cancel requests before disposing the client.
         var pending = new HashSet<Task>();
+        var sessions = hosted ? new HostedSessions(TimeProvider.System) : null;
         while (!stop.IsCancellationRequested)
         {
             try
             {
                 var context = await listener.GetContextAsync();
                 pending.RemoveWhere(task => task.IsCompleted);
-                if (pending.Count >= 8)
+                if (pending.Count >= (hosted ? 64 : 8))
                 {
                     context.Response.StatusCode = 503;
                     context.Response.Close();
                     continue;
                 }
-                pending.Add(HandleAsync(context, platform, stop));
+                pending.Add(HandleAsync(context, callPlatform, sessions, stop));
             }
             catch (HttpListenerException) when (stop.IsCancellationRequested)
             {
@@ -38,12 +40,14 @@ internal static class LoopbackSigner
         await Task.WhenAll(pending);
     }
 
-    private static async Task HandleAsync(HttpListenerContext context, SignedPlatform platform, CancellationToken stop)
+    private static async Task HandleAsync(HttpListenerContext context,
+        Func<string, string, CancellationToken, Task<JsonElement>> callPlatform, HostedSessions? sessions, CancellationToken stop)
     {
         var request = context.Request;
         var response = context.Response;
         OpenSession? opened = null;
         var startReturned = false;
+        string? sessionToken = null;
         try
         {
             response.Headers["Cache-Control"] = "no-store";
@@ -51,6 +55,12 @@ internal static class LoopbackSigner
                 request.Headers["Origin"] is not null || request.Headers["Sec-Fetch-Site"] is not null)
             {
                 response.StatusCode = 403;
+                return;
+            }
+
+            if (request.RawUrl == "/healthz" && request.HttpMethod == "GET")
+            {
+                response.StatusCode = 204;
                 return;
             }
 
@@ -87,16 +97,29 @@ internal static class LoopbackSigner
             }
             using (input)
             {
-                var value = input.RootElement.Text(operation == "start" ? "identityCode" : "gameId");
+                var inputField = operation == "start" ? "identityCode" : sessions is null ? "gameId" : "sessionToken";
+                var value = input.RootElement.Text(inputField);
                 if (!JsonFields.ValidText(value, 256))
                 {
                     response.StatusCode = 400;
                     return;
                 }
 
-                var data = await platform.CallAsync(operation, value!, timeout.Token);
+                var platformValue = value!;
+                if (operation != "start" && sessions is not null)
+                {
+                    platformValue = sessions.Get(value!) ?? throw new LiveFailure("session_ended");
+                }
+                var data = await callPlatform(operation, platformValue, timeout.Token);
                 if (operation != "start")
                 {
+                    if (sessions is not null)
+                    {
+                        if (operation == "end")
+                            sessions.Remove(value!);
+                        else
+                            sessions.Refresh(value!);
+                    }
                     await ReplyAsync(response, new { ok = true }, timeout.Token);
                     return;
                 }
@@ -107,13 +130,17 @@ internal static class LoopbackSigner
                 if (opened is null)
                 {
                     if (JsonFields.ValidText(gameId, 256))
-                        await EndQuietlyAsync(platform, gameId!);
+                        await EndQuietlyAsync(callPlatform, gameId!);
                     throw new LiveFailure("platform_unavailable");
                 }
+
+                if (sessions is not null)
+                    sessionToken = sessions.Add(opened.GameId) ?? throw new LiveFailure("signer_busy");
 
                 await ReplyAsync(response, new
                 {
                     ok = true,
+                    sessionToken,
                     gameId = opened.GameId,
                     authBody = opened.AuthBody,
                     websocketLinks = opened.WebSocketLinks.Select(link => link.AbsoluteUri).ToArray()
@@ -140,15 +167,19 @@ internal static class LoopbackSigner
         {
             response.Close();
             if (opened is not null && !startReturned)
-                await EndQuietlyAsync(platform, opened.GameId);
+            {
+                if (sessionToken is not null) sessions!.Remove(sessionToken);
+                await EndQuietlyAsync(callPlatform, opened.GameId);
+            }
         }
     }
 
-    private static async Task EndQuietlyAsync(SignedPlatform platform, string gameId)
+    private static async Task EndQuietlyAsync(
+        Func<string, string, CancellationToken, Task<JsonElement>> callPlatform, string gameId)
     {
         try
         {
-            await platform.CallAsync("end", gameId, CancellationToken.None);
+            await callPlatform("end", gameId, CancellationToken.None);
         }
         catch (LiveFailure)
         {
@@ -168,6 +199,8 @@ internal static class LoopbackSigner
 internal sealed class SignerClient(Uri endpoint) : IDisposable
 {
     public const string DefaultEndpoint = "http://127.0.0.1:19754/";
+    private string? sessionToken;
+    private bool Hosted => endpoint.Scheme == Uri.UriSchemeHttps;
 
     private readonly HttpClient client = new(new HttpClientHandler
     {
@@ -182,8 +215,9 @@ internal sealed class SignerClient(Uri endpoint) : IDisposable
 
     public static bool TryEndpoint(string text, out Uri? endpoint)
     {
-        if (Uri.TryCreate(text, UriKind.Absolute, out endpoint) && endpoint.Scheme == "http" &&
-            endpoint.Host == "127.0.0.1" && endpoint.Port > 0 && endpoint.AbsolutePath == "/" &&
+        if (Uri.TryCreate(text, UriKind.Absolute, out endpoint) &&
+            (endpoint.Scheme == Uri.UriSchemeHttps || (endpoint.Scheme == Uri.UriSchemeHttp && endpoint.Host == "127.0.0.1")) &&
+            endpoint.Host.Length > 0 && endpoint.Port > 0 && endpoint.AbsolutePath == "/" &&
             endpoint.UserInfo.Length == 0 && endpoint.Query.Length == 0 && endpoint.Fragment.Length == 0)
         {
             return true;
@@ -196,6 +230,10 @@ internal sealed class SignerClient(Uri endpoint) : IDisposable
     {
         var data = await CallAsync("start", new { identityCode }, CancellationToken.None);
         var gameId = data.Text("gameId");
+        sessionToken = data.Text("sessionToken");
+        if (Hosted && !JsonFields.ValidText(sessionToken, 256))
+            throw new LiveFailure("signer_unavailable");
+
         var session = OpenSession.Read(gameId, data.Text("authBody"), data.Field("websocketLinks"));
         if (session is not null) return session;
 
@@ -204,20 +242,23 @@ internal sealed class SignerClient(Uri endpoint) : IDisposable
         throw new LiveFailure("platform_unavailable");
     }
 
-    public Task HeartbeatAsync(string gameId, CancellationToken stop) => CallAsync("heartbeat", new { gameId }, stop);
+    public Task HeartbeatAsync(string gameId, CancellationToken stop) => CallSessionAsync("heartbeat", gameId, stop);
 
     public async Task EndAsync(string gameId)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
         try
         {
-            await CallAsync("end", new { gameId }, timeout.Token);
+            await CallSessionAsync("end", gameId, timeout.Token);
         }
         catch (Exception error) when (error is LiveFailure or OperationCanceledException)
         {
             // Normal shutdown must remain bounded even if the signer has already stopped.
         }
     }
+
+    private Task<JsonElement> CallSessionAsync(string operation, string gameId, CancellationToken stop) =>
+        Hosted ? CallAsync(operation, new { sessionToken }, stop) : CallAsync(operation, new { gameId }, stop);
 
     private async Task<JsonElement> CallAsync<T>(string operation, T payload, CancellationToken stop)
     {
@@ -226,6 +267,8 @@ internal sealed class SignerClient(Uri endpoint) : IDisposable
             using var content = new ByteArrayContent(JsonSerializer.SerializeToUtf8Bytes(payload));
             content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
             using var response = await client.PostAsync(new Uri(endpoint, operation), content, stop);
+            if (response.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable)
+                throw new LiveFailure("signer_busy");
             response.EnsureSuccessStatusCode();
             using var json = JsonDocument.Parse(await response.Content.ReadAsByteArrayAsync(stop));
             if (json.RootElement.Field("ok").ValueKind == JsonValueKind.True)
@@ -235,7 +278,7 @@ internal sealed class SignerClient(Uri endpoint) : IDisposable
             throw new LiveFailure(reason switch
             {
                 "identity_rejected" or "platform_rejected" or "platform_unavailable" or
-                "session_ended" or "signer_not_configured" => reason,
+                "session_ended" or "signer_not_configured" or "signer_busy" => reason,
                 _ => "signer_unavailable"
             });
         }

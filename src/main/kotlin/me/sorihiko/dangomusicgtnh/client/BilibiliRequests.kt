@@ -26,7 +26,11 @@ internal enum class BilibiliState { DISCONNECTED, CONNECTING, CONNECTED, RECONNE
 /** The helper owns Bilibili transport. Only its local pipes carry the identity code and messages. */
 internal object BilibiliRequests {
     private const val BUNDLE = "/assets/dangomusicgtnh/bilibili-live/windows-x64.zip"
-    private const val ENDPOINT = "http://127.0.0.1:19754/"
+    private const val SIGNER_URL = "/assets/dangomusicgtnh/bilibili-live/signer-url.txt"
+    private val endpoint by lazy {
+        System.getProperty("dangomusicgtnh.bilibiliSignerUrl")?.trim()?.takeIf { it.isNotEmpty() }
+            ?: javaClass.getResourceAsStream(SIGNER_URL)?.bufferedReader(Charsets.UTF_8)?.use { it.readText().trim() }.orEmpty()
+    }
     private val helperFiles = setOf(
         "BilibiliLiveHelper.exe", "BilibiliLiveHelper.dll",
         "BilibiliLiveHelper.deps.json", "BilibiliLiveHelper.runtimeconfig.json",
@@ -117,11 +121,17 @@ internal object BilibiliRequests {
         BilibiliState.CONNECTING -> "Connecting to Bilibili…"
         BilibiliState.CONNECTED -> if (desired?.mock == true) "Mock messages connected" else "Bilibili connected"
         BilibiliState.RECONNECTING -> "Reconnecting to Bilibili…"
-        BilibiliState.DISCONNECTED -> if (enabled && !useMock && identity.isEmpty()) "Enter the streamer identity code" else "Bilibili disconnected"
+        BilibiliState.DISCONNECTED -> when {
+            reason == "session_ended" -> "Bilibili session ended"
+            enabled && !useMock && identity.isEmpty() -> "Enter the streamer identity code"
+            else -> "Bilibili disconnected"
+        }
         BilibiliState.FAILED -> when (reason) {
             "invalid_config" -> "Invalid Bilibili identity code"
-            "signer_unavailable" -> "Local signing service unavailable"
-            "signer_not_configured" -> "Local signing service is missing credentials"
+            "signer_address_missing" -> "This build has no Bilibili request service configured"
+            "signer_unavailable" -> "Bilibili request service is unavailable"
+            "signer_not_configured" -> "Bilibili request service is not configured"
+            "signer_busy" -> "Bilibili request service is busy. Try again shortly."
             "identity_rejected" -> "Bilibili rejected the identity code"
             "platform_rejected" -> "Bilibili rejected the session request"
             "platform_unavailable" -> "Bilibili is temporarily unavailable"
@@ -148,6 +158,10 @@ internal object BilibiliRequests {
         val config = desired
         if (force || child?.config != config) retire()
         if (config == null || config != desired || child != null) return
+        if (!config.mock && endpoint.isEmpty()) {
+            setStatus(BilibiliState.FAILED, "signer_address_missing")
+            return
+        }
         val arch = System.getProperty("os.arch").lowercase(Locale.ROOT)
         if (!System.getProperty("os.name").startsWith("Windows") || arch !in setOf("amd64", "x86_64")) {
             setStatus(BilibiliState.FAILED, "windows_required")
@@ -164,7 +178,7 @@ internal object BilibiliRequests {
             val running = Child(config, process, process.outputStream.bufferedWriter(Charsets.UTF_8))
             child = running
             if (!send(running, mapOf("identityCode" to config.identityCode,
-                    "endpoint" to ENDPOINT, "mode" to if (config.mock) "mock" else "live"))) {
+                    "endpoint" to (if (config.mock) "" else endpoint), "mode" to if (config.mock) "mock" else "live"))) {
                 retire()
                 if (config == desired) setStatus(BilibiliState.FAILED, "helper_exited")
                 return
@@ -205,7 +219,7 @@ internal object BilibiliRequests {
                 supervisor.execute {
                     if (child === running) {
                         retire()
-                        if (running.config == desired && state != BilibiliState.FAILED) {
+                        if (running.config == desired && state != BilibiliState.FAILED && reason != "session_ended") {
                             setStatus(BilibiliState.FAILED, "helper_exited")
                         }
                     }

@@ -1,5 +1,10 @@
 using System.IO.Compression;
+using System.Net;
+using System.Net.Http.Json;
+using System.Net.Http.Headers;
+using System.Net.Sockets;
 using System.Text;
+using System.Text.Json;
 using DangoMusic.Bilibili;
 
 static void Check(bool condition, string description)
@@ -52,7 +57,89 @@ Check(await request.Content!.ReadAsStringAsync() == """{"code":"fake-code","app_
 Check(request.Headers.GetValues("Authorization").Single() == "d54fdd82628ed920ea275e3369b58895860bad239a6e006b038aac143fb1c4ed", "HMAC-SHA256 signature");
 Check(SignedPlatform.ClassifyError(7007) == "identity_rejected", "Identity code error mapping");
 Check(SignedPlatform.ClassifyError(7003) == "session_ended", "Expired session error mapping");
-Check(!SignerClient.TryEndpoint("https://example.invalid/", out _) &&
-    !SignerClient.TryEndpoint("http://127.0.0.1:19754/?secret=value", out _) &&
-    SignerClient.TryEndpoint("http://127.0.0.1:19754/", out _), "Signer must use the loopback HTTP endpoint");
-Console.WriteLine("Packet and signing fixtures passed.");
+Check(SignerClient.TryEndpoint("https://signer.example.invalid/", out _) &&
+    !SignerClient.TryEndpoint("http://signer.example.invalid/", out _) &&
+    !SignerClient.TryEndpoint("https://example.invalid/?secret=value", out _) &&
+    SignerClient.TryEndpoint("http://127.0.0.1:19754/", out _), "Require HTTPS for remote signers");
+
+var clock = new TestClock();
+var sessions = new HostedSessions(clock);
+var token = sessions.Add("game-fixture");
+Check(token != "game-fixture" && sessions.Get("game-fixture") is null, "Game IDs cannot authorize requests");
+Check(sessions.Get(token!) == "game-fixture", "Valid token resolves its game ID");
+clock.Advance(TimeSpan.FromSeconds(90));
+sessions.Refresh(token!);
+clock.Advance(TimeSpan.FromSeconds(90));
+Check(sessions.Get(token!) == "game-fixture", "Project heartbeat refreshes the session");
+sessions.Remove(token!);
+Check(sessions.Get(token!) is null, "End consumes the token");
+var oldToken = sessions.Add("expired-game");
+clock.Advance(TimeSpan.FromMinutes(3));
+Check(sessions.Get(oldToken!) is null, "Inactive tokens expire");
+await CheckHostedSignerAsync();
+Console.WriteLine("Packet, signing and hosted session fixtures passed.");
+
+static async Task CheckHostedSignerAsync()
+{
+    var portPicker = new TcpListener(IPAddress.Loopback, 0);
+    portPicker.Start();
+    var endpoint = $"http://127.0.0.1:{((IPEndPoint)portPicker.LocalEndpoint).Port}/";
+    portPicker.Stop();
+    var calls = new System.Collections.Concurrent.ConcurrentQueue<(string Operation, string Value)>();
+    using var stop = new CancellationTokenSource();
+    using var client = new HttpClient(new HttpClientHandler { UseProxy = false })
+    {
+        BaseAddress = new Uri(endpoint),
+        Timeout = TimeSpan.FromSeconds(4)
+    };
+    var server = LoopbackSigner.RunAsync((operation, value, _) =>
+    {
+        calls.Enqueue((operation, value));
+        return Task.FromResult(JsonSerializer.SerializeToElement(operation == "start"
+            ? new
+            {
+                game_info = new { game_id = "game-fixture" },
+                websocket_info = new { auth_body = "fake-auth", wss_link = new[] { "wss://fixture.invalid/" } }
+            }
+            : null));
+    }, true, stop.Token, endpoint);
+
+    async Task<JsonElement> Post(string operation, object body)
+    {
+        using var content = new ByteArrayContent(JsonSerializer.SerializeToUtf8Bytes(body));
+        content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+        using var reply = await client.PostAsync(operation, content);
+        reply.EnsureSuccessStatusCode();
+        return await reply.Content.ReadFromJsonAsync<JsonElement>();
+    }
+
+    try
+    {
+        using var health = await client.GetAsync("healthz");
+        Check(health.StatusCode == HttpStatusCode.NoContent, "Hosted signer readiness");
+        var opened = await Post("start", new { identityCode = "fixture-code" });
+        var token = opened.Text("sessionToken")!;
+        Check(token.Length == 64 && opened.Text("gameId") == "game-fixture", "Server returns a scoped token");
+        var forged = await Post("heartbeat", new { sessionToken = "game-fixture" });
+        Check(forged.Text("reason") == "session_ended", "Server rejects a game ID supplied as a token");
+        Check((await Post("heartbeat", new { sessionToken = token })).Field("ok").GetBoolean(), "Authorized heartbeat");
+        Check((await Post("end", new { sessionToken = token })).Field("ok").GetBoolean(), "Authorized end");
+        var replay = await Post("heartbeat", new { sessionToken = token });
+        Check(replay.Text("reason") == "session_ended", "Ended token cannot be reused");
+        (string, string)[] expected =
+            [("start", "fixture-code"), ("heartbeat", "game-fixture"), ("end", "game-fixture")];
+        Check(calls.SequenceEqual(expected), "Only the authenticated session is forwarded to Bilibili");
+    }
+    finally
+    {
+        await stop.CancelAsync();
+        await server.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+}
+
+sealed class TestClock : TimeProvider
+{
+    private DateTimeOffset now = DateTimeOffset.UnixEpoch;
+    public override DateTimeOffset GetUtcNow() => now;
+    public void Advance(TimeSpan delta) => now += delta;
+}

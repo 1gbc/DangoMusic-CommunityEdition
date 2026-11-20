@@ -16,8 +16,8 @@ internal static class Program
             stop.Cancel();
         };
 
-        if (args is ["--signer"])
-            return await RunSignerAsync(stop.Token);
+        if (args is ["--signer"] or ["--hosted-signer"])
+            return await RunSignerAsync(args[0] == "--hosted-signer", stop.Token);
 
         var output = new HelperOutput(Console.Out);
         try
@@ -124,7 +124,7 @@ internal static class Program
         }
     }
 
-    private static async Task<int> RunSignerAsync(CancellationToken stop)
+    private static async Task<int> RunSignerAsync(bool hosted, CancellationToken stop)
     {
         var credentials = SigningCredentials.FromEnvironment();
         if (credentials is null)
@@ -136,7 +136,7 @@ internal static class Program
         try
         {
             using var platform = new SignedPlatform(credentials);
-            await LoopbackSigner.RunAsync(platform, stop);
+            await LoopbackSigner.RunAsync(platform.CallAsync, hosted, stop);
             return 0;
         }
         catch (Exception)

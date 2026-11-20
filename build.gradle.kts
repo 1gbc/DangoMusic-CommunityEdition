@@ -1,12 +1,13 @@
 
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
+import java.net.URI
 
 plugins {
     kotlin("jvm")
     id("com.gtnewhorizons.gtnhconvention")
 }
 
-version = "0.5.5-dev2"
+version = "0.5.6-dev.1"
 // Keep the generated Forge version tag in sync with the JAR version.
 extra["modVersion"] = version.toString()
 
@@ -96,9 +97,24 @@ val bundleBilibiliHelper = tasks.register<Zip>("bundleBilibiliHelper") {
     }
 }
 
+val bilibiliSignerUrl = providers.gradleProperty("bilibiliSignerUrl").orElse("")
+
 tasks.processResources {
     from(bundleApplePlayer) { into("assets/dangomusicgtnh/apple-player") }
     from(bundleBilibiliHelper) { into("assets/dangomusicgtnh/bilibili-live") }
+    inputs.property("bilibiliSignerUrl", bilibiliSignerUrl)
+    filesMatching("assets/dangomusicgtnh/bilibili-live/signer-url.txt") {
+        val url = bilibiliSignerUrl.get()
+        if (url.isNotEmpty()) {
+            val uri = URI(url)
+            require(uri.scheme == "https" && !uri.host.isNullOrEmpty() &&
+                uri.rawPath in listOf("", "/") && uri.rawUserInfo == null &&
+                uri.rawQuery == null && uri.rawFragment == null) {
+                "bilibiliSignerUrl must be the HTTPS origin of the hosted signer"
+            }
+        }
+        expand("bilibiliSignerUrl" to url)
+    }
 }
 
 tasks.named<ShadowJar>("shadowJar") {

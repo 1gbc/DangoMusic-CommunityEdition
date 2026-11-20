@@ -36,7 +36,7 @@ internal sealed class LiveSession(SignerClient signer, HelperOutput output)
             {
                 await signer.HeartbeatAsync(gameId, stop);
             }
-            catch (LiveFailure failure) when (failure.Reason is "signer_unavailable" or "platform_unavailable")
+            catch (LiveFailure failure) when (failure.Reason is "signer_unavailable" or "signer_busy" or "platform_unavailable")
             {
                 await Task.Delay(TimeSpan.FromSeconds(2), stop);
                 await signer.HeartbeatAsync(gameId, stop);

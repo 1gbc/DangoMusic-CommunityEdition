@@ -864,8 +864,10 @@ Mock messages connected	模拟弹幕已连接
 Bilibili connected	B 站已连接
 Bilibili disconnected	B 站未连接
 Invalid Bilibili identity code	主播身份码格式无效
-Local signing service unavailable	本机签名服务未启动或无法连接
-Local signing service is missing credentials	本机签名服务缺少项目凭证
+This build has no Bilibili request service configured	此安装包尚未配置 B 站点歌服务
+Bilibili request service is unavailable	B 站点歌服务暂时无法连接
+Bilibili request service is not configured	B 站点歌服务尚未完成配置
+Bilibili request service is busy. Try again shortly.	B 站点歌服务繁忙，请稍后重试
 Bilibili rejected the identity code	B 站拒绝了该身份码
 Bilibili rejected the session request	B 站拒绝开启直播场次
 Bilibili is temporarily unavailable	B 站直播服务暂时不可用
