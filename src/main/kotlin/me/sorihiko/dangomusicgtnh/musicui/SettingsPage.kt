@@ -3,6 +3,8 @@ package me.sorihiko.dangomusicgtnh.musicui
 import me.sorihiko.dangomusicgtnh.DangoClient
 import me.sorihiko.dangomusicgtnh.DangoMusic
 import me.sorihiko.dangomusicgtnh.DangoLogger
+import me.sorihiko.dangomusicgtnh.client.BilibiliRequests
+import me.sorihiko.dangomusicgtnh.client.BilibiliState
 import me.sorihiko.dangomusicgtnh.client.ClientMusic
 import me.sorihiko.dangomusicgtnh.client.SettingsExport
 import me.sorihiko.dangomusicgtnh.i18n.I18n
@@ -41,8 +43,9 @@ import kotlin.math.roundToInt
 internal class SettingsPage(private val screen: MusicScreen, private val module: NeteaseMusicModule) {
     private val ui = screen.ui
 
-    private enum class Ctl { TOGGLE, SLIDER, KEY, LANGUAGE, COLOR, FONT, CHOICE, CACHE }
+    private enum class Ctl { TOGGLE, SLIDER, KEY, LANGUAGE, COLOR, FONT, CHOICE, CACHE, BILIBILI }
     private enum class CacheAction { OPEN, CLEAR }
+    private enum class BilibiliAction { STATUS, IDENTITY, RETRY, MOCK }
     private var clearCacheUntil = 0L
     @Volatile private var clearingCache = false
 
@@ -444,6 +447,17 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             Group("Dynamic Island", "Overlay", islandModule, true, island.take(listOf(
                 "islandLayout", "islandAnimations", "glass", "scale", "posX", "posY",
             )) + island.take()),
+            Group("Bilibili song requests", "Live danmaku and request queue", module, false,
+                player.take(listOf("bilibiliRequests", "bilibiliMock")) + listOf(
+                    Row("Bilibili connection", "", BilibiliAction.STATUS, Ctl.BILIBILI, null, { "" },
+                        show = { module.bilibiliRequests.get() }),
+                    Row("Bilibili identity code", "The identity code is kept for this game session", BilibiliAction.IDENTITY,
+                        Ctl.BILIBILI, null, { "" }, show = { module.bilibiliRequests.get() && !module.bilibiliMock.get() }),
+                    Row("Reconnect to Bilibili", "", BilibiliAction.RETRY, Ctl.BILIBILI, null, { "" },
+                        show = { module.bilibiliRequests.get() && !module.bilibiliMock.get() }),
+                    Row("Send mock requests", "Test with sample danmaku and NetEase search", BilibiliAction.MOCK,
+                        Ctl.BILIBILI, null, { "" }, show = { module.bilibiliRequests.get() && module.bilibiliMock.get() }),
+                ), fullWidth = true),
         )
         val hotkeys = listOf(Group("Hotkeys", "Click, then press a key · Backspace clears",
             module, false, player.take(), collapsible = false, fullWidth = true))
@@ -870,6 +884,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             Ctl.COLOR -> 92f
             Ctl.FONT -> 166f
             Ctl.CHOICE, Ctl.CACHE -> 144f
+            Ctl.BILIBILI -> (width * 0.48f).coerceIn(118f, 250f)
     }
 
     private fun rowHeight(r: Row, width: Float): Float =
@@ -897,6 +912,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                 }
             } else drawSlider(b, r, clip, cx, cy)
             Ctl.CACHE -> drawCacheButton(r.value as CacheAction, LayoutBounds(cx, cy - 12f, ctlW, 24f), clip)
+            Ctl.BILIBILI -> drawBilibiliButton(r.value as BilibiliAction, LayoutBounds(cx, cy - 12f, ctlW, 24f), clip)
             Ctl.KEY -> drawKeyButton(r.value as IntValue, clip, cx, cy, ctlW - 58f)
             Ctl.COLOR -> {
                 // 颜色块 + 十六进制值，点一下弹出取色器
@@ -1391,6 +1407,33 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                         clearingCache = false
                     }
                 }, "Dango-ClearCache").apply { isDaemon = true; start() }
+            }
+        }
+    }
+
+    private fun drawBilibiliButton(action: BilibiliAction, b: LayoutBounds, clip: LayoutBounds) {
+        if (action == BilibiliAction.STATUS) {
+            val status = ui.trim(BilibiliRequests.statusText(), b.width - 8f, 11f)
+            ui.text(status, b.right - 4f - ui.width(status, 11f), b.y + 7f, 11f, Theme.TEXT_SECONDARY)
+            return
+        }
+        val label = I18n.text(when (action) {
+            BilibiliAction.STATUS -> error("Already drawn")
+            BilibiliAction.IDENTITY -> "Enter identity code"
+            BilibiliAction.RETRY -> "Reconnect Bilibili"
+            BilibiliAction.MOCK -> "Send examples"
+        })
+        val enabled = action != BilibiliAction.MOCK || BilibiliRequests.state == BilibiliState.CONNECTED
+        val text = ui.trim(label, b.width - 12f, 11f, Theme.FONT_SEMIBOLD)
+        ui.card(b, if (enabled && ui.hover(b)) Theme.CARD_HOVER else Theme.CARD, 7f)
+        ui.text(text, b.x + (b.width - ui.width(text, 11f, Theme.FONT_SEMIBOLD)) / 2f, b.y + 7f, 11f,
+            if (enabled) Theme.TEXT_PRIMARY else Theme.TEXT_SECONDARY, Theme.FONT_SEMIBOLD)
+        if (enabled) ui.hits += b.intersect(clip) to {
+            when (action) {
+                BilibiliAction.STATUS -> Unit
+                BilibiliAction.IDENTITY -> BilibiliRequests.configureIdentity()
+                BilibiliAction.RETRY -> BilibiliRequests.restart()
+                BilibiliAction.MOCK -> BilibiliRequests.sendExamples()
             }
         }
     }

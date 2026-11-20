@@ -90,6 +90,10 @@ object LegacyKeyBindings {
 
     fun activeModifier(): String? = modifiers?.activeModifier()
 
+    /** GuiScreen resets and stops updating the vanilla KeyBinding pressed state. */
+    internal fun isHeld(action: PlayerAction): Boolean =
+        DangoMusic.instance.platform.isKeyDown(mappings.getValue(action).keyCode) && modifierActive(action)
+
     fun modifierActive(action: PlayerAction): Boolean {
         val access = modifiers ?: return true
         val mapping = mappings.getValue(action)

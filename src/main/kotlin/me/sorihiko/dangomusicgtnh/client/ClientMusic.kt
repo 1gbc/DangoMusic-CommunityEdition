@@ -64,6 +64,7 @@ internal object ClientMusic {
             NeteaseLogin.cancel()
             NativeLogin.cancel()
             NearbyAudioPlayer.stop()
+            BilibiliRequests.shutdown()
             MusicPlayer.shutdown()
         }, "DangoMusic-shutdown"))
     }

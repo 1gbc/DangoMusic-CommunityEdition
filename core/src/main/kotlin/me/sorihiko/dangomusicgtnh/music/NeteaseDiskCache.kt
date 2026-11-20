@@ -47,6 +47,8 @@ object NeteaseDiskCache {
             .joinToString("") { "%02x".format(it.toInt() and 255) }
     }
 
+    internal fun contains(key: String): Boolean = Files.isRegularFile(directory.resolve("$key.audio"))
+
     @Synchronized
     internal fun read(key: String): Pair<NeteaseApi.SongUrl, ByteArray>? {
         val file = directory.resolve("$key.audio")

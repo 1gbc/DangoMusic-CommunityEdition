@@ -839,3 +839,48 @@ Could not check playlist contents	无法检查歌单内容，请重试
 Could not add to playlist. Please retry.	收藏到歌单失败，请重试
 Daily recommendations	每日推荐
 Personal FM	私人 FM
+Song request controls	点歌台交互
+Hold to operate the song request queue with the mouse	按住后使用鼠标操作点歌队列
+Enable Bilibili song requests	启用 B 站点歌台
+Show the request HUD and listen for live song requests	显示点歌台并接收直播弹幕点歌
+Simulate Bilibili messages	模拟弹幕
+Try the request queue without connecting a livestream	在连接真实直播间前试用点歌队列
+Bilibili song requests	B 站直播点歌台
+Live danmaku and request queue	直播弹幕与点歌队列
+Bilibili connection	连接状态
+Bilibili identity code	B 站主播身份码
+The identity code is kept for this game session	主播身份码仅保留至本次游戏退出
+Reconnect to Bilibili	重新连接 B 站
+Send mock requests	发送模拟点歌
+Test with sample danmaku and NetEase search	用示例弹幕测试网易云搜歌
+Enter identity code	填写身份码
+Send examples	发送示例
+Reconnect Bilibili	重新连接
+Enter the Bilibili streamer identity code	请输入 B 站主播身份码
+Enter the streamer identity code	等待填写主播身份码
+Connecting to Bilibili…	连接 B 站中…
+Reconnecting to Bilibili…	正在重新连接 B 站…
+Mock messages connected	模拟弹幕已连接
+Bilibili connected	B 站已连接
+Bilibili disconnected	B 站未连接
+Invalid Bilibili identity code	主播身份码格式无效
+Local signing service unavailable	本机签名服务未启动或无法连接
+Local signing service is missing credentials	本机签名服务缺少项目凭证
+Bilibili rejected the identity code	B 站拒绝了该身份码
+Bilibili rejected the session request	B 站拒绝开启直播场次
+Bilibili is temporarily unavailable	B 站直播服务暂时不可用
+Bilibili livestream connection failed	B 站直播长连接失败
+Bilibili session ended	B 站直播场次已结束
+The Bilibili helper requires Windows x64	B 站助手需要 Windows x64
+Bilibili helper failed. Check the .NET 8 runtime.	B 站助手启动失败，请检查 .NET 8 运行时
+Song requests	点歌台
+Current track	当前播放
+Request queue	点歌队列
+Nothing playing	暂无播放
+No song requests	暂无点歌
+Requested by %s	%s 点歌
+Unable to play “%s”. Skipped.	《%s》无法播放，已跳过
+No matching song for “%s”.	找不到匹配的歌曲「%s」
+Multiple songs match “%s”.	「%s」匹配到多个版本，请指定版本
+The request queue is full.	点歌队列已满
+Could not search for “%s”.	搜索「%s」失败

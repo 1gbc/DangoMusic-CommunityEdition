@@ -127,6 +127,15 @@ class NeteaseMusicModule : Module() {
     @ModuleValue("Lyric preview", "Hold it and scroll the mouse wheel to browse the cockpit lyrics; left-click jumps to the line in the middle")
     private val keyLyricPreview = IntValue(-100, 255, PlayerAction.LYRIC_PREVIEW.defaultKey)
 
+    @ModuleValue("Song request controls", "Hold to operate the song request queue with the mouse")
+    private val keyBilibiliRequests = IntValue(-100, 255, PlayerAction.BILIBILI_REQUESTS.defaultKey)
+
+    @ModuleValue("Enable Bilibili song requests", "Show the request HUD and listen for live song requests")
+    internal val bilibiliRequests = BooleanValue(false)
+
+    @ModuleValue("Simulate Bilibili messages", "Try the request queue without connecting a livestream")
+    internal val bilibiliMock = BooleanValue(false)
+
     @ModuleValue("Volume normalization", "Keep songs at a similar loudness")
     private val normalize = BooleanValue(true)
 
@@ -202,6 +211,7 @@ class NeteaseMusicModule : Module() {
             PlayerKeyBinding(PlayerAction.VOLUME_UP, keyVolUp), PlayerKeyBinding(PlayerAction.VOLUME_DOWN, keyVolDown),
             PlayerKeyBinding(PlayerAction.LYRICS, keyLyrics), PlayerKeyBinding(PlayerAction.STOP, keyStop),
             PlayerKeyBinding(PlayerAction.LYRIC_PREVIEW, keyLyricPreview),
+            PlayerKeyBinding(PlayerAction.BILIBILI_REQUESTS, keyBilibiliRequests),
         ).associateBy { it.action }
     }
 
@@ -442,6 +452,7 @@ class NeteaseMusicModule : Module() {
         if (musicSource.value != source.configId) musicSource.setValue(source.configId)
         MusicSources.selected = source
         syncPlayerKeys()
+        me.sorihiko.dangomusicgtnh.client.BilibiliRequests.update(enabled && bilibiliRequests.get(), bilibiliMock.get())
         if (!enabled) return
         // 歌词模块一直开着（显示与否由 3D lyrics 控制）；等配置读回之后再检查
         if (++tickCount > 5) lyrics()?.let { if (!it.enabled) it.enabled = true }

@@ -6,7 +6,7 @@ plugins {
     id("com.gtnewhorizons.gtnhconvention")
 }
 
-version = "0.5.5"
+version = "0.5.5-dev1"
 // Keep the generated Forge version tag in sync with the JAR version.
 extra["modVersion"] = version.toString()
 
@@ -67,8 +67,38 @@ val bundleApplePlayer by tasks.registering(Zip::class) {
     }
 }
 
+val bilibiliHelperDir = layout.buildDirectory.dir("bilibili-live/publish")
+val bilibiliHelperProject = "tools/bilibili-live-helper/BilibiliLiveHelper.csproj"
+val bilibiliHelperFiles = listOf(
+    "BilibiliLiveHelper.exe", "BilibiliLiveHelper.dll",
+    "BilibiliLiveHelper.deps.json", "BilibiliLiveHelper.runtimeconfig.json",
+)
+val publishBilibiliHelper = tasks.register<Exec>("publishBilibiliHelper") {
+    inputs.files(fileTree("tools/bilibili-live-helper") { include("*.csproj", "*.cs") })
+    outputs.dir(bilibiliHelperDir)
+    commandLine(
+        providers.gradleProperty("dotnetExecutable").getOrElse("dotnet"),
+        "publish", bilibiliHelperProject, "-c", "Release", "-r", "win-x64", "--self-contained", "false",
+        "-o", bilibiliHelperDir.get().asFile.absolutePath,
+    )
+}
+val bundleBilibiliHelper = tasks.register<Zip>("bundleBilibiliHelper") {
+    dependsOn(publishBilibiliHelper)
+    archiveFileName.set("windows-x64.zip")
+    destinationDirectory.set(layout.buildDirectory.dir("bilibili-live/bundle"))
+    isPreserveFileTimestamps = false
+    isReproducibleFileOrder = true
+    from(bilibiliHelperDir) { include(bilibiliHelperFiles) }
+    doFirst {
+        for (name in bilibiliHelperFiles) {
+            check(bilibiliHelperDir.get().file(name).asFile.isFile) { "Missing Bilibili live helper output: $name" }
+        }
+    }
+}
+
 tasks.processResources {
     from(bundleApplePlayer) { into("assets/dangomusicgtnh/apple-player") }
+    from(bundleBilibiliHelper) { into("assets/dangomusicgtnh/bilibili-live") }
 }
 
 tasks.named<ShadowJar>("shadowJar") {
