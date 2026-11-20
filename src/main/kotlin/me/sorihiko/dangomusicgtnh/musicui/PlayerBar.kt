@@ -534,19 +534,19 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
     }
 
     private fun drawAppleVolumeMenu(bar: LayoutBounds) {
-        val width = minOf(186f, bar.width)
-        val target = LayoutBounds(bar.right - width, (bar.y - 38f).coerceAtLeast(0f), width, 31f)
+        val width = minOf(158f, bar.width)
+        val target = LayoutBounds(bar.right - width, (bar.y - 32f).coerceAtLeast(0f), width, 26f)
         volumeMenu = drawPopup(volumeButton, target, volumeMotion, volumeOpen) { box, interactive, clip ->
             val centerY = box.y + box.height / 2f
             val volume = MusicPlayer.volume.coerceIn(0f, 1f)
-            val valueBox = LayoutBounds(box.x + 7f, centerY - 10f, 34f, 20f)
+            val valueBox = LayoutBounds(box.x + 5f, centerY - 9f, 29f, 18f)
             drawVolumeValue(valueBox, clip, volume, interactive)
-            val start = valueBox.right + 8f
-            volRect = LayoutBounds(start, centerY - 2f, (box.right - 29f - start).coerceAtLeast(1f), 4f)
+            val start = valueBox.right + 6f
+            volRect = LayoutBounds(start, centerY - 1.5f, (box.right - 27f - start).coerceAtLeast(1f), 3f)
             val fill = volRect.width * volume
-            ui.card(volRect, Theme.TEXT_PRIMARY.copy(a = 0.19f), 2f)
-            if (fill > 0f) ui.card(volRect.copy(width = fill), Theme.TEXT_PRIMARY, minOf(fill, 4f) / 2f)
-            val mute = LayoutBounds(box.right - 27f, box.y + 4f, 23f, box.height - 8f)
+            ui.card(volRect, Theme.TEXT_PRIMARY.copy(a = 0.19f), volRect.height / 2f)
+            if (fill > 0f) ui.card(volRect.copy(width = fill), Theme.TEXT_PRIMARY, minOf(fill, volRect.height) / 2f)
+            val mute = LayoutBounds(box.right - 23f, box.y + 3f, 20f, box.height - 6f)
             val scale = ui.appleHoverScale(appleMuteHover, interactive && ui.hover(mute))
             popupSpeaker.draw(ui, mute.x + mute.width / 2f, centerY, volume, Theme.TEXT_PRIMARY, .60f * scale)
             if (interactive) {
@@ -555,7 +555,7 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
                     if (current > 0f) lastAudibleAppleVolume = current
                     applyVolume(if (current > 0f) 0f else lastAudibleAppleVolume)
                 }
-                ui.hits += volRect.expand(4f, 10f).intersect(clip) to {
+                ui.hits += volRect.expand(3f, 9f).intersect(clip) to {
                     volumeDragging = true
                     setVolumeAt(ui.mx, ui.my)
                 }
@@ -566,8 +566,6 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
     private fun drawVolumeValue(box: LayoutBounds, clip: LayoutBounds, volume: Float, interactive: Boolean) {
         val hovered = interactive && ui.hover(box.intersect(clip))
         if (volumeEditing || hovered) ui.card(box, Theme.CARD_HOVER, 5f)
-        if (volumeEditing) ui.ctx.drawShape(box.expand(-0.75f, -0.75f),
-            ShapeStyle(Color.TRANSPARENT, 4f, 0.75f, APPLE_CONTROL_BLUE))
         val font = Theme.FONT_SEMIBOLD
         val size = 10f
         val value = volumeInput ?: PlayerIcons.volumePercent(volume).toString()
