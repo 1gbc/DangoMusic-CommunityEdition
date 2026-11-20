@@ -153,6 +153,35 @@ object MusicPlayer {
 
     private var originalQueue: List<NeteaseTrack> = emptyList()
     private var growingPlaylist: List<NeteaseTrack>? = null
+    private var restoringLegacyPlaylist = false
+    private var comparedResumeLists: Pair<List<NeteaseTrack>, List<NeteaseTrack>>? = null
+    private var queuePlaylist: Pair<MusicSource, Long>? = null
+        set(value) {
+            field = value
+            restoringLegacyPlaylist = false
+            comparedResumeLists = null
+        }
+
+    @Synchronized fun queueFromCatalog(tracks: List<NeteaseTrack>): List<NeteaseTrack>? =
+        if (growingPlaylist === tracks) queue else null
+
+    @Synchronized fun queueForPlaylist(
+        source: MusicSource, playlistId: Long, catalog: List<NeteaseTrack>? = null,
+    ): List<NeteaseTrack>? {
+        val origin = queuePlaylist
+        if (origin != null) return if (origin.first == source && origin.second == playlistId) queue else null
+        // Old resume files have no playlist ID. Require every entry, including repeats, to match.
+        val saved = queue
+        if (!restoringLegacyPlaylist || source != MusicSource.NETEASE || catalog == null ||
+            saved.isEmpty() || saved.size != catalog.size) return null
+        val compared = comparedResumeLists
+        if (compared != null && compared.first === saved && compared.second === catalog) return null
+        comparedResumeLists = saved to catalog
+        if (saved.groupingBy(NeteaseTrack::key).eachCount() != catalog.groupingBy(NeteaseTrack::key).eachCount()) return null
+        queuePlaylist = source to playlistId
+        saveResume(positionMs)
+        return saved
+    }
     @Volatile private var heartMode = false
     val heartModeActive get() = heartMode
 
@@ -192,18 +221,25 @@ object MusicPlayer {
             pendingFade?.pausing == false) return
         originalQueue = tracks
         growingPlaylist = tracks
+        queuePlaylist = null
         radio = null
         heartMode = true
         queue = tracks
         playIndex(0)
     }
 
-    @Synchronized @JvmOverloads fun playQueue(tracks: List<NeteaseTrack>, startIndex: Int, radio: (() -> List<NeteaseTrack>)? = null) {
+    @Synchronized @JvmOverloads fun playQueue(
+        tracks: List<NeteaseTrack>,
+        startIndex: Int,
+        radio: (() -> List<NeteaseTrack>)? = null,
+        playlistId: Long? = null,
+    ) {
         appleQueueCleared = false
         appleQueuePausePending = false
         heartMode = false
         originalQueue = tracks
         growingPlaylist = tracks
+        queuePlaylist = if (playlistId == null) null else tracks.firstOrNull()?.let { it.source to playlistId }
         this.radio = radio
         if (shuffle && !repeatOne && radio == null && tracks.isNotEmpty()) {
             val selected = tracks[((startIndex % tracks.size) + tracks.size) % tracks.size]
@@ -215,10 +251,14 @@ object MusicPlayer {
         }
     }
 
-    @Synchronized fun playAll(tracks: List<NeteaseTrack>, radio: (() -> List<NeteaseTrack>)? = null) {
+    @Synchronized @JvmOverloads fun playAll(
+        tracks: List<NeteaseTrack>,
+        radio: (() -> List<NeteaseTrack>)? = null,
+        playlistId: Long? = null,
+    ) {
         if (tracks.isEmpty()) return
         val start = if (shuffle && !repeatOne && radio == null) tracks.indices.random() else 0
-        playQueue(tracks, start, radio)
+        playQueue(tracks, start, radio, playlistId)
     }
 
     @Synchronized fun playShuffled(tracks: List<NeteaseTrack>) {
@@ -228,6 +268,7 @@ object MusicPlayer {
         heartMode = false
         originalQueue = tracks
         growingPlaylist = tracks
+        queuePlaylist = null
         radio = null
         queue = tracks.shuffled()
         playIndex(0)
@@ -244,7 +285,7 @@ object MusicPlayer {
         failureTimer.scheduleWithFixedDelay({
             try {
                 synchronized(this) {
-                    if (state == State.PLAYING && current?.source != MusicSource.APPLE) ResumeStore.save(queue, index, positionMs)
+                    if (state == State.PLAYING && current?.source != MusicSource.APPLE) saveResume(positionMs)
                 }
             } catch (_: Throwable) {
             }
@@ -262,6 +303,8 @@ object MusicPlayer {
         queue = session.tracks
         originalQueue = session.tracks
         growingPlaylist = null
+        queuePlaylist = session.playlistId?.let { track.source to it }
+        restoringLegacyPlaylist = session.legacy && queuePlaylist == null
         index = session.index
         current = track
         audio = null
@@ -270,7 +313,7 @@ object MusicPlayer {
         pausedAtMs = if (duration > 0L) session.positionMs.coerceIn(0L, max(0L, duration - 1000L)) else session.positionMs.coerceAtLeast(0L)
         message = ""
         state = State.PAUSED
-        ResumeStore.adopt(session.tracks)
+        ResumeStore.adopt(session.tracks, session.playlistId)
         return true
     }
     private class PendingFade(var pausing: Boolean, var finish: () -> Unit)
@@ -353,7 +396,7 @@ object MusicPlayer {
         loadingPaused = paused
         state = State.LOADING
         message = "加载中…"
-        ResumeStore.save(queue, index, position)
+        saveResume(position)
         val quality = neteaseQuality
         loader.execute { load(gen, track, quality, position, paused) }
     }
@@ -415,7 +458,7 @@ object MusicPlayer {
 
         if (current?.source == MusicSource.NETEASE && pendingFade?.pausing != false &&
             (state == State.PLAYING || state == State.PAUSED)) {
-            ResumeStore.save(queue, index, positionMs)
+            saveResume(positionMs)
             if (state == State.PLAYING && previousNext != upcomingTrack()?.key) {
                 prefetchKey = null
                 schedulePrefetch()
@@ -431,6 +474,7 @@ object MusicPlayer {
             queue = listOf(track)
             originalQueue = queue
             growingPlaylist = null
+            queuePlaylist = null
             playIndex(0)
             return
         }
@@ -516,7 +560,7 @@ object MusicPlayer {
             out.stop()
             pausedAtMs = seekBaseMs + out.positionMicros / 1000
         }
-        if (current?.source != MusicSource.APPLE) ResumeStore.save(queue, index, pausedAtMs)
+        if (current?.source != MusicSource.APPLE) saveResume(pausedAtMs)
     }
 
     private fun fadeOut(pausing: Boolean = false, finish: () -> Unit): Boolean {
@@ -608,12 +652,17 @@ object MusicPlayer {
         if (clearResume && !shuttingDown) ResumeStore.clear()
     }
 
+    private fun saveResume(positionMs: Long, sync: Boolean = false) {
+        ResumeStore.save(queue, index, positionMs, sync = sync,
+            playlistId = queuePlaylist?.second, legacy = restoringLegacyPlaylist)
+    }
+
     @Synchronized fun shutdown() {
         shuttingDown = true
         try {
             val track = current
             if (track != null && track.source != MusicSource.APPLE && state != State.STOPPED && state != State.ERROR) {
-                ResumeStore.save(queue, index, positionMs, sync = true)
+                saveResume(positionMs, sync = true)
             }
         } catch (_: Throwable) {
         }
@@ -663,6 +712,7 @@ object MusicPlayer {
             appleUpcoming().isEmpty()) return
         appleQueueCleared = true
         growingPlaylist = null
+        queuePlaylist = null
         appleRepeat = AppleRepeat.OFF
         queue = emptyList()
         originalQueue = emptyList()
@@ -718,9 +768,15 @@ object MusicPlayer {
         appleQueuePausePending = false
         if (stationQueue != null) {
             growingPlaylist = null
+            queuePlaylist = null
             val items = if (stationQueue.none { it.key == track.key }) listOf(track) else stationQueue.distinctBy { it.key }
             if (queue != items) { queue = items; originalQueue = items }
-        } else if (!appleQueueCleared && queue.none { it.key == track.key }) { queue = listOf(track); originalQueue = queue; growingPlaylist = null }
+        } else if (!appleQueueCleared && queue.none { it.key == track.key }) {
+            queue = listOf(track)
+            originalQueue = queue
+            growingPlaylist = null
+            queuePlaylist = null
+        }
         if (queue.getOrNull(index)?.key != track.key) index = queue.indexOfFirst { it.key == track.key }
         current = track
         appleClock = appleClock.report(position, receivedAtNanos, seekSequence, continuing)
