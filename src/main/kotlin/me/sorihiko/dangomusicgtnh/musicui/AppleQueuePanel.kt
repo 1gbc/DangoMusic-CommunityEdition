@@ -10,8 +10,10 @@ import me.sorihiko.dangomusicgtnh.music.NeteaseTrack
 import me.sorihiko.dangomusicgtnh.ui.LayoutBounds
 import me.sorihiko.dangomusicgtnh.ui.Theme
 import me.sorihiko.dangomusicgtnh.ui.VectorIcon
+import me.sorihiko.dangomusicgtnh.utils.Color
 
 internal class AppleQueuePanel(private val ui: Ui) {
+    val queueDrag = QueueDrag()
     var open = false
         private set
     private var bounds = LayoutBounds()
@@ -25,6 +27,7 @@ internal class AppleQueuePanel(private val ui: Ui) {
     fun close(): Boolean {
         val wasOpen = open
         open = false
+        queueDrag.cancel()
         bounds = LayoutBounds()
         offset = 0f
         return wasOpen
@@ -49,7 +52,9 @@ internal class AppleQueuePanel(private val ui: Ui) {
         bounds = panel
         if (!open || panel.width <= 0f || panel.height <= 0f) return
         val hits = mutableListOf<Hit>()
-        val songs = if (netease) MusicPlayer.queue else MusicPlayer.appleUpcoming()
+        val queue = MusicPlayer.queue
+        val first = if (netease) 0 else MusicPlayer.appleUpcomingStart(queue) ?: queue.size
+        val count = queue.size - first
         val controlsReady = !netease && MusicPlayer.current?.source == MusicSource.APPLE &&
             MusicPlayer.state != MusicPlayer.State.LOADING && !AppleWebPlayer.stationActive && !MusicPlayer.appleQueueCleared
         val canRepeat = controlsReady && MusicPlayer.queue.isNotEmpty()
@@ -63,7 +68,7 @@ internal class AppleQueuePanel(private val ui: Ui) {
                 if (canRepeat && ui.hover(repeat)) 18f else 16f,
                 if (selecting) APPLE_CONTROL_BLUE else if (canRepeat) Theme.TEXT_SECONDARY else Theme.TEXT_TERTIARY)
             if (canRepeat) hits += repeat to { ClientMusic.control(MusicPlayer::toggleAppleQueueRepeat) }
-            if (!netease && songs.isNotEmpty()) {
+            if (!netease && count > 0) {
                 val label = I18n.text("Clear")
                 val labelWidth = ui.width(label, 10.5f)
                 val clear = LayoutBounds(repeat.x - labelWidth - 15f, repeat.y, labelWidth + 12f, repeat.height)
@@ -73,61 +78,75 @@ internal class AppleQueuePanel(private val ui: Ui) {
                 if (controlsReady) hits += clear to { ClientMusic.control(MusicPlayer::clearAppleUpcoming) }
             }
             val list = LayoutBounds(panel.x + 12f, panel.y + 38f, panel.width - 24f, panel.height - 50f)
-            if (songs.isEmpty()) {
+            if (count == 0) {
                 maxOffset = 0f
                 offset = 0f
                 val empty = I18n.text("No songs up next.")
                 ui.text(empty, panel.x + (panel.width - ui.width(empty, 12f)) / 2f,
                     panel.y + panel.height / 2f - 6f, 12f, Theme.TEXT_SECONDARY)
             } else {
-                maxOffset = (songs.size * ROW_HEIGHT - list.height).coerceAtLeast(0f)
-                offset = offset.coerceIn(0f, maxOffset)
+                maxOffset = (count * ROW_HEIGHT - list.height).coerceAtLeast(0f)
+                val dragScroll = queueDrag.edgeScroll(ui.frameDt, ui.mx, ui.my) * ROW_HEIGHT
+                offset = (offset + dragScroll).coerceIn(0f, maxOffset)
                 val canPlay = if (netease) MusicPlayer.current?.source == MusicSource.NETEASE else controlsReady
-                drawSongs(list, songs, hits, canPlay, netease)
+                drawSongs(list, queue, first, hits, canPlay, netease)
             }
         }
         ui.hits.addAll(0, hits + listOf(panel to {}))
     }
 
-    private fun drawSongs(list: LayoutBounds, songs: List<NeteaseTrack>,
+    private fun drawSongs(list: LayoutBounds, queue: List<NeteaseTrack>, first: Int,
         hits: MutableList<Hit>, interactive: Boolean, netease: Boolean) {
+        val count = queue.size - first
+        val rowArea = list.copy(width = list.width - 5f)
+        if (interactive) queueDrag.offer(queue, rowArea, list.y - offset, ROW_HEIGHT, ui, first = first, upcoming = !netease)
         ui.beginClip(list)
         try {
-            for (i in (offset / ROW_HEIGHT).toInt() until songs.size) {
-                val row = LayoutBounds(list.x, list.y + i * ROW_HEIGHT - offset, list.width - 5f, ROW_HEIGHT)
-                if (row.y >= list.bottom) break
+            for (i in ((offset / ROW_HEIGHT).toInt() - 1).coerceAtLeast(0) until count) {
+                val y = list.y + i * ROW_HEIGHT - offset
+                if (y >= list.bottom + ROW_HEIGHT) break
+                if (i == queueDrag.liftedRow) continue
+                val row = LayoutBounds(list.x, y + queueDrag.shift(i), rowArea.width, ROW_HEIGHT)
                 val visible = row.intersect(list)
-                val song = songs[i]
-                val current = netease && i == MusicPlayer.index
+                val slot = i + first
+                val current = netease && slot == MusicPlayer.index
                 if (current || interactive && ui.hover(visible)) ui.card(row, PopupLook.hover, 7f)
-                val artwork = LayoutBounds(row.x + 4f, row.y + 6f, 30f, 30f)
-                ui.drawAppleCover(artwork, CoverCache.track(song))
-                val time = if (song.durationMs > 0L) fmtTime(song.durationMs) else "--:--"
-                val timeX = row.right - ui.width(time, 11f) - 4f
-                val textX = artwork.right + 10f
-                val width = (timeX - textX - 10f).coerceAtLeast(0f)
-                ui.text(ui.trim(song.name, width, 11f, Theme.FONT_MEDIUM), textX, row.y + 7f,
-                    11f, if (current) APPLE_CONTROL_BLUE else Theme.TEXT_PRIMARY, Theme.FONT_MEDIUM)
-                ui.text(ui.trim(song.artists.joinToString(" / "), width, 10f), textX, row.y + 22f,
-                    10f, Theme.TEXT_SECONDARY)
-                ui.text(time, timeX, row.y + 15f, 11f, Theme.TEXT_SECONDARY)
-                ui.card(LayoutBounds(row.x + 4f, row.bottom - 1f, row.width - 8f, 1f), PopupLook.divider, 0f)
+                drawSong(row, queue[slot], current)
                 if (interactive) hits += visible to {
-                    ClientMusic.control {
-                        if (netease) {
-                            if (MusicPlayer.queue.getOrNull(i)?.key == song.key) MusicPlayer.playIndex(i)
-                        } else MusicPlayer.playAppleUpcoming(song)
-                    }
+                    ClientMusic.control { MusicPlayer.playQueueSlot(queue, slot, upcomingOnly = !netease) }
                 }
+            }
+            queueDrag.markerY()?.let { y ->
+                ui.card(LayoutBounds(list.x + 4f, y, rowArea.width - 8f, 2f), APPLE_CONTROL_BLUE, 1f)
+            }
+            val lifted = queueDrag.liftedRow
+            if (lifted in 0 until count) {
+                val row = LayoutBounds(list.x, queueDrag.liftedY(ui.my), rowArea.width, ROW_HEIGHT)
+                ui.card(row, Color(0.19f, 0.21f, 0.26f, 0.97f), 7f)
+                drawSong(row, queue[first + lifted], netease && first + lifted == MusicPlayer.index)
             }
         } finally {
             ui.endClip()
         }
         if (maxOffset > 0f) {
-            val height = (list.height * list.height / (songs.size * ROW_HEIGHT)).coerceIn(12f, list.height)
+            val height = (list.height * list.height / (count * ROW_HEIGHT)).coerceIn(12f, list.height)
             ui.card(LayoutBounds(list.right - 3f, list.y + (list.height - height) * offset / maxOffset, 3f, height),
                 Theme.TEXT_TERTIARY, 1.5f)
         }
+    }
+
+    private fun drawSong(row: LayoutBounds, song: NeteaseTrack, current: Boolean) {
+        val artwork = LayoutBounds(row.x + 4f, row.y + 6f, 30f, 30f)
+        ui.drawAppleCover(artwork, CoverCache.track(song))
+        val time = if (song.durationMs > 0L) fmtTime(song.durationMs) else "--:--"
+        val timeX = row.right - ui.width(time, 11f) - 4f
+        val textX = artwork.right + 10f
+        val width = (timeX - textX - 10f).coerceAtLeast(0f)
+        ui.text(ui.trim(song.name, width, 11f, Theme.FONT_MEDIUM), textX, row.y + 7f,
+            11f, if (current) APPLE_CONTROL_BLUE else Theme.TEXT_PRIMARY, Theme.FONT_MEDIUM)
+        ui.text(ui.trim(song.artists.joinToString(" / "), width, 10f), textX, row.y + 22f, 10f, Theme.TEXT_SECONDARY)
+        ui.text(time, timeX, row.y + 15f, 11f, Theme.TEXT_SECONDARY)
+        ui.card(LayoutBounds(row.x + 4f, row.bottom - 1f, row.width - 8f, 1f), PopupLook.divider, 0f)
     }
 
     private companion object {

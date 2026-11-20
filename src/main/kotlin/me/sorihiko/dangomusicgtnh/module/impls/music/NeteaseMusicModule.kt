@@ -45,6 +45,7 @@ class NeteaseMusicModule : Module() {
     internal val appleLibraryHidden = IntValue(0, 4095, 0)
 
     fun selectSource(source: MusicSource) {
+        if (source !in MusicSource.selectable) return
         if (source != MusicSources.selected && (source == MusicSource.APPLE || MusicSources.selected == MusicSource.APPLE)) MusicPlayer.stop(clearResume = false)
         musicSource.setValue(source.configId)
         MusicSources.selected = source
@@ -409,7 +410,9 @@ class NeteaseMusicModule : Module() {
         // 即使播放器被关闭，也要初始化并保存界面语言。
         applyLanguage()
         me.sorihiko.dangomusicgtnh.ui.UiStyle.continuous = uiStyle.value == 1
-        MusicSources.selected = MusicSource.fromConfig(musicSource.value)
+        val source = MusicSource.fromConfig(musicSource.value)
+        if (musicSource.value != source.configId) musicSource.setValue(source.configId)
+        MusicSources.selected = source
         syncPlayerKeys()
         if (!enabled) return
         // 歌词模块一直开着（显示与否由 3D lyrics 控制）；等配置读回之后再检查

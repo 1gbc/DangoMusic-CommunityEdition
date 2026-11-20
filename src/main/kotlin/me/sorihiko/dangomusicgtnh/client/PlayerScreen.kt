@@ -1,10 +1,12 @@
 package me.sorihiko.dangomusicgtnh.client
 
+import me.sorihiko.dangomusicgtnh.DangoMusic
+import me.sorihiko.dangomusicgtnh.module.impls.music.NeteaseMusicModule
 import me.sorihiko.dangomusicgtnh.music.MusicPlayer
 import me.sorihiko.dangomusicgtnh.music.PlaybackView
 import me.sorihiko.dangomusicgtnh.music.MusicSource
 import me.sorihiko.dangomusicgtnh.music.MusicSources
-import me.sorihiko.dangomusicgtnh.music.NativeLogin
+import me.sorihiko.dangomusicgtnh.music.AppleWebPlayer
 import me.sorihiko.dangomusicgtnh.music.NeteaseLogin
 import me.sorihiko.dangomusicgtnh.music.NeteaseTrack
 import net.minecraft.client.gui.Gui
@@ -70,9 +72,9 @@ internal class PlayerScreen(private val parent: GuiScreen?) : GuiScreen() {
     override fun actionPerformed(button: GuiButton) {
         when (button.id) {
             0 -> {
-                val choices = MusicSource.values()
-                source = choices[(source.ordinal + 1) % choices.size]
-                MusicSources.selected = source
+                val choices = MusicSource.selectable
+                source = choices[(choices.indexOf(source) + 1) % choices.size]
+                DangoMusic.instance.moduleManager.get(NeteaseMusicModule::class.java).selectSource(source)
                 providerButton.displayString = source.label
                 cancelLogin()
                 searchTask?.cancel(true)
@@ -83,10 +85,13 @@ internal class PlayerScreen(private val parent: GuiScreen?) : GuiScreen() {
             }
             1 -> search()
             2 -> {
-                if (loginVisible) cancelLogin()
-                else {
-                    loginVisible = true
-                    if (source == MusicSource.NETEASE) NeteaseLogin.start() else NativeLogin.start(source)
+                when {
+                    source == MusicSource.APPLE -> AppleWebPlayer.startNative()
+                    loginVisible -> cancelLogin()
+                    else -> {
+                        loginVisible = true
+                        NeteaseLogin.start()
+                    }
                 }
             }
             3 -> PlaybackView.previous()
@@ -199,9 +204,8 @@ internal class PlayerScreen(private val parent: GuiScreen?) : GuiScreen() {
     }
 
     private fun drawLogin() {
-        val netease = source == MusicSource.NETEASE
-        val state = if (netease) NeteaseLogin.state else NativeLogin.state
-        val image = if (netease) NeteaseLogin.qrImage else NativeLogin.qrImage
+        val state = NeteaseLogin.state
+        val image = NeteaseLogin.qrImage
         drawString(fontRendererObj, "${source.label} QR login · $state", left, 54, 0xFFFFFF)
         if (state == NeteaseLogin.State.SUCCESS) return
         val size = (height - 143).coerceIn(32, 110)
@@ -224,7 +228,6 @@ internal class PlayerScreen(private val parent: GuiScreen?) : GuiScreen() {
     private fun cancelLogin() {
         if (loginVisible) {
             NeteaseLogin.cancel()
-            NativeLogin.cancel()
             loginVisible = false
         }
         qrTextures.values.forEach { mc.textureManager.deleteTexture(it.second) }

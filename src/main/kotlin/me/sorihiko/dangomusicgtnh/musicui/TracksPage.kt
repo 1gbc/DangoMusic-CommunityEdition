@@ -31,6 +31,7 @@ import kotlin.math.min
  */
 internal class TracksPage(private val screen: MusicScreen) {
     private val ui = screen.ui
+    val queueDrag = QueueDrag()
     private val listSelectableSources = setOf(MusicSource.NETEASE, MusicSource.APPLE)
 
     /** 本帧画了歌曲列表的区域（滚轮用），没画就是空的 */
@@ -71,11 +72,12 @@ internal class TracksPage(private val screen: MusicScreen) {
     private var coverCount = 0
     private var coverSpacing = 1f
     private var observedTrack: String? = null
+    private var observedCoverQueue: List<NeteaseTrack>? = null
     private var observedHeartQueue = false
     private var lastCoverPosition = 0f
     private var coverBlur = 0f
-    private var coverHits: List<Pair<LayoutBounds, String>> = emptyList()
-    private var pressedCover: String? = null
+    private var coverHits: List<Pair<LayoutBounds, Int>> = emptyList()
+    private var pressedCover: Int? = null
     val coverPressed get() = coverMotion.pressed
 
     private val tracksPage: Boolean
@@ -91,22 +93,26 @@ internal class TracksPage(private val screen: MusicScreen) {
     fun tick(pointerX: Float) {
         if (coverMotion.pressed) coverMotion.drag(pointerX, coverCount, System.nanoTime())
         if (!tracksPage || !ScreenState.coverView) return
+        if (ScreenState.page == Page.QUEUE && MusicPlayer.queue !== observedCoverQueue) return
         if (MusicPlayer.current?.key != observedTrack) return
         if (coverMotion.step(ui.frameDt / 1000f, coverCount)) {
             val all = currentTracks().second ?: return
             val list = shown(all)
             val current = list.getOrNull(cfTarget) ?: return
-            if (MusicPlayer.current?.key != current.second.key || MusicPlayer.state == MusicPlayer.State.PAUSED ||
+            if (MusicPlayer.current?.key != current.second.key ||
+                ScreenState.page == Page.QUEUE && MusicPlayer.index != current.first || MusicPlayer.state == MusicPlayer.State.PAUSED ||
                 MusicPlayer.state == MusicPlayer.State.STOPPED || MusicPlayer.state == MusicPlayer.State.ERROR) playFrom(all, current.first)
         }
     }
 
     fun beginFrame() {
+        queueDrag.beginFrame()
         if (!sbDragging) sbTotal = 0   // 没画歌单列表的页面上不响应滚动条
     }
 
     /** 换了页面：列表直接从当前滚动位置开始画，不从别处滑过来 */
     fun onPageChanged() {
+        queueDrag.cancel()
         listPos = scroll.toFloat()
         selSnap = true
         selectedAppleTrack = null
@@ -128,6 +134,7 @@ internal class TracksPage(private val screen: MusicScreen) {
     fun resetCoverflow() {
         coverMotion.reset()
         observedTrack = null
+        observedCoverQueue = null
         observedHeartQueue = false
         lastCoverPosition = 0f
         coverBlur = 0f
@@ -186,12 +193,13 @@ internal class TracksPage(private val screen: MusicScreen) {
     /** 播放：队列始终是完整歌单（筛选只影响显示），从点的那首开始 */
     private fun playFrom(all: List<NeteaseTrack>, index: Int) {
         if (ScreenState.page == Page.QUEUE || showingHeartQueue()) ClientMusic.control {
+            if (MusicPlayer.queue !== all) return@control
             if (me.sorihiko.dangomusicgtnh.music.AppleWebPlayer.stationActive) {
                 when (index - MusicPlayer.index) {
                     -1 -> MusicPlayer.prev()
                     1 -> MusicPlayer.next()
                 }
-            } else MusicPlayer.playIndex(index)
+            } else MusicPlayer.playQueueSlot(all, index)
         }
         else {
             val continuation = radio()
@@ -209,12 +217,12 @@ internal class TracksPage(private val screen: MusicScreen) {
         val all = currentTracks().second ?: return
         val cur = MusicPlayer.current ?: return
         var list = shown(all)
-        var idx = list.indexOfFirst { it.second.key == cur.key }
+        var idx = currentRow(list, cur.key)
         if (idx < 0 && filterText.isNotEmpty()) {
             // 被筛选掉了：清掉筛选再找
             clearFilter()
             list = shown(all)
-            idx = list.indexOfFirst { it.second.key == cur.key }
+            idx = currentRow(list, cur.key)
         }
         if (idx < 0) return
         scroll = (idx - listRows / 2).coerceAtLeast(0)
@@ -232,10 +240,17 @@ internal class TracksPage(private val screen: MusicScreen) {
     fun focusCurrentInCoverflow() {
         val tracks = currentTracks().second?.let { shown(it) } ?: return
         val cur = MusicPlayer.current
-        val idx = if (cur != null) tracks.indexOfFirst { it.second.key == cur.key } else -1
+        val idx = currentRow(tracks, cur?.key)
         coverMotion.reset(if (idx >= 0) idx else 0)
         observedTrack = cur?.key
+        if (ScreenState.page == Page.QUEUE) observedCoverQueue = MusicPlayer.queue
     }
+
+    private fun currentRow(rows: List<Pair<Int, NeteaseTrack>>, key: String?): Int =
+        if (key == null) -1 else if (ScreenState.page == Page.QUEUE) {
+            val slot = MusicPlayer.index
+            rows.indexOfFirst { it.first == slot && it.second.key == key }
+        } else rows.indexOfFirst { it.second.key == key }
 
     // ---------------------------------------------------------------- 绘制
 
@@ -743,16 +758,27 @@ internal class TracksPage(private val screen: MusicScreen) {
         val drawnRows = rows + kotlin.math.ceil(ui.bottomInset / rowH).toInt() + 1
         listRows = rows
         scroll = scroll.coerceIn(0, max(0, tracks.size - rows))
-        listPos = if (sbDragging) scroll.toFloat() else ui.easeScroll(listPos, scroll, rows * 3)
+        val canReorder = ScreenState.page == Page.QUEUE && !ScreenState.coverView &&
+            !me.sorihiko.dangomusicgtnh.music.AppleWebPlayer.stationActive
+        val maxScroll = max(0, tracks.size - rows)
+        val dragScroll = if (canReorder) queueDrag.edgeScroll(ui.frameDt, ui.mx, ui.my) else 0f
+        if (dragScroll != 0f) {
+            listPos = (listPos + dragScroll).coerceIn(0f, maxScroll.toFloat())
+            scroll = kotlin.math.round(listPos).toInt()
+        } else {
+            listPos = if (sbDragging) scroll.toFloat() else ui.easeScroll(listPos, scroll, rows * 3)
+        }
         drawScrollbar(LayoutBounds(list.right - 9f, body.y + 2f, 5f, rows * rowH - 8f), tracks.size, rows)
         val flash = (1f - (System.currentTimeMillis() - flashAt) / 1400f).coerceIn(0f, 1f)
         val playing = MusicPlayer.current
         val first = kotlin.math.floor(listPos).toInt()
         val frac = listPos - first
         val clipArea = LayoutBounds(body.x - 4f, body.y - 2f, body.width + 8f, body.height + 2f)
+        val reorderArea = LayoutBounds(body.x, body.y, body.width, (body.height - ui.bottomInset).coerceAtLeast(0f))
+        if (canReorder) queueDrag.offer(all, reorderArea, body.y - listPos * rowH, rowH, ui, rows = tracks)
         ui.beginClip(clipArea)
-        val curRow = if (columns == null && playing != null) tracks.indexOfFirst { it.second.key == playing.key } else -1
-        if (curRow >= 0) {
+        val curRow = if (columns == null) currentRow(tracks, playing?.key) else -1
+        if (curRow >= 0 && curRow != queueDrag.liftedRow) {
             if (selSnap) { selPos.x = curRow.toFloat(); selPos.v = 0f; selSnap = false }
             // 跨很多行（比如从第 3 首跳到第 400 首）时不从原位置一路飞过去，那样一闪而过很乱：
             // 直接放到目标旁边几行，再顺着方向滑进来
@@ -762,20 +788,22 @@ internal class TracksPage(private val screen: MusicScreen) {
                 selPos.v = 0f
             }
             val at = selPos.tick(curRow.toFloat())
-            val y = body.y + (at - listPos) * rowH
+            val y = body.y + (at - listPos) * rowH + queueDrag.shift(curRow)
             if (y > body.y - rowH && y < body.bottom) {
                 val sel = LayoutBounds(body.x, y, body.width, rowH - rowGap).scaled(1f + selPress.tick(0f) * 0.02f)
                 ctx.drawGlass(sel, Theme.GLASS_SELECTION)
             }
         }
-        for (r in 0..drawnRows) {
+        val extraRow = if (queueDrag.liftedRow >= 0) 1 else 0
+        for (r in -extraRow..(drawnRows + extraRow)) {
             val vi = first + r
             if (vi < 0) continue
             if (vi >= tracks.size) break
+            if (vi == queueDrag.liftedRow) continue
             val (i, t) = tracks[vi]
-            ui.itemAnim(r) {
-                val row = LayoutBounds(body.x, body.y + (r - frac) * rowH, body.width, rowH - rowGap)
-                val isCur = playing != null && playing.key == t.key
+            ui.itemAnim(r.coerceAtLeast(0)) {
+                val row = LayoutBounds(body.x, body.y + (r - frac) * rowH + queueDrag.shift(vi), body.width, rowH - rowGap)
+                val isCur = playing?.key == t.key && (ScreenState.page != Page.QUEUE || i == MusicPlayer.index)
                 val hit = row.intersect(clipArea)
                 val hovered = ui.hover(hit)
                 val radius = if (columns != null) 6f else 10f
@@ -783,7 +811,7 @@ internal class TracksPage(private val screen: MusicScreen) {
                 val selectOnly = ScreenState.page == Page.PLAYLIST && MusicSources.selected in listSelectableSources
                 val playCover = {
                     selectedAppleTrack = selection
-                    val current = MusicPlayer.current?.key == t.key
+                    val current = isCur
                     when (MusicPlayer.state) {
                         MusicPlayer.State.PLAYING, MusicPlayer.State.PAUSED -> if (current) {
                             ClientMusic.control { if (MusicPlayer.current?.key == t.key) MusicPlayer.togglePause() }
@@ -826,6 +854,23 @@ internal class TracksPage(private val screen: MusicScreen) {
                 if (flash > 0f && t.key == flashId) {
                     ctx.drawShape(row, ShapeStyle(Color.TRANSPARENT, radius, 1.5f, RED.copy(a = flash)))
                 }
+            }
+        }
+        if (canReorder) {
+            queueDrag.markerY()?.let { y ->
+                val accent = if (screen.neteaseUsesAppleLayout) APPLE_CONTROL_BLUE else RED
+                ui.card(LayoutBounds(body.x + 5f, y, body.width - 10f, 2f), accent, 1f)
+            }
+            val lifted = queueDrag.liftedRow
+            if (lifted in tracks.indices) {
+                val (index, track) = tracks[lifted]
+                val row = LayoutBounds(body.x, queueDrag.liftedY(ui.my), body.width, rowH - rowGap)
+                val isCurrent = playing?.key == track.key && index == MusicPlayer.index
+                val hitCount = ui.hits.size
+                ui.card(row, Color(0.19f, 0.21f, 0.26f, 0.97f), if (columns == null) 10f else 6f)
+                if (columns == null) drawTrackRow(row, track, index, isCurrent, clipArea)
+                else drawAppleTrackRow(row, track, columns, isCurrent, false, clipArea) {}
+                while (ui.hits.size > hitCount) ui.hits.removeAt(ui.hits.lastIndex)
             }
         }
         ui.endClip()
@@ -958,11 +1003,14 @@ internal class TracksPage(private val screen: MusicScreen) {
         coverMotion.constrain(coverCount)
         val playingKey = MusicPlayer.current?.key
         val heartQueue = showingHeartQueue()
-        if (playingKey != observedTrack || heartQueue != observedHeartQueue) {
+        val queue = all.takeIf { ScreenState.page == Page.QUEUE }
+        val queueChanged = queue != null && queue !== observedCoverQueue
+        if (playingKey != observedTrack || heartQueue != observedHeartQueue || queueChanged) {
             observedTrack = playingKey
             observedHeartQueue = heartQueue
-            val currentIndex = shownList.indexOfFirst { it.second.key == playingKey }
-            coverMotion.moveTo(if (currentIndex >= 0) currentIndex else cfTarget)
+            observedCoverQueue = queue
+            val target = currentRow(shownList, playingKey).takeIf { it >= 0 } ?: cfTarget
+            if (queueChanged) coverMotion.reset(target) else coverMotion.moveTo(target)
         }
 
         val size = min(area.height * 0.66f, 240f)
@@ -1021,11 +1069,11 @@ internal class TracksPage(private val screen: MusicScreen) {
         }
         ui.endClip()
         coverHits = frontToBack.filter { edgeFade(it.b) >= 0.2f }.map {
-            it.b.intersect(clip) to shownList[it.i].second.key
+            it.b.intersect(clip) to shownList[it.i].first
         }
 
         val t = shownList[cfTarget].second
-        val isCur = MusicPlayer.current?.key == t.key
+        val isCur = currentRow(shownList, MusicPlayer.current?.key) == cfTarget
         val ty = cy + size / 2f + 14f
         val name = ui.trim(t.name, area.width - 40f, 16f, Theme.FONT_SEMIBOLD)
         val nameColor = if (isCur && !screen.usesAppleLayout) RED else Theme.TEXT_PRIMARY
@@ -1044,12 +1092,13 @@ internal class TracksPage(private val screen: MusicScreen) {
 
     fun coverUp(x: Float) {
         val clicked = coverMotion.up(x, coverCount, System.nanoTime())
-        val key = pressedCover
+        val slot = pressedCover
         pressedCover = null
-        if (!clicked || key == null) return
+        if (!clicked || slot == null) return
         val all = currentTracks().second ?: return
+        if (ScreenState.page == Page.QUEUE && all !== observedCoverQueue) return
         val list = shown(all)
-        val index = list.indexOfFirst { it.second.key == key }
+        val index = list.indexOfFirst { it.first == slot }
         if (index < 0) return
         coverMotion.moveTo(index)
         playFrom(all, list[index].first)

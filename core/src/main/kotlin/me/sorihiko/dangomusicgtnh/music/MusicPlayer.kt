@@ -152,6 +152,7 @@ object MusicPlayer {
     }
 
     private var originalQueue: List<NeteaseTrack> = emptyList()
+    private var growingPlaylist: List<NeteaseTrack>? = null
     @Volatile private var heartMode = false
     val heartModeActive get() = heartMode
 
@@ -190,6 +191,7 @@ object MusicPlayer {
         if (tracks.isEmpty() || queue !== expectedQueue || current !== expectedTrack ||
             pendingFade?.pausing == false) return
         originalQueue = tracks
+        growingPlaylist = tracks
         radio = null
         heartMode = true
         queue = tracks
@@ -201,6 +203,7 @@ object MusicPlayer {
         appleQueuePausePending = false
         heartMode = false
         originalQueue = tracks
+        growingPlaylist = tracks
         this.radio = radio
         if (shuffle && !repeatOne && radio == null && tracks.isNotEmpty()) {
             val selected = tracks[((startIndex % tracks.size) + tracks.size) % tracks.size]
@@ -224,6 +227,7 @@ object MusicPlayer {
         appleQueuePausePending = false
         heartMode = false
         originalQueue = tracks
+        growingPlaylist = tracks
         radio = null
         queue = tracks.shuffled()
         playIndex(0)
@@ -254,9 +258,10 @@ object MusicPlayer {
     @Synchronized fun restoreSession(session: ResumeStore.Session): Boolean {
         if (current != null || state != State.STOPPED || session.index !in session.tracks.indices) return false
         val track = session.tracks[session.index]
-        if (track.source == MusicSource.APPLE) return false
+        if (track.source != MusicSource.NETEASE) return false
         queue = session.tracks
         originalQueue = session.tracks
+        growingPlaylist = null
         index = session.index
         current = track
         audio = null
@@ -276,6 +281,13 @@ object MusicPlayer {
     @Synchronized fun playIndex(i: Int) {
         failedTracks.clear()
         playIndexInternal(i)
+    }
+
+    @Synchronized fun playQueueSlot(expected: List<NeteaseTrack>, slot: Int, upcomingOnly: Boolean = false) {
+        if (queue !== expected || slot !in expected.indices) return
+        if (upcomingOnly && (slot <= index || AppleWebPlayer.stationActive || appleQueueCleared ||
+                current?.source != MusicSource.APPLE)) return
+        playIndex(slot)
     }
 
     private fun playIndexInternal(i: Int) {
@@ -356,10 +368,41 @@ object MusicPlayer {
      * 只在队列还是 [from] 本身、并且 [to] 以它为开头时才换，当前这首和播放位置都不变。
      */
     @Synchronized fun growQueue(from: List<NeteaseTrack>, to: List<NeteaseTrack>) {
-        if (originalQueue !== from || radio != null || to.size <= from.size) return
+        if (growingPlaylist !== from || radio != null || to.size <= from.size) return
         for (i in from.indices) if (from[i].key != to[i].key) return
-        queue = if (queue === from) to else queue + to.drop(from.size).shuffled()
-        originalQueue = to
+        val added = to.drop(from.size)
+        val ordered = queue === originalQueue
+        queue = if (queue === from) to else queue + if (ordered) added else added.shuffled()
+        originalQueue = if (ordered) queue else originalQueue + added
+        growingPlaylist = to
+    }
+
+    /** Move one exact queue slot, preserving the active track and its playback position. */
+    @Synchronized fun moveQueueTrack(expected: List<NeteaseTrack>, from: Int, to: Int, upcomingOnly: Boolean): Boolean {
+        if (queue !== expected || from !in expected.indices || to !in expected.indices ||
+            from == to || AppleWebPlayer.stationActive) return false
+        if (upcomingOnly && (current?.source != MusicSource.APPLE || appleQueueCleared ||
+                from <= index || to <= index)) return false
+
+        val previousNext = upcomingTrack()?.key
+        queue = expected.toMutableList().apply { add(to, removeAt(from)) }
+        originalQueue = queue
+        index = when {
+            index == from -> to
+            from < index && index <= to -> index - 1
+            to <= index && index < from -> index + 1
+            else -> index
+        }
+
+        if (current?.source == MusicSource.NETEASE && pendingFade?.pausing != false &&
+            (state == State.PLAYING || state == State.PAUSED)) {
+            ResumeStore.save(queue, index, positionMs)
+            if (state == State.PLAYING && previousNext != upcomingTrack()?.key) {
+                prefetchKey = null
+                schedulePrefetch()
+            }
+        }
+        return true
     }
 
     /** 插入歌曲并立即播放，之后继续原队列。 */
@@ -368,6 +411,7 @@ object MusicPlayer {
         if (q.isEmpty() || index !in q.indices) {
             queue = listOf(track)
             originalQueue = queue
+            growingPlaylist = null
             playIndex(0)
             return
         }
@@ -531,6 +575,7 @@ object MusicPlayer {
         heartMode = false
         appleQueueCleared = false
         appleQueuePausePending = false
+        growingPlaylist = null
         radio = null
         ++generation
         stopLine()
@@ -565,8 +610,11 @@ object MusicPlayer {
     @Volatile private var appleClock = ApplePlaybackClock()
 
     /** Only ordinary Apple Music songs use DangoMusic's editable queue. */
-    @Synchronized fun appleUpcoming(): List<NeteaseTrack> =
-        if (current?.source == MusicSource.APPLE && !appleQueueCleared) queue.drop((index + 1).coerceAtLeast(0)) else emptyList()
+    @Synchronized fun appleUpcoming(): List<NeteaseTrack> = appleUpcomingStart(queue)?.let { queue.drop(it) }.orEmpty()
+
+    @Synchronized fun appleUpcomingStart(expected: List<NeteaseTrack>): Int? =
+        if (queue === expected && current?.source == MusicSource.APPLE && !appleQueueCleared)
+            (index + 1).coerceIn(0, expected.size) else null
 
     @Synchronized fun playAppleUpcoming(track: NeteaseTrack) {
         if (current?.source != MusicSource.APPLE || AppleWebPlayer.stationActive || appleQueueCleared) return
@@ -595,6 +643,7 @@ object MusicPlayer {
         if (current?.source != MusicSource.APPLE || AppleWebPlayer.stationActive || state == State.LOADING ||
             appleUpcoming().isEmpty()) return
         appleQueueCleared = true
+        growingPlaylist = null
         appleRepeat = AppleRepeat.OFF
         queue = emptyList()
         originalQueue = emptyList()
@@ -649,9 +698,10 @@ object MusicPlayer {
         if (appleQueuePausePending && playing) return
         appleQueuePausePending = false
         if (stationQueue != null) {
+            growingPlaylist = null
             val items = if (stationQueue.none { it.key == track.key }) listOf(track) else stationQueue.distinctBy { it.key }
             if (queue != items) { queue = items; originalQueue = items }
-        } else if (!appleQueueCleared && queue.none { it.key == track.key }) { queue = listOf(track); originalQueue = queue }
+        } else if (!appleQueueCleared && queue.none { it.key == track.key }) { queue = listOf(track); originalQueue = queue; growingPlaylist = null }
         if (queue.getOrNull(index)?.key != track.key) index = queue.indexOfFirst { it.key == track.key }
         current = track
         appleClock = appleClock.report(position, receivedAtNanos, seekSequence, continuing)

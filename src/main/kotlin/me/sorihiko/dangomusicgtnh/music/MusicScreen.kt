@@ -137,6 +137,8 @@ class MusicScreen(
         settings.commitEdit()
         settings.stopDrag()
         tracks.scrollbarUp()
+        tracks.queueDrag.cancel()
+        appleQueue.queueDrag.cancel()
         tracks.resetCoverflow()
     }
 
@@ -446,6 +448,7 @@ class MusicScreen(
             settings.beginFrame()
             ui.mt.clear()
             tracks.beginFrame()
+            appleQueue.queueDrag.beginFrame()
             CoverCache.upload()
             login.uploadQr()
 
@@ -782,7 +785,8 @@ class MusicScreen(
             return
         }
         if (mouseButton == 0 && !lyricsOpen && (appleBarMenu.capturesInput || appleQueue.contains(mx, my))) {
-            ui.hits.firstOrNull { it.first.contains(mx, my) }?.second?.invoke()
+            val click = ui.hits.firstOrNull { it.first.contains(mx, my) }?.second
+            if (click != null && (appleBarMenu.capturesInput || !appleQueue.queueDrag.down(mx, my, click))) click()
             return
         }
         // 快捷键的“重置”按钮可能滚到了播放栏底下：点在播放栏上时先交给播放栏（以前会把音质按钮的点击吃掉）
@@ -817,6 +821,8 @@ class MusicScreen(
             if (hit == null) lyricsPage.dismissMenu() else hit.second()
             return
         }
+        if (hit != null && !barRect.contains(mx, my) && !sidebar.menuOpen &&
+            tracks.queueDrag.down(mx, my, hit.second)) return
         settings.onClickElsewhere(hit)
         if (hit == null || hit.first !== sidebar.searchRect) sidebar.searchFocused = false
         if (hit == null || !sidebar.isMenuHit(hit.first)) sidebar.menuOpen = false
@@ -834,7 +840,7 @@ class MusicScreen(
             updateLibraryPull()
             return
         }
-        if (mouseButton == 0 && tracks.coverPressed) return
+        if (mouseButton == 0 && (tracks.coverPressed || appleQueue.queueDrag.pressed || tracks.queueDrag.pressed)) return
         if (tracks.sbDragging) {
             tracks.scrollbarDrag((platform.mouseY / ui.scale).toInt())
             return
@@ -852,7 +858,12 @@ class MusicScreen(
 
     fun mouseReleased(mouseButton: Int) {
         if (module.openKey.value < 0) openKeyHeld = false
-        if (mouseButton == 0) lyricsPage.stopFontSliderDrag()
+        if (mouseButton == 0) {
+            val x = (platform.mouseX / ui.scale).toInt()
+            val y = (platform.mouseY / ui.scale).toInt()
+            if (appleQueue.queueDrag.up(x, y) || tracks.queueDrag.up(x, y)) return
+            lyricsPage.stopFontSliderDrag()
+        }
         if (mouseButton == 0 && tracks.coverPressed) tracks.coverUp(platform.mouseX / ui.scale)
         bar.mouseUp()
         tracks.scrollbarUp()
@@ -904,6 +915,11 @@ class MusicScreen(
         }
         if (login.visible) {
             login.keyTyped(keyCode)
+            return
+        }
+        if (keyCode == Keys.ESCAPE && (appleQueue.queueDrag.pressed || tracks.queueDrag.pressed)) {
+            appleQueue.queueDrag.cancel()
+            tracks.queueDrag.cancel()
             return
         }
         if (keyCode == Keys.ESCAPE && (bar.dismissMenu() || appleBarMenu.dismiss() || appleQueue.close())) return
