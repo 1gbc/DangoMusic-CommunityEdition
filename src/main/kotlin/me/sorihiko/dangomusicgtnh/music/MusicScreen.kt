@@ -103,7 +103,7 @@ class MusicScreen(
     /** 平台层根据搜索、筛选和设置输入框的焦点开关系统输入法。 */
     val textInputActive: Boolean
         get() = !lyricsOpen && !login.visible && closingAt == 0L &&
-            (sidebar.searchFocused || tracks.filterFocused || settings.editing || groupPage.editing)
+            (sidebar.searchFocused || tracks.filterFocused || settings.editing || groupPage.editing || bar.volumeEditing)
     private val bar = PlayerBar(this, module)
 
     private var openedAt = 0L
@@ -413,8 +413,10 @@ class MusicScreen(
         }
         val source = MusicSources.selected
         val menu = !lyricsOpen
-        menuTextScale = if (menu) module.menuTextScale(source) else 1f
-        val scale = min(platform.windowWidth / 1280f, platform.windowHeight / 800f).coerceAtLeast(0.5f) * menuTextScale
+        val baseScale = min(platform.windowWidth / 1280f, platform.windowHeight / 800f).coerceAtLeast(0.5f)
+        val scale = if (menu) menuScaleForWindow(baseScale, module.menuTextScale(source),
+            platform.windowWidth, platform.windowHeight) else baseScale
+        menuTextScale = scale / baseScale
         applyMenuFont(if (menu) module.menuFont(source) else "")
         ui.scale = scale
         ui.lw = platform.windowWidth / scale
@@ -488,6 +490,12 @@ class MusicScreen(
         } finally {
             ctx.end()
         }
+    }
+
+    private fun menuScaleForWindow(base: Float, requested: Float, width: Int, height: Int): Float {
+        if (requested <= 1f) return base * requested
+        val fits = min(width / 420f, height / 240f).coerceAtLeast(base)
+        return min(base * requested, fits)
     }
 
     private var menuTextScale = 1f
@@ -841,6 +849,7 @@ class MusicScreen(
         }
         val barX = barCoordinate(mx)
         val barY = barCoordinate(my)
+        if (mouseButton == 0) bar.commitVolumeOutside(barX, barY)
         bar.closeMenuOutside(barX, barY)
         if (mouseButton == 0 && bar.menuContains(barX, barY)) {
             ui.hits.firstOrNull { it.first.contains(mx, my) }?.second?.invoke()
@@ -986,6 +995,8 @@ class MusicScreen(
             login.keyTyped(keyCode)
             return
         }
+        val textChar = if (committedSettingsText && keyCode != Keys.NONE) '\u0000' else typedChar
+        if (!lyricsOpen && bar.volumeKeyTyped(textChar, keyCode)) return
         if (keyCode == Keys.ESCAPE && (appleQueue.queueDrag.pressed || tracks.queueDrag.pressed)) {
             appleQueue.queueDrag.cancel()
             tracks.queueDrag.cancel()
@@ -997,7 +1008,6 @@ class MusicScreen(
             // With SDL text input active, text arrives in KEY_NONE events (committed text).
             // Keep physical key codes for editing commands and shortcut recording, but don't insert their
             // characters again: every text field (settings, search, filter, group page) would get each letter twice.
-            val textChar = if (committedSettingsText && keyCode != Keys.NONE) '\u0000' else typedChar
             if (ScreenState.page == Page.GROUP && groupPage.keyTyped(textChar, keyCode)) return
             if (settings.keyTyped(textChar, keyCode)) return
             if (sidebar.keyTyped(textChar, keyCode)) return

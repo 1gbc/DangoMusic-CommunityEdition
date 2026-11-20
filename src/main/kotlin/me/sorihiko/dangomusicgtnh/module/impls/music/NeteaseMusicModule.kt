@@ -150,22 +150,22 @@ class NeteaseMusicModule : Module() {
     internal val neteaseUsesAppleLayout get() = neteaseInterfaceStyle.value == 1
 
     @ModuleValue("Menu text size", "Scale the text and spacing in the player menu")
-    private val neteaseMenuTextSize = IntValue(85, 120, 100)
+    private val neteaseMenuTextSize = IntValue(50, 300, 100)
 
     @ModuleValue("Menu font", "Choose a font for text in the player menu")
     private val neteaseMenuFont = TextValue("")
 
     @ModuleValue("Bottom player size", "Scale the playback controls in the player menu")
-    private val neteasePlayerBarSize = IntValue(80, 150, 100)
+    private val neteasePlayerBarSize = IntValue(80, 200, 100)
 
     @ModuleValue("Menu text size", "Scale the text and spacing in the player menu")
-    private val appleMenuTextSize = IntValue(85, 120, 100)
+    private val appleMenuTextSize = IntValue(50, 300, 100)
 
     @ModuleValue("Menu font", "Choose a font for text in the player menu")
     private val appleMenuFont = TextValue("")
 
     @ModuleValue("Bottom player size", "Scale the playback controls in the player menu")
-    private val applePlayerBarSize = IntValue(80, 150, 100)
+    private val applePlayerBarSize = IntValue(80, 200, 100)
 
     internal fun menuTextScale(source: MusicSource) =
         (if (source == MusicSource.APPLE) appleMenuTextSize.value else neteaseMenuTextSize.value) / 100f

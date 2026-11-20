@@ -482,10 +482,12 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
     fun draw(page: LayoutBounds) {
         val names = Tab.values().map { I18n.text(it.label) }
         val preferredTabWidth = names.maxOf { ui.width(it, 12f, Theme.FONT_SEMIBOLD) } + 24f
-        val tabsPerRow = (page.width / preferredTabWidth).toInt().coerceIn(1, names.size)
+        val compactTabs = page.width < 300f
+        val tabsPerRow = if (compactTabs) 3 else (page.width / preferredTabWidth).toInt().coerceIn(1, names.size)
         val tabRows = (names.size + tabsPerRow - 1) / tabsPerRow
-        val tabTop = page.y + if (UiStyle.continuous) 34f else 48f
-        val top = tabTop + tabRows * 36f + 6f
+        val tabStep = if (compactTabs) 28f else 36f
+        val tabTop = page.y + if (UiStyle.continuous || compactTabs) 34f else 48f
+        val top = tabTop + tabRows * tabStep + 6f
         ui.headerAnim {
             val resetLabel = I18n.text(if (System.currentTimeMillis() < resetArmedUntil) "Click again to confirm" else "Reset all settings")
             val resetWidth = (ui.width(resetLabel, 11f, Theme.FONT_SEMIBOLD) + 22f).coerceAtMost(page.width * 0.52f)
@@ -493,7 +495,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             val exportWidth = (ui.width(exportLabel, 11f, Theme.FONT_SEMIBOLD) + 22f).coerceAtMost(page.width * 0.35f)
             val title = ui.trim(I18n.text("Settings"), page.width - resetWidth - exportWidth - 18f, 22f, Theme.FONT_DISPLAY)
             ui.text(title, page.x, page.y, 22f, Theme.TEXT_PRIMARY, Theme.FONT_DISPLAY)
-            if (!UiStyle.continuous) {
+            if (!UiStyle.continuous && !compactTabs) {
                 val subtitle = ui.trim(I18n.text("Changes apply instantly and are saved automatically"), page.width, 11f, Theme.FONT_SEMIBOLD)
                 ui.text(subtitle, page.x, page.y + 30f, 11f, Theme.TEXT_SECONDARY, Theme.FONT_SEMIBOLD)
             }
@@ -501,7 +503,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             val export = LayoutBounds(reset.x - exportWidth - 6f, reset.y, exportWidth, reset.height)
             drawHeaderButton(export, exportLabel, enabled = !exporting, action = ::exportSettings)
             drawResetButton(reset, resetLabel)
-            drawTabs(page, tabTop, names, tabsPerRow)
+            drawTabs(page, tabTop, names, tabsPerRow, tabStep)
         }
 
         val view = LayoutBounds(page.x, top, page.width, (page.bottom - top).coerceAtLeast(0f))
@@ -729,34 +731,35 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             val vis = groupVis.getOrPut(g) { Spring(240f, 28f, if (shown) 1f else 0f) }
                 .tick(if (shown) 1f else 0f).coerceIn(0f, 1f)
             val expanded = shown && (!g.collapsible || g in expandedGroups)
+            val width = if (g.fullWidth) fullWidth else colWidth
             var rows = 0f
             for (r in g.rows) {
                 val on = expanded && r.show?.invoke() != false
                 rows += rowVis.getOrPut(r) { Spring(260f, 30f, if (on) 1f else 0f) }
-                    .tick(if (on) 1f else 0f).coerceIn(0f, 1f)
+                    .tick(if (on) 1f else 0f).coerceIn(0f, 1f) * rowHeight(r, width - 28f)
             }
             val col = if (g.fullWidth) 0 else columnIndex++ % columns
             if (vis < 0.02f && rows < 0.02f) return@mapNotNull null
-            val height = (headH + 6f) * vis + rows * rowH
+            val height = (headH + 6f) * vis + rows
             val y = if (g.fullWidth) heights.maxOrNull() ?: 0f else heights[col]
             if (g.fullWidth) heights.fill(y + height + gap * vis) else heights[col] += height + gap * vis
-            Placed(g, col * (colWidth + gap), y, if (g.fullWidth) fullWidth else colWidth, height, vis)
+            Placed(g, col * (colWidth + gap), y, width, height, vis)
         }
     }
 
-    private fun drawTabs(page: LayoutBounds, top: Float, names: List<String>, perRow: Int) {
+    private fun drawTabs(page: LayoutBounds, top: Float, names: List<String>, perRow: Int, step: Float) {
         for ((row, labels) in names.chunked(perRow).withIndex()) {
-            val bar = LayoutBounds(page.x, top + row * 36f, page.width, 32f)
+            val bar = LayoutBounds(page.x, top + row * step, page.width, step - 4f)
             ui.card(bar, Theme.CARD, 11f)
             val width = (bar.width - 8f) / labels.size
             labels.forEachIndexed { column, name ->
                 val index = row * perRow + column
-                val b = LayoutBounds(bar.x + 4f + column * width, bar.y + 4f, width, 24f)
+                val b = LayoutBounds(bar.x + 4f + column * width, bar.y + 4f, width, bar.height - 8f)
                 val active = index == selectedTab.ordinal
                 if (active || ui.hover(b)) ui.card(b, if (active) RED else Theme.CARD_HOVER, 8f)
                 val label = ui.trim(name, b.width - 10f, 12f, Theme.FONT_SEMIBOLD)
                 val labelWidth = ui.width(label, 12f, Theme.FONT_SEMIBOLD)
-                ui.text(label, b.x + (b.width - labelWidth) / 2f, b.y + 7f, 12f,
+                ui.text(label, b.x + (b.width - labelWidth) / 2f, b.y + (b.height - 10f) / 2f, 12f,
                     if (active) Theme.TEXT_PRIMARY else Theme.TEXT_SECONDARY, Theme.FONT_SEMIBOLD)
                 ui.hits += b to {
                     if (!active) {
@@ -786,13 +789,13 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             ctx.drawShape(b, ShapeStyle(Color(1f, 1f, 1f, 0.05f), 14f))
             val x = b.x + 14f
             val iw = b.width - 28f
-            val title = I18n.text(g.title)
+            val arrowWidth = if (g.collapsible) 24f else 0f
+            val switchWidth = if (g.toggle) ui.switchWidth + 10f else 0f
+            val title = ui.trim(I18n.text(g.title), iw - arrowWidth - switchWidth - 3f, 13f, Theme.FONT_SEMIBOLD)
             val titleW = ui.width(title, 13f, Theme.FONT_SEMIBOLD)
             ui.text(title, x, b.y + 13f, 13f, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
             // 有说明（比如“已合并进灵动岛”）时代替副标题，说明这组为什么用不上
             val note = g.note?.invoke()
-            val arrowWidth = if (g.collapsible) 24f else 0f
-            val switchWidth = if (g.toggle) ui.switchWidth + 10f else 0f
             val subW = iw - titleW - 8f - arrowWidth - switchWidth
             if (subW > 20f) {
                 ui.text(ui.trim(I18n.text(note ?: g.sub), subW, 10f), x + titleW + 8f, b.y + 14.5f, 10f,
@@ -830,6 +833,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             for (r in g.rows) {
                 val rv = rowVis[r]?.x ?: 1f
                 if (rv < 0.02f) continue
+                val rowHeight = rowHeight(r, iw)
                 // 依赖的开关 / 整个模块关掉时变暗：渐变过去，不是一下子变
                 val dim = groupDim || (r.dep != null && !r.dep.invoke())
                 val target = if (dim) 0.4f else 1f
@@ -843,7 +847,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                     val keep = ui.hits.size
                     try {
                         ctx.drawShape(LayoutBounds(x, y, iw, 1f), ShapeStyle(Color(1f, 1f, 1f, 0.06f)))
-                        drawRow(LayoutBounds(x, y, iw, rowH), r, clip)
+                        drawRow(LayoutBounds(x, y, iw, rowHeight), r, clip)
                     } finally {
                         if (faded) ctx.popOpacity()
                     }
@@ -851,27 +855,33 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                         while (ui.hits.size > keep) ui.hits.removeAt(ui.hits.size - 1)
                     }
                 }
-                y += rowH * rv
+                y += rowHeight * rv
             }
         } finally {
             if (fadedGroup) ctx.popOpacity()
         }
     }
 
-    private fun drawRow(b: LayoutBounds, r: Row, clip: LayoutBounds) {
-        val ctlW = when (r.ctl) {
+    private fun preferredControlWidth(r: Row, width: Float): Float = when (r.ctl) {
             Ctl.TOGGLE -> ui.switchWidth
             Ctl.SLIDER -> 166f
-            Ctl.KEY -> (b.width * 0.4f).coerceIn(130f, 260f)
+            Ctl.KEY -> (width * 0.4f).coerceIn(130f, 260f)
             Ctl.LANGUAGE -> 142f
             Ctl.COLOR -> 92f
             Ctl.FONT -> 166f
             Ctl.CHOICE, Ctl.CACHE -> 144f
-        }
-        val textW = b.width - ctlW - 14f
+    }
+
+    private fun rowHeight(r: Row, width: Float): Float =
+        if (width >= preferredControlWidth(r, width) + 76f) rowH else if (r.desc.isEmpty()) 50f else 64f
+
+    private fun drawRow(b: LayoutBounds, r: Row, clip: LayoutBounds) {
+        val ctlW = preferredControlWidth(r, b.width).coerceAtMost(b.width.coerceAtLeast(0f))
+        val stacked = b.height > rowH
+        val textW = if (stacked) b.width else b.width - ctlW - 14f
         ui.text(ui.trim(I18n.text(r.label), textW, 12f, Theme.FONT_MEDIUM), b.x, b.y + 8f, 12f, Theme.TEXT_PRIMARY, Theme.FONT_MEDIUM)
         if (r.desc.isNotEmpty()) ui.text(ui.trim(I18n.text(r.desc), textW, 9.5f), b.x, b.y + 24f, 9.5f, Theme.TEXT_TERTIARY)
-        val cy = b.y + b.height / 2f
+        val cy = if (stacked) b.bottom - 15f else b.y + b.height / 2f
         val cx = b.right - ctlW
         when (r.ctl) {
             Ctl.TOGGLE -> {
@@ -901,7 +911,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                 pickerHits += hit
                 ui.hits += hit to { if (picker === v) closePicker() else openPicker(v) }
             }
-            Ctl.FONT -> drawFontPicker(r.value as FontChoice, clip, cx, cy)
+            Ctl.FONT -> drawFontPicker(r.value as FontChoice, clip, cx, cy, ctlW)
             Ctl.CHOICE -> {
                 val v = r.value as IntValue
                 val labels = choiceLabels.getValue(r.key)
@@ -975,11 +985,11 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
     }
 
     /** 字体：左边小文件夹按钮打开我们的字体文件夹，右边按钮点开字体列表 */
-    private fun drawFontPicker(choice: FontChoice, clip: LayoutBounds, cx: Float, cy: Float) {
-        val box = LayoutBounds(cx + 22f, cy - 12f, 144f, 24f)
+    private fun drawFontPicker(choice: FontChoice, clip: LayoutBounds, cx: Float, cy: Float, width: Float) {
+        val box = LayoutBounds(cx + 22f, cy - 12f, (width - 22f).coerceAtLeast(0f), 24f)
         val open = fontChoice === choice && fontOpen
         ui.card(box, if (open || ui.hover(box)) Theme.CARD_HOVER else Theme.CARD, 7f)
-        val shown = ui.trim(fontName(choice), 116f, 11f, Theme.FONT_MEDIUM)
+        val shown = ui.trim(fontName(choice), box.width - 28f, 11f, Theme.FONT_MEDIUM)
         ui.text(shown, box.x + 9f, cy - 11f * 0.39f - 0.5f, 11f, Theme.TEXT_PRIMARY, Theme.FONT_MEDIUM)
         PlayerIcons.draw(ui.ctx, if (open) PlayerIcons.chevronUp else PlayerIcons.chevronDown, box.right - 12f, cy, 12f, Theme.TEXT_SECONDARY)
         if (fontChoice === choice && box.y + box.height / 2f in clip.y..clip.bottom) {
@@ -1403,7 +1413,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
 
     private fun drawSlider(b: LayoutBounds, r: Row, clip: LayoutBounds, cx: Float, cy: Float) {
         val ctx = ui.ctx
-        val track = LayoutBounds(cx + 2f, cy - 2f, 108f, 4f)
+        val track = LayoutBounds(cx + 2f, cy - 2f, (b.right - cx - 58f).coerceAtLeast(1f), 4f)
         val p = when (val v = r.value) {
             is IntValue -> v.normalize()
             is FloatValue -> v.normalize()

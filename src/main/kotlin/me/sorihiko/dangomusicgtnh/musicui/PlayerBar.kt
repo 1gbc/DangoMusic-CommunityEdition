@@ -1,6 +1,8 @@
 package me.sorihiko.dangomusicgtnh.musicui
 
+import me.sorihiko.dangomusicgtnh.DangoClient
 import me.sorihiko.dangomusicgtnh.client.ClientMusic
+import me.sorihiko.dangomusicgtnh.platform.Keys
 import me.sorihiko.dangomusicgtnh.i18n.I18n
 
 import me.sorihiko.dangomusicgtnh.module.impls.music.NeteaseMusicModule
@@ -63,6 +65,13 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
     private var volumeDragging = false
     private var volumeButton = LayoutBounds()
     private var volumeMenu = LayoutBounds()
+    private var volumeValueHit = LayoutBounds()
+    private var volumeInput: String? = null
+    private var replaceVolumeInput = false
+    val volumeEditing get() = volumeInput != null
+    private val barSpeaker = PlayerIcons.VolumeSpeaker()
+    private val popupSpeaker = PlayerIcons.VolumeSpeaker()
+    private val lyricsSpeaker = PlayerIcons.VolumeSpeaker()
     private var qualityOpen = false
     private var qualityButton = LayoutBounds()
     private var qualityMenu = LayoutBounds()
@@ -433,7 +442,7 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         val volume = MusicPlayer.volume.coerceIn(0f, 1f)
         if (volume > 0f) lastAudibleAppleVolume = volume
         val speakerScale = ui.appleHoverScale(volumeA.hover, ui.hover(volumeButton))
-        appleSpeaker(volumeButton.x + volumeButton.width / 2f, cy, volume,
+        barSpeaker.draw(ui, volumeButton.x + volumeButton.width / 2f, cy, volume,
             if (volumeOpen) APPLE_CONTROL_BLUE else Theme.TEXT_PRIMARY, 0.62f * unit * speakerScale)
         ui.hits += volumeButton to {
             val opening = !volumeOpen
@@ -525,18 +534,21 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
     }
 
     private fun drawAppleVolumeMenu(bar: LayoutBounds) {
-        val width = minOf(146f, bar.width)
+        val width = minOf(186f, bar.width)
         val target = LayoutBounds(bar.right - width, (bar.y - 38f).coerceAtLeast(0f), width, 31f)
         volumeMenu = drawPopup(volumeButton, target, volumeMotion, volumeOpen) { box, interactive, clip ->
             val centerY = box.y + box.height / 2f
             val volume = MusicPlayer.volume.coerceIn(0f, 1f)
-            volRect = LayoutBounds(box.x + 11f, centerY - 2f, (box.width - 40f).coerceAtLeast(1f), 4f)
+            val valueBox = LayoutBounds(box.x + 7f, centerY - 10f, 34f, 20f)
+            drawVolumeValue(valueBox, clip, volume, interactive)
+            val start = valueBox.right + 8f
+            volRect = LayoutBounds(start, centerY - 2f, (box.right - 29f - start).coerceAtLeast(1f), 4f)
             val fill = volRect.width * volume
             ui.card(volRect, Theme.TEXT_PRIMARY.copy(a = 0.19f), 2f)
             if (fill > 0f) ui.card(volRect.copy(width = fill), Theme.TEXT_PRIMARY, minOf(fill, 4f) / 2f)
             val mute = LayoutBounds(box.right - 27f, box.y + 4f, 23f, box.height - 8f)
             val scale = ui.appleHoverScale(appleMuteHover, interactive && ui.hover(mute))
-            appleSpeaker(mute.x + mute.width / 2f, centerY, volume, Theme.TEXT_PRIMARY, .60f * scale)
+            popupSpeaker.draw(ui, mute.x + mute.width / 2f, centerY, volume, Theme.TEXT_PRIMARY, .60f * scale)
             if (interactive) {
                 ui.hits += mute.intersect(clip) to {
                     val current = MusicPlayer.volume
@@ -551,10 +563,55 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         }
     }
 
-    private fun appleSpeaker(x: Float, y: Float, volume: Float, color: Color, scale: Float) {
-        val percent = if (volume <= 0f) 0 else (volume * 100f).roundToInt().coerceIn(1, 100)
-        val waves = when (percent) { in 1..33 -> 0; in 34..66 -> 1; in 67..100 -> 2; else -> 0 }
-        PlayerIcons.speaker(ui.ctx, x, y, color, scale, waves, muted = percent == 0)
+    private fun drawVolumeValue(box: LayoutBounds, clip: LayoutBounds, volume: Float, interactive: Boolean) {
+        val hovered = interactive && ui.hover(box.intersect(clip))
+        if (volumeEditing || hovered) ui.card(box, Theme.CARD_HOVER, 5f)
+        if (volumeEditing) ui.ctx.drawShape(box.expand(-0.75f, -0.75f),
+            ShapeStyle(Color.TRANSPARENT, 4f, 0.75f, APPLE_CONTROL_BLUE))
+        val font = Theme.FONT_SEMIBOLD
+        val size = 10f
+        val value = volumeInput ?: PlayerIcons.volumePercent(volume).toString()
+        val label = if (volumeEditing && caretVisible()) value + "|" else value
+        val width = ui.width(label, size, font)
+        ui.text(label, box.x + (box.width - width) / 2f, box.y + (box.height - size) / 2f,
+            size, Theme.TEXT_PRIMARY, font)
+        volumeValueHit = if (interactive) box.intersect(clip) else LayoutBounds()
+        if (interactive) ui.hits += volumeValueHit to {
+            if (!volumeEditing) {
+                screen.blurTextFields()
+                volumeInput = PlayerIcons.volumePercent(MusicPlayer.volume).toString()
+                replaceVolumeInput = true
+            }
+        }
+    }
+
+    fun volumeKeyTyped(typedChar: Char, keyCode: Int): Boolean {
+        val value = volumeInput ?: return false
+        when {
+            keyCode == Keys.RETURN || keyCode == Keys.NUMPADENTER -> finishVolumeEdit()
+            keyCode == Keys.ESCAPE -> volumeInput = null
+            DangoClient.platform.ctrlDown && keyCode == Keys.A -> replaceVolumeInput = true
+            keyCode == Keys.BACK || keyCode == Keys.DELETE -> {
+                volumeInput = if (replaceVolumeInput || keyCode == Keys.DELETE) "" else value.dropLast(1)
+                replaceVolumeInput = false
+            }
+            typedChar in '0'..'9' -> {
+                val prefix = if (replaceVolumeInput) "" else value
+                if (prefix.length < 3) volumeInput = prefix + typedChar
+                replaceVolumeInput = false
+            }
+        }
+        return true
+    }
+
+    fun commitVolumeOutside(x: Int, y: Int) {
+        if (volumeEditing && !volumeValueHit.contains(x, y)) finishVolumeEdit()
+    }
+
+    private fun finishVolumeEdit() {
+        val value = volumeInput
+        volumeInput = null
+        value?.toIntOrNull()?.let { applyVolume(it.coerceIn(0, 100) / 100f) }
     }
 
     private fun drawVolume(bar: LayoutBounds, cy: Float) {
@@ -784,6 +841,7 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
     }
 
     fun dismissMenu(): Boolean {
+        finishVolumeEdit()
         if (!qualityOpen && !modeOpen && !volumeOpen && !modeMotion.visible && !volumeMotion.visible && !qualityMotion.visible) return false
         volumeOpen = false
         volumeDragging = false
@@ -1067,7 +1125,7 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
 
         val volume = MusicPlayer.volume.coerceIn(0f, 1f)
         volRect = frame.volume
-        appleSpeaker(frame.x(402f), frame.y(1053f), volume, primary, 0.60f * scale)
+        lyricsSpeaker.draw(ui, frame.x(402f), frame.y(1053f), volume, primary, 0.60f * scale)
         drawAppleSlider(volRect, volume, scale)
         ui.hits += frame.bounds(410f, 1041f, 592f, 24f) to {
             volumeDragging = true
