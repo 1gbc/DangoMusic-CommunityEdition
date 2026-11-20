@@ -31,7 +31,7 @@ internal object BilibiliRequests {
         "BilibiliLiveHelper.exe", "BilibiliLiveHelper.dll",
         "BilibiliLiveHelper.deps.json", "BilibiliLiveHelper.runtimeconfig.json",
     )
-    private val examples = listOf("/点歌 我记得 赵雷", "/点歌 消愁 毛不易", "/点歌 让酒 刘宇宁")
+    private val examples = listOf("/点歌 美好事物 房东的猫", "/点歌 出山 花粥", "/点歌 归去来兮 叶炫清")
     private val gson = Gson()
     private val supervisor = Executors.newSingleThreadExecutor { task ->
         Thread(task, "Dango-Bilibili-Helper").apply { isDaemon = true }

@@ -15,7 +15,7 @@ import java.util.zip.CRC32
 /** Persistent copies of complete NetEase audio, isolated by login session. */
 object NeteaseDiskCache {
     private const val MAGIC = 0x444D4301
-    private const val LIMIT = 2L * 1024 * 1024 * 1024
+    private const val LIMIT = 5L * 1024 * 1024 * 1024
     val directory: Path by lazy {
         val home = Paths.get(System.getProperty("user.home"))
         if (System.getProperty("os.name").startsWith("Windows")) {
