@@ -24,7 +24,7 @@ internal class QueueDrag {
         fun row(y: Float) = floor((y - top) / rowHeight).toInt()
     }
 
-    private class Press(val view: View, val row: Int, val x: Int, val y: Int, val grab: Float, val click: () -> Unit) {
+    private class Press(val view: View, val row: Int, val x: Int, val y: Int, val grab: Float, val hit: Hit) {
         var active = false
         var target = row
         var shifts = FloatArray(0)
@@ -33,7 +33,7 @@ internal class QueueDrag {
     private var view: View? = null
     private var press: Press? = null
     val pressed get() = press != null
-    val liftedRow get() = press?.takeIf { it.active && view != null }?.row ?: -1
+    val liftedRow get() = press?.takeIf { it.active && it.view.count > 1 && view != null }?.row ?: -1
 
     fun beginFrame() { view = null }
 
@@ -71,12 +71,12 @@ internal class QueueDrag {
         }
     }
 
-    fun down(x: Int, y: Int, click: () -> Unit): Boolean {
+    fun down(x: Int, y: Int, hit: Hit): Boolean {
         val shown = view ?: return false
-        if (shown.count < 2 || !shown.bounds.contains(x, y)) return false
+        if (!shown.bounds.contains(x, y)) return false
         val row = shown.row(y.toFloat())
         if (row !in 0 until shown.count) return false
-        press = Press(shown, row, x, y, y - shown.top - row * shown.rowHeight, click)
+        press = Press(shown, row, x, y, y - shown.top - row * shown.rowHeight, hit)
         return true
     }
 
@@ -102,8 +102,9 @@ internal class QueueDrag {
         cancel()
         val shown = view ?: return true
         if (!matches(drag, shown) || !shown.bounds.contains(x, y)) return true
-        if (!drag.active) drag.click()
-        else if (drag.row != drag.target) {
+        if (!drag.active) {
+            if (drag.hit.first.contains(x, y)) drag.hit.second()
+        } else if (drag.row != drag.target) {
             val from = shown.slot(drag.row)
             val to = shown.slot(drag.target)
             ClientMusic.control { MusicPlayer.moveQueueTrack(shown.queue, from, to, shown.upcoming) }
@@ -117,13 +118,13 @@ internal class QueueDrag {
 
     fun markerY(): Float? {
         val shown = view ?: return null
-        val drag = press?.takeIf { it.active } ?: return null
+        val drag = press?.takeIf { it.active && it.view.count > 1 } ?: return null
         return shown.top + drag.target * shown.rowHeight
     }
 
     /** Measured in rows per frame so the rate is independent of UI and row size. */
     fun edgeScroll(dt: Float, x: Int, y: Int): Float {
-        val drag = press?.takeIf { it.active } ?: return 0f
+        val drag = press?.takeIf { it.active && it.view.count > 1 } ?: return 0f
         val bounds = drag.view.bounds
         if (x < bounds.left - 12f || x >= bounds.right + 12f) return 0f
         val edge = minOf(30f, bounds.height / 3f).coerceAtLeast(1f)

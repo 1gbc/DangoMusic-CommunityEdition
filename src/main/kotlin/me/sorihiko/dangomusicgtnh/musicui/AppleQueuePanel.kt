@@ -10,7 +10,6 @@ import me.sorihiko.dangomusicgtnh.music.NeteaseTrack
 import me.sorihiko.dangomusicgtnh.ui.LayoutBounds
 import me.sorihiko.dangomusicgtnh.ui.Theme
 import me.sorihiko.dangomusicgtnh.ui.VectorIcon
-import me.sorihiko.dangomusicgtnh.utils.Color
 
 internal class AppleQueuePanel(private val ui: Ui) {
     val queueDrag = QueueDrag()
@@ -19,6 +18,8 @@ internal class AppleQueuePanel(private val ui: Ui) {
     private var bounds = LayoutBounds()
     private var offset = 0f
     private var maxOffset = 0f
+    private var selectedSlot = -1
+    private var selectedQueue: List<NeteaseTrack>? = null
 
     fun toggle() {
         if (!close()) open = true
@@ -30,6 +31,8 @@ internal class AppleQueuePanel(private val ui: Ui) {
         queueDrag.cancel()
         bounds = LayoutBounds()
         offset = 0f
+        selectedSlot = -1
+        selectedQueue = null
         return wasOpen
     }
 
@@ -53,6 +56,10 @@ internal class AppleQueuePanel(private val ui: Ui) {
         if (!open || panel.width <= 0f || panel.height <= 0f) return
         val hits = mutableListOf<Hit>()
         val queue = MusicPlayer.queue
+        if (selectedQueue !== queue) {
+            selectedQueue = null
+            selectedSlot = -1
+        }
         val first = if (netease) 0 else MusicPlayer.appleUpcomingStart(queue) ?: queue.size
         val count = queue.size - first
         val controlsReady = !netease && MusicPlayer.current?.source == MusicSource.APPLE &&
@@ -110,11 +117,23 @@ internal class AppleQueuePanel(private val ui: Ui) {
                 val visible = row.intersect(list)
                 val slot = i + first
                 val current = netease && slot == MusicPlayer.index
-                if (current || interactive && ui.hover(visible)) ui.card(row, PopupLook.hover, 7f)
-                drawSong(row, queue[slot], current)
-                if (interactive) hits += visible to {
-                    ClientMusic.control { MusicPlayer.playQueueSlot(queue, slot, upcomingOnly = !netease) }
+                if (current || slot == selectedSlot || ui.hover(visible)) ui.card(row, PopupLook.hover, 7f)
+                val artwork = artworkBounds(row)
+                drawSong(row, artwork, queue[slot], current)
+                val select = {
+                    selectedQueue = queue
+                    selectedSlot = slot
                 }
+                val coverHit = artwork.intersect(list)
+                if (interactive && queueDrag.liftedRow < 0 && ui.hover(coverHit)) {
+                    ui.drawTrackCoverControl(artwork, appleCoverRadius(artwork), 14f,
+                        current && MusicPlayer.state == MusicPlayer.State.PLAYING)
+                    hits += coverHit to {
+                        select()
+                        ClientMusic.control { MusicPlayer.activateQueueCover(queue, slot, upcomingOnly = !netease) }
+                    }
+                }
+                hits += visible to select
             }
             queueDrag.markerY()?.let { y ->
                 ui.card(LayoutBounds(list.x + 4f, y, rowArea.width - 8f, 2f), APPLE_CONTROL_BLUE, 1f)
@@ -122,8 +141,8 @@ internal class AppleQueuePanel(private val ui: Ui) {
             val lifted = queueDrag.liftedRow
             if (lifted in 0 until count) {
                 val row = LayoutBounds(list.x, queueDrag.liftedY(ui.my), rowArea.width, ROW_HEIGHT)
-                ui.card(row, Color(0.19f, 0.21f, 0.26f, 0.97f), 7f)
-                drawSong(row, queue[first + lifted], netease && first + lifted == MusicPlayer.index)
+                ui.drawLiftedQueueRow(row, classic = false)
+                drawSong(row, artworkBounds(row), queue[first + lifted], netease && first + lifted == MusicPlayer.index)
             }
         } finally {
             ui.endClip()
@@ -135,8 +154,9 @@ internal class AppleQueuePanel(private val ui: Ui) {
         }
     }
 
-    private fun drawSong(row: LayoutBounds, song: NeteaseTrack, current: Boolean) {
-        val artwork = LayoutBounds(row.x + 4f, row.y + 6f, 30f, 30f)
+    private fun artworkBounds(row: LayoutBounds) = LayoutBounds(row.x + 4f, row.y + 6f, 30f, 30f)
+
+    private fun drawSong(row: LayoutBounds, artwork: LayoutBounds, song: NeteaseTrack, current: Boolean) {
         ui.drawAppleCover(artwork, CoverCache.track(song))
         val time = if (song.durationMs > 0L) fmtTime(song.durationMs) else "--:--"
         val timeX = row.right - ui.width(time, 11f) - 4f

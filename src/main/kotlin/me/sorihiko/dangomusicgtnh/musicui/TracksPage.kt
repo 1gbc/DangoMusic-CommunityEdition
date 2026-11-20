@@ -758,7 +758,9 @@ internal class TracksPage(private val screen: MusicScreen) {
         val drawnRows = rows + kotlin.math.ceil(ui.bottomInset / rowH).toInt() + 1
         listRows = rows
         scroll = scroll.coerceIn(0, max(0, tracks.size - rows))
-        val canReorder = ScreenState.page == Page.QUEUE && !ScreenState.coverView &&
+        val queuePage = ScreenState.page == Page.QUEUE
+        val selectOnly = queuePage || ScreenState.page == Page.PLAYLIST && MusicSources.selected in listSelectableSources
+        val canReorder = queuePage && !ScreenState.coverView &&
             !me.sorihiko.dangomusicgtnh.music.AppleWebPlayer.stationActive
         val maxScroll = max(0, tracks.size - rows)
         val dragScroll = if (canReorder) queueDrag.edgeScroll(ui.frameDt, ui.mx, ui.my) else 0f
@@ -803,20 +805,19 @@ internal class TracksPage(private val screen: MusicScreen) {
             val (i, t) = tracks[vi]
             ui.itemAnim(r.coerceAtLeast(0)) {
                 val row = LayoutBounds(body.x, body.y + (r - frac) * rowH + queueDrag.shift(vi), body.width, rowH - rowGap)
-                val isCur = playing?.key == t.key && (ScreenState.page != Page.QUEUE || i == MusicPlayer.index)
+                val isCur = playing?.key == t.key && (!queuePage || i == MusicPlayer.index)
                 val hit = row.intersect(clipArea)
                 val hovered = ui.hover(hit)
                 val radius = if (columns != null) 6f else 10f
                 val selection = i to t.key
-                val selectOnly = ScreenState.page == Page.PLAYLIST && MusicSources.selected in listSelectableSources
                 val playCover = {
                     selectedAppleTrack = selection
-                    val current = isCur
-                    when (MusicPlayer.state) {
-                        MusicPlayer.State.PLAYING, MusicPlayer.State.PAUSED -> if (current) {
+                    if (queuePage) ClientMusic.control { MusicPlayer.activateQueueCover(all, i) }
+                    else when (MusicPlayer.state) {
+                        MusicPlayer.State.PLAYING, MusicPlayer.State.PAUSED -> if (isCur) {
                             ClientMusic.control { if (MusicPlayer.current?.key == t.key) MusicPlayer.togglePause() }
                         } else playFrom(all, i)
-                        MusicPlayer.State.LOADING -> if (!current) playFrom(all, i)
+                        MusicPlayer.State.LOADING -> if (!isCur) playFrom(all, i)
                         else -> playFrom(all, i)
                     }
                 }
@@ -835,13 +836,11 @@ internal class TracksPage(private val screen: MusicScreen) {
                     drawTrackRow(row, t, i, isCur, clipArea)
                     if (selectOnly) {
                         val thumb = trackThumbnail(row)
-                        if (hovered) {
-                            ui.card(thumb, Color.BLACK.copy(a = 0.45f), 6f)
-                            val playing = isCur && MusicPlayer.state == MusicPlayer.State.PLAYING
-                            PlayerIcons.draw(ctx, if (playing) AppleLyricsIcons.pause else PlayerIcons.play,
-                                thumb.x + thumb.width / 2f, thumb.y + thumb.height / 2f, 16f, Theme.TEXT_PRIMARY)
-                        }
-                        ui.hits += thumb.intersect(clipArea) to playCover
+                        val coverHit = thumb.intersect(clipArea)
+                        val showControl = if (queuePage) ui.hover(coverHit) && queueDrag.liftedRow < 0 else hovered
+                        if (showControl) ui.drawTrackCoverControl(thumb, 6f, 16f,
+                            isCur && MusicPlayer.state == MusicPlayer.State.PLAYING)
+                        if (!queuePage || showControl) ui.hits += coverHit to playCover
                     }
                     ui.hits += hit to {
                         selectedAppleTrack = selection
@@ -858,7 +857,7 @@ internal class TracksPage(private val screen: MusicScreen) {
         }
         if (canReorder) {
             queueDrag.markerY()?.let { y ->
-                val accent = if (screen.neteaseUsesAppleLayout) APPLE_CONTROL_BLUE else RED
+                val accent = if (screen.usesAppleLayout) APPLE_CONTROL_BLUE else RED
                 ui.card(LayoutBounds(body.x + 5f, y, body.width - 10f, 2f), accent, 1f)
             }
             val lifted = queueDrag.liftedRow
@@ -867,9 +866,9 @@ internal class TracksPage(private val screen: MusicScreen) {
                 val row = LayoutBounds(body.x, queueDrag.liftedY(ui.my), body.width, rowH - rowGap)
                 val isCurrent = playing?.key == track.key && index == MusicPlayer.index
                 val hitCount = ui.hits.size
-                ui.card(row, Color(0.19f, 0.21f, 0.26f, 0.97f), if (columns == null) 10f else 6f)
+                ui.drawLiftedQueueRow(row, classic = !screen.usesAppleLayout)
                 if (columns == null) drawTrackRow(row, track, index, isCurrent, clipArea)
-                else drawAppleTrackRow(row, track, columns, isCurrent, false, clipArea) {}
+                else drawAppleTrackRow(row, track, columns, isCurrent, false, clipArea, play = null)
                 while (ui.hits.size > hitCount) ui.hits.removeAt(ui.hits.lastIndex)
             }
         }
@@ -891,7 +890,9 @@ internal class TracksPage(private val screen: MusicScreen) {
         val x = thumb.right + 12f
         val width = row.right - 56f - x
         ui.text(ui.trim(track.name, width, 13f), x, row.y + 7f, 13f, if (isCur) RED else Theme.TEXT_PRIMARY)
-        drawArtistLinks(screen, track, x, row.y + 23f, width, 11f, Theme.TEXT_SECONDARY, clip)
+        if (ScreenState.page == Page.QUEUE) {
+            ui.text(ui.trim(track.artists.joinToString(" / "), width, 11f), x, row.y + 23f, 11f, Theme.TEXT_SECONDARY)
+        } else drawArtistLinks(screen, track, x, row.y + 23f, width, 11f, Theme.TEXT_SECONDARY, clip)
         val time = fmtTime(track.durationMs)
         ui.text(time, row.right - 12f - ui.width(time, 11f), row.y + 15f, 11f, Theme.TEXT_TERTIARY)
     }
@@ -921,7 +922,7 @@ internal class TracksPage(private val screen: MusicScreen) {
     }
 
     private fun drawAppleTrackRow(row: LayoutBounds, track: NeteaseTrack, columns: AppleTrackColumns,
-                                  isCur: Boolean, hovered: Boolean, clip: LayoutBounds, play: () -> Unit) {
+                                  isCur: Boolean, hovered: Boolean, clip: LayoutBounds, play: (() -> Unit)?) {
         val thumb = LayoutBounds(columns.song, row.y + (row.height - 24f) / 2f, 24f, 24f)
         val coverHit = thumb.intersect(clip)
         val coverRadius = 3f
@@ -931,15 +932,19 @@ internal class TracksPage(private val screen: MusicScreen) {
         val titleY = if (compact) row.y + 4f else centerY
         ui.drawAppleCover(thumb, CoverCache.track(track), radius = coverRadius)
         val playing = isCur && MusicPlayer.state == MusicPlayer.State.PLAYING
-        if (hovered || playing) {
-            ui.card(thumb, Color.BLACK.copy(a = if (hovered) 0.34f else 0.46f), coverRadius)
-            val cx = thumb.x + 12f
-            val cy = thumb.y + 12f
-            if (playing && !ui.hover(coverHit)) drawAppleTrackWave(cx, titleY + titleSize / 2f)
-            else PlayerIcons.draw(ui.ctx, if (playing) AppleLyricsIcons.pause else AppleLyricsIcons.play,
-                cx, cy, 14f, Theme.TEXT_PRIMARY)
+        val queueRow = ScreenState.page == Page.QUEUE
+        val coverHovered = ui.hover(coverHit) && (!queueRow || queueDrag.liftedRow < 0)
+        if (play != null) {
+            if (queueRow && coverHovered) ui.drawTrackCoverControl(thumb, coverRadius, 14f, playing)
+            else if (playing || !queueRow && hovered) {
+                ui.card(thumb, Color.BLACK.copy(a = if (hovered) 0.34f else 0.46f), coverRadius)
+                val cx = thumb.x + 12f
+                if (playing && !coverHovered) drawAppleTrackWave(cx, titleY + titleSize / 2f)
+                else PlayerIcons.draw(ui.ctx, if (playing) AppleLyricsIcons.pause else AppleLyricsIcons.play,
+                    cx, thumb.y + 12f, 14f, Theme.TEXT_PRIMARY)
+            }
+            if (coverHit.height > 0f && (!queueRow || coverHovered)) ui.hits += coverHit to play
         }
-        if (coverHit.height > 0f) ui.hits += coverHit to play
         val x = thumb.right + 9f
         val songW = (columns.artist ?: columns.timeStart) - x - 8f
         val secondarySize = APPLE_PLAYLIST_SECONDARY_SIZE
@@ -958,7 +963,7 @@ internal class TracksPage(private val screen: MusicScreen) {
         }
         val artistWidth = artistEnd - artistX - 8f
         if (artistWidth > 8f) {
-            if (screen.neteaseUsesAppleLayout)
+            if (screen.neteaseUsesAppleLayout && !queueRow)
                 drawArtistLinks(screen, track, artistX, artistY, artistWidth, secondarySize, Theme.TEXT_SECONDARY, clip)
             else ui.text(ui.trim(track.artists.joinToString(" / "), artistWidth, secondarySize),
                 artistX, artistY, secondarySize, Theme.TEXT_SECONDARY)

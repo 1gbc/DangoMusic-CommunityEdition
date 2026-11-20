@@ -283,11 +283,30 @@ object MusicPlayer {
         playIndexInternal(i)
     }
 
+    private fun canPlayQueueSlot(expected: List<NeteaseTrack>, slot: Int, upcomingOnly: Boolean): Boolean =
+        queue === expected && slot in expected.indices &&
+            (!upcomingOnly || (slot > index && !AppleWebPlayer.stationActive && !appleQueueCleared &&
+                current?.source == MusicSource.APPLE))
+
     @Synchronized fun playQueueSlot(expected: List<NeteaseTrack>, slot: Int, upcomingOnly: Boolean = false) {
-        if (queue !== expected || slot !in expected.indices) return
-        if (upcomingOnly && (slot <= index || AppleWebPlayer.stationActive || appleQueueCleared ||
-                current?.source != MusicSource.APPLE)) return
-        playIndex(slot)
+        if (canPlayQueueSlot(expected, slot, upcomingOnly)) playIndex(slot)
+    }
+
+    @Synchronized fun activateQueueCover(expected: List<NeteaseTrack>, slot: Int, upcomingOnly: Boolean = false) {
+        if (!canPlayQueueSlot(expected, slot, upcomingOnly)) return
+        if (slot == index && current?.key == expected[slot].key) {
+            if (state == State.LOADING) return
+            if (state == State.PLAYING || state == State.PAUSED) {
+                togglePause()
+                return
+            }
+        }
+        if (AppleWebPlayer.stationActive) {
+            when (slot - index) {
+                -1 -> prev()
+                1 -> next()
+            }
+        } else playIndex(slot)
     }
 
     private fun playIndexInternal(i: Int) {
