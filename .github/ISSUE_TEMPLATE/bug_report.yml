@@ -13,8 +13,8 @@ body:
     id: mod-version
     attributes:
       label: 模组版本
-      description: 例如 0.1.0-dev.5.19；可在 `mods` 中的 JAR 文件名或游戏日志里找到
-      placeholder: 0.1.0-dev.5.19
+      description: 例如 0.5.4-dev2；可在 `mods` 中的 JAR 文件名或游戏日志里找到
+      placeholder: 0.5.4-dev2
     validations:
       required: true
 
