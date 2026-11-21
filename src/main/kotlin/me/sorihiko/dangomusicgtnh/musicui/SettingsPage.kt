@@ -76,7 +76,9 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         val collapsible: Boolean = true,
         val fullWidth: Boolean = false,
         val sections: List<Section> = listOf(Section(null, rows)),
-    )
+    ) {
+        val key = owner.name to title
+    }
 
     /** 用 ◀ ▶ 切换的选项：设置名 → 每个值的显示名（从最小值开始） */
     private val choiceLabels = mapOf(
@@ -86,7 +88,8 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         "islandLayout" to listOf("Style C", "Style A", "Style B"),
         "uiStyle" to listOf("Classic", "Continuous corners"),
         "appleSidebarStyle" to listOf("Flowing cover colors", "Dark glass"),
-        "requestHudBackground" to listOf("Liquid glass", "Dark glass", "Flowing cover colors"),
+        "requestHudBackground" to HudBackground.entries.map { it.label },
+        "islandBackground" to HudBackground.entries.map { it.label },
         "neteaseInterfaceStyle" to listOf("NetEase classic style", "NetEase Apple style"),
         "lyricStyle" to listOf("3D world lyrics", "Cockpit lyrics", "Both", "Hidden"),
         "sidePosition" to listOf("Left middle", "Left bottom", "Right middle"),
@@ -107,8 +110,26 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
     }
 
     private val tabs: List<List<Group>> by lazy { buildSettings() }
-    private val expandedGroups = mutableSetOf<Group>()
+    private val expandedGroups get() = ScreenState.expandedSettingsGroups
     private val selectedTab get() = Tab.values()[ScreenState.settingsTab.coerceIn(0, Tab.values().lastIndex)]
+
+    private class SearchHit(val tab: Tab, val group: Group, val row: Row?) {
+        val label get() = row?.label ?: group.title
+        val visible get() = group.show?.invoke() != false && row?.show?.invoke() != false
+    }
+
+    private var searchFocused = false
+    private var searchQuery = ""
+    private var searchResults = emptyList<SearchHit>()
+    private var searchRect = LayoutBounds()
+    private var searchPopup = LayoutBounds()
+    private val searchHits = mutableListOf<Pair<LayoutBounds, SearchHit>>()
+    private var selectedSearch = 0
+    private var searchOffset = 0
+    private var searchVisibleRows = 7
+    private var pendingSearch: SearchHit? = null
+    private var highlightedSearch: SearchHit? = null
+    private var searchHighlightUntil = 0L
 
     /** 本帧画了设置列表的区域（滚轮用），没画就是空的 */
     var area = LayoutBounds()
@@ -137,7 +158,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
     private val keyButtons = mutableListOf<LayoutBounds>()
     private val keyResetButtons = mutableListOf<Hit>()
 
-    val editing: Boolean get() = editRow != null || hexEditing
+    val editing: Boolean get() = editRow != null || hexEditing || searchFocused
 
     // ---------------------------------------------------------------- 取色器（颜色选项点开后的小面板）
 
@@ -186,6 +207,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
     }
 
     fun beginFrame() {
+        searchHits.clear()
         pickerHits.clear()
         fontHits.clear()
         fontAnchorSeen = false
@@ -193,8 +215,18 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         keyResetButtons.clear()
     }
 
+    fun closePage() {
+        commitEdit()
+        stopDrag()
+        bindingKey = null
+        blurSearch(clear = true)
+        closeFontListNow()
+        closePicker()
+        if (module.collapseSettingsOnClose.get()) expandedGroups.clear()
+    }
+
     fun openPage() {
-        expandedGroups.clear()
+        closePage()
         clearCacheUntil = 0L
         resetArmedUntil = 0L
         resetNoticeAt = null
@@ -434,8 +466,10 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         val island = Src(islandModule, fmts = mapOf("posX" to ::percent, "posY" to ::percent))
         val playback = player.take(listOf("volume", "originalAudio", "normalize", "playbackFades", "resumeSession"))
         val environment = player.take(listOf("envAudio", "envRain", "envStrength", "envRays"))
-        val looks = player.take(listOf("uiStyle", "language", "songCommentsEnabled"))
-        val neteaseLooks = player.take(listOf("neteaseInterfaceStyle", "neteaseMenuTextSize", "neteaseMenuFont", "neteasePlayerBarSize"))
+        val looks = player.take(listOf("uiStyle", "language", "collapseSettingsOnClose"))
+        val neteaseLooks = player.take(listOf(
+            "neteaseInterfaceStyle", "neteaseMenuTextSize", "neteaseMenuFont", "neteasePlayerBarSize", "songCommentsEnabled",
+        ))
         val appleLooks = player.take(listOf("appleSidebarStyle", "appleMenuTextSize", "appleMenuFont", "applePlayerBarSize"))
         val advanced = player.take(listOf("audioOutput", "audioBuffer")) + listOf(
             Row("Cache usage", "NetEase audio stored on disk", CacheAction.USAGE, Ctl.CACHE, null, { "" }),
@@ -468,7 +502,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             Group("NetEase interface settings", "Player menu appearance", module, false, neteaseLooks, fullWidth = true),
             Group("Apple Music interface settings", "Player menu appearance", module, false, appleLooks, fullWidth = true),
             Group("Dynamic Island", "Overlay", islandModule, true, island.take(listOf(
-                "islandLayout", "islandAnimations", "glass", "scale", "posX", "posY",
+                "islandLayout", "islandAnimations", "islandBackground", "scale", "posX", "posY",
             )) + island.take(), fullWidth = true),
             Group("Bilibili song requests", "Live danmaku and request queue", module, false, emptyList(),
                 fullWidth = true, sections = listOf(
@@ -517,20 +551,18 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         val tabsPerRow = if (compactTabs) 3 else (page.width / preferredTabWidth).toInt().coerceIn(1, names.size)
         val tabRows = (names.size + tabsPerRow - 1) / tabsPerRow
         val tabStep = if (compactTabs) 28f else 36f
-        val tabTop = page.y + if (UiStyle.continuous || compactTabs) 34f else 48f
+        val resetLabel = I18n.text(if (System.currentTimeMillis() < resetArmedUntil) "Click again to confirm" else "Reset all settings")
+        val resetWidth = (ui.width(resetLabel, 11f, Theme.FONT_SEMIBOLD) + 22f).coerceAtMost(page.width * 0.52f)
+        val exportLabel = I18n.text("Export settings")
+        val exportWidth = (ui.width(exportLabel, 11f, Theme.FONT_SEMIBOLD) + 22f).coerceAtMost(page.width * 0.35f)
+        val available = page.width - resetWidth - exportWidth - 16f
+        val stackedHeader = available < 136f
+        val tabTop = page.y + if (stackedHeader) 62f else 34f
         val top = tabTop + tabRows * tabStep + 6f
         ui.headerAnim {
-            val resetLabel = I18n.text(if (System.currentTimeMillis() < resetArmedUntil) "Click again to confirm" else "Reset all settings")
-            val resetWidth = (ui.width(resetLabel, 11f, Theme.FONT_SEMIBOLD) + 22f).coerceAtMost(page.width * 0.52f)
-            val exportLabel = I18n.text("Export settings")
-            val exportWidth = (ui.width(exportLabel, 11f, Theme.FONT_SEMIBOLD) + 22f).coerceAtMost(page.width * 0.35f)
-            val title = ui.trim(I18n.text("Settings"), page.width - resetWidth - exportWidth - 18f, 22f, Theme.FONT_DISPLAY)
-            ui.text(title, page.x, page.y, 22f, Theme.TEXT_PRIMARY, Theme.FONT_DISPLAY)
-            if (!UiStyle.continuous && !compactTabs) {
-                val subtitle = ui.trim(I18n.text("Changes apply instantly and are saved automatically"), page.width, 11f, Theme.FONT_SEMIBOLD)
-                ui.text(subtitle, page.x, page.y + 30f, 11f, Theme.TEXT_SECONDARY, Theme.FONT_SEMIBOLD)
-            }
-            val reset = LayoutBounds(page.right - resetWidth, page.y + 2f, resetWidth, 24f)
+            drawSearchField(LayoutBounds(page.x, page.y + 2f,
+                if (stackedHeader) page.width else minOf(320f, available), 24f))
+            val reset = LayoutBounds(page.right - resetWidth, page.y + if (stackedHeader) 30f else 2f, resetWidth, 24f)
             val export = LayoutBounds(reset.x - exportWidth - 6f, reset.y, exportWidth, reset.height)
             drawHeaderButton(export, exportLabel, enabled = !exporting, action = ::exportSettings)
             drawResetButton(reset, resetLabel)
@@ -542,6 +574,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         val placed = place(tabs[selectedTab.ordinal], view)
         val contentH = placed.maxOfOrNull { it.y + it.h } ?: 0f
         maxScroll = max(0f, contentH + ui.bottomInset - view.height)
+        alignSearchHit(placed)
         target = target.coerceIn(0f, maxScroll)
         pos = pos.coerceIn(0f, maxScroll)
 
@@ -568,8 +601,190 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         if (picker != null || fontChoice != null) ui.mt.flush(ui.scale)
         drawPicker(view)
         drawFontList(view)
+        drawSearchResults(page)
     }
 
+
+    private fun drawSearchField(bounds: LayoutBounds) {
+        searchRect = bounds
+        val focusColor = if (screen.usesAppleLayout) APPLE_CONTROL_BLUE else RED
+        ui.drawNeteaseAppleSearchField(bounds, searchQuery, I18n.text("Search settings"), searchFocused,
+            bounds.x + 13f, 12f, bounds.x + 25f, bounds.right - 9f, 11f, focusColor)
+    }
+
+    private fun focusSearch() {
+        commitEdit()
+        stopDrag()
+        bindingKey = null
+        closeFontListNow()
+        closePicker()
+        screen.blurTextFields()
+        searchFocused = true
+        refreshSearch()
+    }
+
+    fun blurSearch(clear: Boolean = false) {
+        searchFocused = false
+        searchPopup = LayoutBounds()
+        searchHits.clear()
+        if (clear) {
+            searchQuery = ""
+            searchResults = emptyList()
+            pendingSearch = null
+            highlightedSearch = null
+        }
+    }
+
+    private fun refreshSearch() {
+        selectedSearch = 0
+        searchOffset = 0
+        if (searchQuery.isBlank()) {
+            searchResults = emptyList()
+            return
+        }
+        val matches = mutableListOf<Pair<SearchHit, Int>>()
+        for (tab in Tab.entries) {
+            for (group in tabs[tab.ordinal]) {
+                fun consider(row: Row?) {
+                    val hit = SearchHit(tab, group, row)
+                    val description = row?.desc ?: group.sub
+                    val choices = row?.let { choiceLabels[it.key] }.orEmpty()
+                    val detail = (listOf(description, hit.label, group.title, tab.label) + choices)
+                        .flatMap { listOf(it, I18n.text(it)) }.distinct().joinToString(" ")
+                    val rank = SettingsSearchRank.score(searchQuery, I18n.text(hit.label),
+                        detail, I18n.text(group.title), I18n.text(tab.label))
+                    if (rank >= 0) matches += hit to (rank + if (hit.visible) 2 else 0)
+                }
+                consider(null)
+                for (section in group.sections) for (row in section.rows) consider(row)
+            }
+        }
+        searchResults = matches.sortedByDescending { it.second }.map { it.first }
+    }
+
+    private fun drawSearchResults(page: LayoutBounds) {
+        searchPopup = LayoutBounds()
+        if (!searchFocused || searchQuery.isBlank()) return
+        val itemHeight = 32f
+        val space = page.bottom - ui.bottomInset - searchRect.bottom - 5f
+        val rows = minOf(7, ((space - 8f) / itemHeight).toInt())
+        if (rows <= 0) return
+        searchVisibleRows = rows
+        searchOffset = searchOffset.coerceIn(0, (searchResults.size - rows).coerceAtLeast(0))
+        val shown = searchResults.drop(searchOffset).take(rows)
+        val width = minOf(page.width - 1f, maxOf(searchRect.width, 244f))
+        val popup = LayoutBounds(searchRect.x, searchRect.bottom + 5f, width, maxOf(1, shown.size) * itemHeight + 8f)
+        searchPopup = popup
+        ui.mt.flush(ui.scale)
+        PopupLook.panel(ui.ctx, popup)
+        if (shown.isEmpty()) {
+            val none = ui.trim(I18n.text("No matching settings"), popup.width - 24f, 11f)
+            ui.text(none, popup.x + 12f, popup.y + 13f, 11f, Theme.TEXT_SECONDARY)
+        }
+        for ((index, hit) in shown.withIndex()) {
+            val row = LayoutBounds(popup.x + 4f, popup.y + 4f + index * itemHeight, popup.width - 8f, itemHeight)
+            val selected = index + searchOffset == selectedSearch
+            if (selected || ui.hover(row)) {
+                ui.card(row, if (selected) PopupLook.selected else PopupLook.hover, PopupLook.rowRadius(itemHeight))
+            }
+            val label = ui.trim(I18n.text(hit.label), row.width - 24f, 12f, Theme.FONT_SEMIBOLD)
+            val path = listOfNotNull(
+                I18n.text(hit.tab.label), hit.row?.let { I18n.text(hit.group.title) },
+                if (hit.visible) null else I18n.text("Currently hidden"),
+            ).joinToString(" › ")
+            ui.text(label, row.x + 8f, row.y + 3f, 12f, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
+            ui.text(ui.trim(path, row.width - 24f, 9f), row.x + 8f, row.y + 18f, 9f, Theme.TEXT_SECONDARY)
+            Theme.drawChevron(ui.ctx, row.right - 11f, row.y + row.height / 2f, 7f, 0f, Theme.TEXT_SECONDARY)
+            searchHits += row to hit
+        }
+    }
+
+    private fun revealSearchHit(hit: SearchHit) {
+        blurSearch(clear = true)
+        ScreenState.settingsTab = hit.tab.ordinal
+        val destination = when {
+            hit.visible -> hit
+            hit.group.show?.invoke() != false -> SearchHit(hit.tab, hit.group, null)
+            else -> tabs[hit.tab.ordinal].firstOrNull { it.show?.invoke() != false }
+                ?.let { SearchHit(hit.tab, it, null) } ?: return
+        }
+        if (destination.group.collapsible) expandedGroups.add(destination.group.key)
+        groupVis.getOrPut(destination.group) { Spring(240f, 28f, 1f) }.apply { x = 1f; v = 0f }
+        for (section in destination.group.sections) for (row in section.rows) {
+            val visible = if (row.show?.invoke() != false) 1f else 0f
+            rowVis.getOrPut(row) { Spring(260f, 30f, visible) }.apply { x = visible; v = 0f }
+        }
+        pendingSearch = destination
+        highlightedSearch = destination
+        searchHighlightUntil = System.nanoTime() + 1_800_000_000L
+    }
+
+    private fun alignSearchHit(placed: List<Placed>) {
+        val hit = pendingSearch ?: return
+        pendingSearch = null
+        val group = placed.firstOrNull { it.g === hit.group } ?: return
+        var y = group.y
+        val section = hit.row?.let { row -> group.sections.firstOrNull { row in it.section.rows } }
+        if (section != null) {
+            y += headH + section.y + section.heading
+            for (row in section.section.rows) {
+                if (row === hit.row) break
+                y += rowHeight(row, section.width) * (rowVis[row]?.x ?: 0f).coerceIn(0f, 1f)
+            }
+        }
+        target = (y - 10f).coerceIn(0f, maxScroll)
+        pos = target
+    }
+
+    fun searchClick(x: Int, y: Int): Boolean {
+        if (searchRect.contains(x, y)) {
+            focusSearch()
+            return true
+        }
+        if (searchFocused && searchPopup.contains(x, y)) {
+            searchHits.firstOrNull { it.first.contains(x, y) }?.second?.let(::revealSearchHit)
+            return true
+        }
+        blurSearch()
+        return false
+    }
+
+    fun scrollSearch(wheel: Int, x: Int, y: Int): Boolean {
+        if (!searchFocused || !searchPopup.contains(x, y)) return false
+        val maxOffset = (searchResults.size - searchVisibleRows).coerceAtLeast(0)
+        searchOffset = (searchOffset + if (wheel > 0) -1 else 1).coerceIn(0, maxOffset)
+        selectedSearch = selectedSearch.coerceIn(searchOffset, searchOffset + searchVisibleRows - 1)
+        return true
+    }
+
+    private fun searchKeyTyped(typedChar: Char, keyCode: Int): Boolean {
+        val platform = DangoClient.platform
+        if (!searchFocused) {
+            if (!platform.ctrlDown || keyCode != Keys.F) return false
+            focusSearch()
+            return true
+        }
+        val before = searchQuery
+        when {
+            keyCode == Keys.ESCAPE -> blurSearch(clear = true)
+            keyCode == Keys.RETURN || keyCode == Keys.NUMPADENTER ->
+                searchResults.getOrNull(selectedSearch)?.let(::revealSearchHit)
+            keyCode == Keys.UP || keyCode == Keys.DOWN -> if (searchResults.isNotEmpty()) {
+                selectedSearch = (selectedSearch + if (keyCode == Keys.UP) -1 else 1).coerceIn(0, searchResults.lastIndex)
+                if (selectedSearch < searchOffset) searchOffset = selectedSearch
+                if (selectedSearch >= searchOffset + searchVisibleRows) searchOffset = selectedSearch - searchVisibleRows + 1
+            }
+            keyCode == Keys.BACK || keyCode == Keys.DELETE -> if (searchQuery.isNotEmpty()) {
+                searchQuery = searchQuery.substring(0, searchQuery.offsetByCodePoints(searchQuery.length, -1))
+            }
+            platform.ctrlDown && keyCode == Keys.A -> searchQuery = ""
+            platform.ctrlDown && keyCode == Keys.V ->
+                searchQuery = (searchQuery + platform.clipboard.replace(Regex("[\\r\\n\\t]+"), " ")).take(80)
+            Keys.isAllowedChar(typedChar) -> searchQuery = (searchQuery + typedChar).take(80)
+        }
+        if (before != searchQuery) refreshSearch()
+        return true
+    }
     // ---------------------------------------------------------------- 取色器
 
     private fun rgb(c: Int) = Color((c shr 16 and 255) / 255f, (c shr 8 and 255) / 255f, (c and 255) / 255f, 1f)
@@ -765,7 +980,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             val shown = g.show?.invoke() != false
             val vis = groupVis.getOrPut(g) { Spring(240f, 28f, if (shown) 1f else 0f) }
                 .tick(if (shown) 1f else 0f).coerceIn(0f, 1f)
-            val expanded = shown && (!g.collapsible || g in expandedGroups)
+            val expanded = shown && (!g.collapsible || g.key in expandedGroups)
             val width = if (g.fullWidth) fullWidth else colWidth
             val split = g.sections.size > 1 && width >= 560f
             val inner = (width - 28f).coerceAtLeast(0f)
@@ -837,6 +1052,10 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         if (fadedGroup) ctx.pushOpacity(groupAlpha)
         try {
             ctx.drawShape(b, ShapeStyle(Color(1f, 1f, 1f, 0.05f), 14f))
+            val selected = highlightedSearch
+            if (selected?.group === g && selected.row == null && System.nanoTime() < searchHighlightUntil) {
+                ui.card(b.copy(height = headH), RED.copy(a = 0.18f), 10f)
+            }
             val x = b.x + 14f
             val iw = b.width - 28f
             val arrowWidth = if (g.collapsible) 24f else 0f
@@ -860,10 +1079,10 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             if (g.collapsible && visible) {
                 val arrow = LayoutBounds(b.right - 14f - arrowWidth, b.y + 7f, arrowWidth, 24f)
                 val header = LayoutBounds(b.x, b.y, b.width - arrowWidth - switchWidth - 14f, headH)
-                val open = g in expandedGroups
+                val open = g.key in expandedGroups
                 val action = {
-                    if (!expandedGroups.add(g)) {
-                        expandedGroups.remove(g)
+                    if (!expandedGroups.add(g.key)) {
+                        expandedGroups.remove(g.key)
                         clearCacheUntil = 0L
                         commitEdit()
                         closeFontListNow()
@@ -913,12 +1132,16 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                 if (faded) ctx.pushOpacity(a)
                 val keep = ui.hits.size
                 try {
-                    ctx.drawShape(LayoutBounds(x, y, iw, 1f), ShapeStyle(Color(1f, 1f, 1f, 0.06f)))
-                    drawRow(LayoutBounds(x, y, iw, rowHeight), r, clip)
+                    val bounds = LayoutBounds(x, y, iw, rowHeight)
+                    if (highlightedSearch?.row === r && System.nanoTime() < searchHighlightUntil) {
+                        ui.card(bounds, RED.copy(a = 0.18f), 8f)
+                    }
+                    ctx.drawShape(bounds.copy(height = 1f), ShapeStyle(Color(1f, 1f, 1f, 0.06f)))
+                    drawRow(bounds, r, clip)
                 } finally {
                     if (faded) ctx.popOpacity()
                 }
-                if (!visible || (g.collapsible && g !in expandedGroups) || r.show?.invoke() == false || rv < 0.9f) {
+                if (!visible || (g.collapsible && g.key !in expandedGroups) || r.show?.invoke() == false || rv < 0.9f) {
                     while (ui.hits.size > keep) ui.hits.removeAt(ui.hits.size - 1)
                 }
             }
@@ -1661,7 +1884,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             return true
         }
         // 正在录按键：Esc 取消；Backspace / Delete 清空。
-        val v = bindingKey ?: return false
+        val v = bindingKey ?: return searchKeyTyped(typedChar, keyCode)
         when {
             keyCode == Keys.ESCAPE -> {}
             (keyCode == Keys.BACK || keyCode == Keys.DELETE) && v.minRange <= 0 -> module.rebindKey(v, Keys.NONE)

@@ -82,6 +82,9 @@ class NeteaseMusicModule : Module() {
     @ModuleValue("Lyrics page romanization", "")
     internal val lyricsPageRomanization = BooleanValue(false)
 
+    @ModuleValue("Collapse settings on close", "Fold settings groups when closing the settings page or the player")
+    internal val collapseSettingsOnClose = BooleanValue(false)
+
     @ModuleValue("Song comments", "Show the NetEase comments button and allow scrolling to comments")
     internal val songCommentsEnabled = BooleanValue(true)
 

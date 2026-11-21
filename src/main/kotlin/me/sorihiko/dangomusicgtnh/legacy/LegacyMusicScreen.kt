@@ -33,6 +33,7 @@ class LegacyMusicScreen(
     }
 
     override fun onGuiClosed() {
+        screen.closeSettingsPage()
         inputMethod.setActive(false)
         screen.login.close()
         Keyboard.enableRepeatEvents(false)

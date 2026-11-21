@@ -136,8 +136,7 @@ class MusicScreen(
         val now = System.currentTimeMillis()
         closingAlpha = opacity(now)
         closingAt = now
-        settings.commitEdit()
-        settings.stopDrag()
+        settings.closePage()
         tracks.scrollbarUp()
         tracks.queueDrag.cancel()
         appleQueue.queueDrag.cancel()
@@ -168,13 +167,18 @@ class MusicScreen(
         go(Page.HOME)
     }
 
+    private fun changePage(page: Page) {
+        if (ScreenState.page == Page.SETTINGS && page != Page.SETTINGS) settings.closePage()
+        ScreenState.page = page
+    }
+
     internal fun go(p: Page) {
         libraryPull = null
         libraryPullOffset = 0f
         groupPage.clearFocus()
         closeLyrics()
         tracks.clearFilter()
-        ScreenState.page = p
+        changePage(p)
         ScreenState.backPage = null
         ScreenState.trail.clear()
         ScreenState.artist = null
@@ -204,7 +208,7 @@ class MusicScreen(
         }
         val b = ScreenState.backPage
         if (b != null) {
-            ScreenState.page = b
+            changePage(b)
             ScreenState.backPage = null
             return
         }
@@ -215,7 +219,7 @@ class MusicScreen(
             return
         }
         if (ScreenState.opened?.id != snap.opened?.id) tracks.clearFilter()
-        ScreenState.page = snap.page
+        changePage(snap.page)
         ScreenState.opened = snap.opened
         ScreenState.backPage = snap.backPage
         ScreenState.artist = snap.artist
@@ -238,10 +242,10 @@ class MusicScreen(
         val cur = ScreenState.artist
         if (ScreenState.page == Page.ARTIST && cur != null && cur.source == ref.source &&
             ((ref.id.isNotEmpty() && cur.id == ref.id) || (ref.id.isEmpty() && cur.name == ref.name))) return
-        if (ScreenState.page == Page.SETTINGS) ScreenState.page = ScreenState.settingsBack
+        if (ScreenState.page == Page.SETTINGS) changePage(ScreenState.settingsBack)
         pushTrail()
         tracks.clearFilter()
-        ScreenState.page = Page.ARTIST
+        changePage(Page.ARTIST)
         ScreenState.artist = ref
         ScreenState.backPage = null
         tracks.resetScroll()
@@ -258,7 +262,7 @@ class MusicScreen(
         if (fromArtist) pushTrail()
         if (ScreenState.opened?.id != p.id) tracks.clearFilter()
         ScreenState.opened = p
-        ScreenState.page = Page.PLAYLIST
+        changePage(Page.PLAYLIST)
         ScreenState.backPage = if (fromArtist) null else from
         tracks.resetScroll()
         tracks.resetCoverflow()
@@ -277,7 +281,7 @@ class MusicScreen(
         if (!live) sidebar.searchFocused = false
         tracks.clearFilter()
         if (ScreenState.page != Page.SEARCH) ScreenState.backPage = ScreenState.page
-        ScreenState.page = Page.SEARCH
+        changePage(Page.SEARCH)
         tracks.resetScroll()
         tracks.resetCoverflow()
         ScreenState.lastQuery = q
@@ -346,7 +350,7 @@ class MusicScreen(
             leaveSettings()
         } else {
             ScreenState.settingsBack = ScreenState.page
-            ScreenState.page = Page.SETTINGS
+            changePage(Page.SETTINGS)
             settings.openPage()
         }
     }
@@ -354,7 +358,7 @@ class MusicScreen(
     private fun leaveSettings() {
         val page = ScreenState.settingsBack
         if (page == Page.APPLE_BROWSE && !appleNavigation) go(Page.HOME)
-        else ScreenState.page = page
+        else changePage(page)
     }
 
     internal fun toggleCoverView() {
@@ -396,7 +400,10 @@ class MusicScreen(
     internal fun blurTextFields() {
         sidebar.searchFocused = false
         tracks.filterFocused = false
+        settings.blurSearch()
     }
+
+    internal fun closeSettingsPage() = settings.closePage()
 
     // ---------------------------------------------------------------- 绘制
 
@@ -852,14 +859,17 @@ class MusicScreen(
         if (mouseButton == 0) bar.commitVolumeOutside(barX, barY)
         bar.closeMenuOutside(barX, barY)
         if (mouseButton == 0 && bar.menuContains(barX, barY)) {
+            settings.blurSearch()
             ui.hits.firstOrNull { it.first.contains(mx, my) }?.second?.invoke()
             return
         }
         if (mouseButton == 0 && !lyricsOpen && (appleBarMenu.capturesInput || appleQueue.contains(mx, my))) {
+            settings.blurSearch()
             val hit = ui.hits.firstOrNull { it.first.contains(mx, my) }
             if (hit != null && (appleBarMenu.capturesInput || !appleQueue.queueDrag.down(mx, my, hit))) hit.second()
             return
         }
+        if (!lyricsOpen && mouseButton == 0 && ScreenState.page == Page.SETTINGS && settings.searchClick(mx, my)) return
         // 快捷键的“重置”按钮可能滚到了播放栏底下：点在播放栏上时先交给播放栏（以前会把音质按钮的点击吃掉）
         if (!lyricsOpen && mouseButton == 0 && !barRect.expand(0f, 8f).contains(mx, my) && settings.resetKeyAt(mx, my)) return
         if (!lyricsOpen && settings.bindMouse(mouseButton)) return
@@ -972,6 +982,7 @@ class MusicScreen(
         }
         // 按住 Ctrl 滚得快十倍
         val step = (if (wheel > 0) -3 else 3) * (if (platform.ctrlDown) 10 else 1)
+        if (ScreenState.page == Page.SETTINGS && settings.scrollSearch(wheel, lx, ly)) return
         when {
             settings.area.contains(lx, ly) -> settings.scroll(wheel)
             sidebar.listArea.contains(lx, ly) -> sidebar.scrollBy(step)
@@ -1009,7 +1020,7 @@ class MusicScreen(
             // Keep physical key codes for editing commands and shortcut recording, but don't insert their
             // characters again: every text field (settings, search, filter, group page) would get each letter twice.
             if (ScreenState.page == Page.GROUP && groupPage.keyTyped(textChar, keyCode)) return
-            if (settings.keyTyped(textChar, keyCode)) return
+            if (ScreenState.page == Page.SETTINGS && settings.keyTyped(textChar, keyCode)) return
             if (sidebar.keyTyped(textChar, keyCode)) return
             if (tracks.filterKeyTyped(textChar, keyCode)) return
         }

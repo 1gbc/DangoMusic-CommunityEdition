@@ -96,7 +96,13 @@ Vertical position (or drag it with chat open)	垂直位置，也可打开聊天�
 Island animations	灵动岛动画
 Show the playback waveform and volume hotkey feedback	显示播放音浪和快捷键调音量时的动画
 Liquid glass	液态玻璃
-Liquid glass background; off is a solid black pill	关闭后使用纯黑背景
+Island background	灵动岛背景风格
+Choose the Dynamic Island background material	选择灵动岛使用的背景材质
+Collapse settings on close	关闭时收起设置分组
+Fold settings groups when closing the settings page or the player	离开设置页或关闭播放器时收起分组
+Search settings	搜索设置
+No matching settings	未找到相关设置
+Currently hidden	当前条件下隐藏
 Music	音乐
 Show what the built-in player is playing	显示内置播放器的当前歌曲
 Song notify	歌曲通知

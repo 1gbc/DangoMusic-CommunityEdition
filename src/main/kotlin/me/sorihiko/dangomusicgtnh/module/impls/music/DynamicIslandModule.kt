@@ -17,6 +17,8 @@ import me.sorihiko.dangomusicgtnh.music.CoverArt
 import me.sorihiko.dangomusicgtnh.music.CoverCache
 import me.sorihiko.dangomusicgtnh.music.PlaybackView
 import me.sorihiko.dangomusicgtnh.musicui.AppleLyricsLayout
+import me.sorihiko.dangomusicgtnh.musicui.HudBackdrop
+import me.sorihiko.dangomusicgtnh.musicui.HudBackground
 import me.sorihiko.dangomusicgtnh.musicui.PlayerIcons
 import me.sorihiko.dangomusicgtnh.musicui.mixColor
 import me.sorihiko.dangomusicgtnh.ui.LayoutBounds
@@ -39,8 +41,8 @@ import kotlin.math.sin
 @ModuleMeta(Category.MUSIC, "DynamicIsland")
 class DynamicIslandModule : Module() {
 
-    @ModuleValue("Liquid glass", "Liquid glass background; off is a solid black pill")
-    private val glass = BooleanValue(true)
+    @ModuleValue("Island background", "Choose the Dynamic Island background material")
+    private val islandBackground = IntValue(0, HudBackground.entries.lastIndex, HudBackground.LIQUID.ordinal)
 
     @ModuleValue("Island layout", "Choose the Dynamic Island layout")
     private val islandLayout = IntValue(STYLE_C, STYLE_B, STYLE_C)
@@ -70,6 +72,7 @@ class DynamicIslandModule : Module() {
     }
 
     private var context: GuiCanvas? = null
+    private val backdrop = HudBackdrop { checkNotNull(context) }
 
     private var shown = Kind.IDLE
     private var contentAlpha = 0f
@@ -263,22 +266,15 @@ class DynamicIslandModule : Module() {
         } ?: initial
 
         val ctx = context ?: DangoClient.gfx.newCanvas().also { context = it }
-        ctx.begin(glass.get(), 0, 0)
+        val background = HudBackground.entries[islandBackground.value]
+        ctx.begin(background.capturesWorld, 0, 0)
         try {
             val r = min(shown.cornerRadius, h / 2f)
 
             ctx.pushScale(k, k, 1f)
-            if (glass.get()) {
-                ctx.drawGlass(pill, Theme.GLASS_WINDOW.copy(radius = r, shadow = ShadowStyle(Color(0f, 0f, 0f, 0.14f), 8f, Vec2(0f, -2f))))
-            } else {
-                ctx.drawShape(
-                    pill,
-                    ShapeStyle(
-                        Color(0.02f, 0.02f, 0.03f, 0.9f), r, 1f, Color(1f, 1f, 1f, 0.07f),
-                        ShadowStyle(Color(0f, 0f, 0f, 0.18f), 8f, Vec2(0f, -2f)),
-                    )
-                )
-            }
+            val glass = Theme.GLASS_WINDOW.copy(radius = r,
+                shadow = ShadowStyle(Color(0f, 0f, 0f, 0.14f), 8f, Vec2(0f, -2f)))
+            backdrop.draw(pill, glass, background, snap.track)
 
             // 内容按目标尺寸排版，在当前胶囊里居中，超出部分裁掉
             val cw = widthOf(shown, snap, available, titleSize)

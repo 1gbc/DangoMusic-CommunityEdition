@@ -79,7 +79,7 @@ internal class Ui {
 
     fun drawNeteaseAppleSearchField(
         box: LayoutBounds, value: String, placeholder: String, focused: Boolean,
-        iconX: Float, iconSize: Float, textX: Float, textRight: Float, size: Float,
+        iconX: Float, iconSize: Float, textX: Float, textRight: Float, size: Float, focusColor: Color = APPLE_CONTROL_BLUE,
     ) {
         val centerY = box.y + box.height / 2f
         val fill = if (focused) Theme.CARD_HOVER else Theme.CARD
@@ -87,9 +87,9 @@ internal class Ui {
         val stroke = 1.5f
         if (focused) {
             // ShapeStyle draws its stroke outside the fill. Inset once so both end caps share one outline.
-            ctx.drawShape(box.expand(-stroke, -stroke), ShapeStyle(fill, radius - stroke, stroke, APPLE_CONTROL_BLUE))
+            ctx.drawShape(box.expand(-stroke, -stroke), ShapeStyle(fill, radius - stroke, stroke, focusColor))
         } else card(box, fill, radius)
-        SidebarIcons.draw(ctx, "search", iconX, centerY, if (focused) APPLE_CONTROL_BLUE else Theme.TEXT_SECONDARY, iconSize)
+        SidebarIcons.draw(ctx, "search", iconX, centerY, if (focused) focusColor else Theme.TEXT_SECONDARY, iconSize)
 
         val width = (textRight - textX).coerceAtLeast(0f)
         val caretGap = if (focused) 3f else 0f

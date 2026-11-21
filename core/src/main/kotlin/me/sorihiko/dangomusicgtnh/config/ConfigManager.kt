@@ -73,6 +73,11 @@ class ConfigManager(
                 (obj.get("enabled") as? JsonPrimitive)?.let { enabledMap[module] = it.asBoolean }
 
                 val values = obj.get("values") as? JsonObject ?: continue
+                // Old configs had a liquid-glass switch. Dark glass is the closest new material to the old black fill.
+                if (module.name == "DynamicIsland" && !values.has("islandBackground")) {
+                    val glass = values.get("glass") as? JsonPrimitive
+                    if (glass?.isBoolean == true && !glass.asBoolean) values.addProperty("islandBackground", 1)
+                }
                 for (field in valueFields(module)) {
                     val json = values.get(field.name) ?: continue
                     try {

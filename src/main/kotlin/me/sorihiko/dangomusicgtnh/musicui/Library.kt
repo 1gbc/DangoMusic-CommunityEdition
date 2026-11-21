@@ -42,6 +42,7 @@ internal object ScreenState {
     var page = Page.HOME
     /** 设置页：0 = Lyrics，1 = Music & HUD；以及从哪一页点进来的 */
     var settingsTab = 0
+    val expandedSettingsGroups = mutableSetOf<Pair<String, String>>()
     var settingsBack = Page.HOME
     var backPage: Page? = null
     var opened: NeteasePlaylist? = null

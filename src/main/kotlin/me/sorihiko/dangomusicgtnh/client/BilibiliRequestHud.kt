@@ -16,7 +16,8 @@ import me.sorihiko.dangomusicgtnh.music.request.RequestEntry
 import me.sorihiko.dangomusicgtnh.music.request.RequestNotice
 import me.sorihiko.dangomusicgtnh.music.request.RequestNoticeKind
 import me.sorihiko.dangomusicgtnh.music.request.SongRequests
-import me.sorihiko.dangomusicgtnh.musicui.FlowingCoverBackdrop
+import me.sorihiko.dangomusicgtnh.musicui.HudBackdrop
+import me.sorihiko.dangomusicgtnh.musicui.HudBackground
 import me.sorihiko.dangomusicgtnh.musicui.PlayerIcons
 import me.sorihiko.dangomusicgtnh.musicui.SidebarIcons
 import me.sorihiko.dangomusicgtnh.musicui.fmtTime
@@ -35,7 +36,6 @@ import kotlin.math.exp
 import kotlin.math.floor
 
 internal object BilibiliRequestHud {
-    private const val MARGIN = 18f
     private const val PADDING = 12f
     private const val HEADER_HEIGHT = 128f
     private const val ROW_HEIGHT = 38f
@@ -128,7 +128,7 @@ internal object BilibiliRequestHud {
     private var lifted: LiftedRow? = null
     private var panelPress: PanelPress? = null
     private var canvas: GuiCanvas? = null
-    private val coverBackdrop = FlowingCoverBackdrop { checkNotNull(canvas) }
+    private val backdrop = HudBackdrop { checkNotNull(canvas) }
     private val hudFontStyles = CjkStyle.REQUEST_HUD to CjkStyle.REQUEST_HUD_BOLD
     private var renderedNoticeHeight = 0f
     private var primaryText = Theme.TEXT_PRIMARY
@@ -159,12 +159,12 @@ internal object BilibiliRequestHud {
     ) {
         private val headerHeight = HEADER_HEIGHT * lineScale
         val rowHeight = ROW_HEIGHT * lineScale
-        val travelX = (width - cardWidth - MARGIN * 2f).coerceAtLeast(0f)
-        val travelY = (height - bodyHeight - MARGIN * 2f).coerceAtLeast(0f)
+        val travelX = (width - cardWidth).coerceAtLeast(0f)
+        val travelY = (height - bodyHeight).coerceAtLeast(0f)
         val panelHeight = bodyHeight + noticeHeight
-        private val restingTop = MARGIN + positionY * travelY
-        val panel = LayoutBounds(MARGIN + positionX * travelX,
-            minOf(restingTop, height - MARGIN - panelHeight).coerceAtLeast(0f), cardWidth, panelHeight)
+        private val restingTop = positionY * travelY
+        val panel = LayoutBounds(positionX * travelX,
+            minOf(restingTop, height - panelHeight).coerceAtLeast(0f), cardWidth, panelHeight)
         val rows = LayoutBounds(panel.x + PADDING, panel.y + headerHeight, cardWidth - PADDING * 2f, bodyHeight - headerHeight - PADDING)
         val noticeTop = rows.bottom + PADDING / 2f
         val visibleRows = rows.height / rowHeight
@@ -194,8 +194,8 @@ internal object BilibiliRequestHud {
     private fun scale(mc: Minecraft): Float {
         val maxNoticeHeight = RequestNotice.MAX_VISIBLE * (NOTICE_PADDING * 2f + NOTICE_MAX_LINES * NOTICE_LINE_HEIGHT * lineScale)
         return minOf(mc.displayWidth / 1280f, mc.displayHeight / 800f).coerceIn(0.5f, 1.65f)
-            .coerceAtMost(mc.displayWidth / (module.requestHudWidth.value + MARGIN * 2f))
-            .coerceAtMost(mc.displayHeight / (bodyLimit + maxNoticeHeight + MARGIN * 2f))
+            .coerceAtMost(mc.displayWidth / module.requestHudWidth.value.toFloat())
+            .coerceAtMost(mc.displayHeight / (bodyLimit + maxNoticeHeight))
     }
 
     private fun layout(mc: Minecraft, count: Int): Layout {
@@ -258,13 +258,14 @@ internal object BilibiliRequestHud {
         animateQueue(layout, entries, dragIndex, targetIndex, dt)
         val hover = if (dragIndex < 0 && panelPress == null) hit(layout, entries, mouseX, mouseY)?.control else null
         val ctx = canvas ?: DangoClient.gfx.newCanvas().also { canvas = it }
-        val background = module.requestHudBackground.value
+        val background = HudBackground.entries[module.requestHudBackground.value]
         val playback = PlaybackView.snapshot()
-        ctx.begin(background != 2, mouseX.toInt(), mouseY.toInt())
+        ctx.begin(background.capturesWorld, mouseX.toInt(), mouseY.toInt())
         ctx.pushScale(layout.scale, layout.scale, 1f)
         text.clear()
         try {
-            drawPanel(ctx, layout.panel, look, playback.track, background)
+            val radius = if (module.requestHudSmallCorners.get()) 5f else look.panel.radius
+            backdrop.draw(layout.panel, look.panel.copy(radius = radius), background, playback.track, alpha = 0.94f)
             header(ctx, layout, look, mc.session.username, layout.lock.containsPoint(mouseX, mouseY))
             nowPlaying(ctx, layout, playback)
             queue(ctx, layout, look, entries, hover)
@@ -286,23 +287,6 @@ internal object BilibiliRequestHud {
             ctx.popTransform()
             ctx.end()
         }
-    }
-
-    private fun drawPanel(ctx: GuiCanvas, bounds: LayoutBounds, look: Look, track: NeteaseTrack?, background: Int) {
-        val radius = if (module.requestHudSmallCorners.get()) 5f else look.panel.radius
-        if (background == 2) {
-            coverBackdrop.prepareMenuFrame(track)
-            coverBackdrop.drawControlPanel(bounds, radius)
-            return
-        }
-        val glass = if (background == 1) look.panel.copy(
-            tint = Color(0.045f, 0.05f, 0.06f, 0.76f), maxLuma = 0.18f,
-            saturation = 0.7f, frost = 0.38f, dispersion = 0f, highlight = 0.48f,
-            fallback = Color(0.07f, 0.075f, 0.09f, 0.96f),
-        ) else look.panel
-        ctx.pushOpacity(0.94f)
-        ctx.drawGlass(bounds, glass.copy(radius = radius))
-        ctx.popOpacity()
     }
 
     private fun header(ctx: GuiCanvas, layout: Layout, look: Look, player: String, lockHovered: Boolean) {
@@ -629,8 +613,8 @@ internal object BilibiliRequestHud {
             press.moved = true
         }
         if (!press.moved) return false
-        if (layout.travelX > 0f) module.requestPosX.setValue((x - press.offset.x - MARGIN) / layout.travelX)
-        if (layout.travelY > 0f) module.requestPosY.setValue((y - press.offset.y - MARGIN) / layout.travelY)
+        if (layout.travelX > 0f) module.requestPosX.setValue((x - press.offset.x) / layout.travelX)
+        if (layout.travelY > 0f) module.requestPosY.setValue((y - press.offset.y) / layout.travelY)
         return true
     }
 
