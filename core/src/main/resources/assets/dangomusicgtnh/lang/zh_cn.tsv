@@ -96,6 +96,8 @@ Vertical position (or drag it with chat open)	垂直位置，也可打开聊天�
 Island animations	灵动岛动画
 Show the playback waveform and volume hotkey feedback	显示播放音浪和快捷键调音量时的动画
 Liquid glass	液态玻璃
+Lock Dynamic Island	锁定灵动岛
+Prevent moving the Dynamic Island with the mouse	锁定后无法用鼠标移动灵动岛，需在这里解锁
 Island background	灵动岛背景风格
 Choose the Dynamic Island background material	选择灵动岛使用的背景材质
 Collapse settings on close	关闭时收起设置分组
@@ -882,8 +884,6 @@ Current track	当前播放
 Request queue	点歌队列
 Nothing playing	暂无播放
 No song requests	暂无点歌
-Show full Bilibili nickname	显示完整 B 站昵称
-Show the nickname received from Bilibili on each request	关闭时打码，开启后显示 B 站弹幕提供的昵称
 Requested by %s	%s 点歌
 Unable to play “%s”. Skipped.	《%s》无法播放，已跳过
 No matching song for “%s”.	找不到匹配的歌曲「%s」

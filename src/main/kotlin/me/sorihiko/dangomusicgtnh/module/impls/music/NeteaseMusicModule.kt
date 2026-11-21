@@ -152,9 +152,6 @@ class NeteaseMusicModule : Module() {
     @ModuleValue("Request notice duration", "Seconds that each request message stays visible")
     internal val requestNoticeSeconds = IntValue(3, 60, 15)
 
-    @ModuleValue("Show full Bilibili nickname", "Show the nickname received from Bilibili on each request")
-    internal val requestShowFullName = BooleanValue(false)
-
     @ModuleValue("Request HUD background", "Choose the request card material")
     internal val requestHudBackground = IntValue(0, 2, 0)
 

@@ -494,7 +494,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         ) + player.take(listOf("requestNoticeSeconds"))
         val requestAppearance = player.take(listOf(
             "requestHudBackground", "requestHudSmallCorners", "requestHudWidth", "requestHudHeight",
-            "requestHudAutoHeight", "requestHudFont", "requestHudTextSize", "requestHudTextColor", "requestShowFullName",
+            "requestHudAutoHeight", "requestHudFont", "requestHudTextSize", "requestHudTextColor",
             "requestPosX", "requestPosY", "requestHudLocked",
         ))
         val interfaceGroups = listOf(
@@ -502,7 +502,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             Group("NetEase interface settings", "Player menu appearance", module, false, neteaseLooks, fullWidth = true),
             Group("Apple Music interface settings", "Player menu appearance", module, false, appleLooks, fullWidth = true),
             Group("Dynamic Island", "Overlay", islandModule, true, island.take(listOf(
-                "islandLayout", "islandAnimations", "islandBackground", "scale", "posX", "posY",
+                "islandLayout", "islandAnimations", "islandBackground", "scale", "posX", "posY", "islandLocked",
             )) + island.take(), fullWidth = true),
             Group("Bilibili song requests", "Live danmaku and request queue", module, false, emptyList(),
                 fullWidth = true, sections = listOf(
@@ -676,7 +676,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         val popup = LayoutBounds(searchRect.x, searchRect.bottom + 5f, width, maxOf(1, shown.size) * itemHeight + 8f)
         searchPopup = popup
         ui.mt.flush(ui.scale)
-        PopupLook.panel(ui.ctx, popup)
+        drawSettingsSearchCard(popup)
         if (shown.isEmpty()) {
             val none = ui.trim(I18n.text("No matching settings"), popup.width - 24f, 11f)
             ui.text(none, popup.x + 12f, popup.y + 13f, 11f, Theme.TEXT_SECONDARY)
@@ -684,19 +684,36 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         for ((index, hit) in shown.withIndex()) {
             val row = LayoutBounds(popup.x + 4f, popup.y + 4f + index * itemHeight, popup.width - 8f, itemHeight)
             val selected = index + searchOffset == selectedSearch
-            if (selected || ui.hover(row)) {
-                ui.card(row, if (selected) PopupLook.selected else PopupLook.hover, PopupLook.rowRadius(itemHeight))
+            if (index > 0) {
+                ui.ctx.drawShape(LayoutBounds(row.x + 8f, row.y, row.width - 16f, 1f), ShapeStyle(Theme.SEPARATOR))
             }
-            val label = ui.trim(I18n.text(hit.label), row.width - 24f, 12f, Theme.FONT_SEMIBOLD)
+            if (selected || ui.hover(row)) {
+                ui.card(row, if (selected) Theme.CARD_HOVER else Theme.CARD, 4f)
+            }
+            val label = ui.trim(I18n.text(hit.label), row.width - 24f, 12f, Theme.FONT_MEDIUM)
             val path = listOfNotNull(
                 I18n.text(hit.tab.label), hit.row?.let { I18n.text(hit.group.title) },
                 if (hit.visible) null else I18n.text("Currently hidden"),
             ).joinToString(" › ")
-            ui.text(label, row.x + 8f, row.y + 3f, 12f, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
-            ui.text(ui.trim(path, row.width - 24f, 9f), row.x + 8f, row.y + 18f, 9f, Theme.TEXT_SECONDARY)
+            ui.text(label, row.x + 8f, row.y + 4f, 12f, Theme.TEXT_PRIMARY, Theme.FONT_MEDIUM)
+            ui.text(ui.trim(path, row.width - 24f, 9.5f), row.x + 8f, row.y + 18f, 9.5f, Theme.TEXT_TERTIARY)
             Theme.drawChevron(ui.ctx, row.right - 11f, row.y + row.height / 2f, 7f, 0f, Theme.TEXT_SECONDARY)
             searchHits += row to hit
         }
+    }
+
+    private fun drawSettingsSearchCard(bounds: LayoutBounds) {
+        val radius = 6f
+        val ctx = ui.ctx
+        val shadow = ShadowStyle(Color(0f, 0f, 0f, 0.25f), 12f, Vec2(0f, 3f), outside = true)
+        ctx.drawShape(bounds, ShapeStyle(radius = radius, shadow = shadow))
+        if (screen.usesAppleLayout) {
+            screen.coverBackdrop.drawMenuPanel(bounds, radius, Color(0.03f, 0.035f, 0.045f, 0.34f))
+        } else {
+            ctx.drawGlass(bounds, Theme.GLASS_WINDOW.copy(radius = radius, refraction = 0f, bevel = 1f,
+                dispersion = 0f, highlight = 0f, shadow = ShadowStyle()))
+        }
+        ui.card(bounds, Theme.CARD, radius)
     }
 
     private fun revealSearchHit(hit: SearchHit) {
@@ -1051,7 +1068,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         val fadedGroup = groupAlpha < 0.999f
         if (fadedGroup) ctx.pushOpacity(groupAlpha)
         try {
-            ctx.drawShape(b, ShapeStyle(Color(1f, 1f, 1f, 0.05f), 14f))
+            ui.card(b, Theme.CARD, 14f)
             val selected = highlightedSearch
             if (selected?.group === g && selected.row == null && System.nanoTime() < searchHighlightUntil) {
                 ui.card(b.copy(height = headH), RED.copy(a = 0.18f), 10f)
@@ -1136,7 +1153,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                     if (highlightedSearch?.row === r && System.nanoTime() < searchHighlightUntil) {
                         ui.card(bounds, RED.copy(a = 0.18f), 8f)
                     }
-                    ctx.drawShape(bounds.copy(height = 1f), ShapeStyle(Color(1f, 1f, 1f, 0.06f)))
+                    ctx.drawShape(bounds.copy(height = 1f), ShapeStyle(Theme.SEPARATOR))
                     drawRow(bounds, r, clip)
                 } finally {
                     if (faded) ctx.popOpacity()

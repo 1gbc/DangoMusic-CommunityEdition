@@ -85,7 +85,7 @@ public final class SongRequestCheck {
         verifyMatchFallback(japanese, args);
         verifyShortLinks(args);
         verifyNoticeSchedule();
-        verifyRequesterAndCopy(studio);
+        verifyCommandCopy();
         verifyPlayback();
         System.out.println("Bilibili request parsing, disambiguation, repeat, timed skip, queue order and resume checks passed.");
     }
@@ -215,16 +215,7 @@ public final class SongRequestCheck {
         check(((List<?>) visible.invoke(queue, now + 20_000_000_000L)).size() == 1, "configured hold controls lifetime");
     }
 
-    private static void verifyRequesterAndCopy(NeteaseTrack song) throws Exception {
-        Method displayName = RequestEntry.class.getMethod("displayName", boolean.class);
-        RequestEntry request = new RequestEntry(1, song, "1个白菜", RequestCacheState.READY);
-        check(displayName.invoke(request, true).equals("1个白菜"), "show the received nickname when enabled");
-        check(displayName.invoke(request, false).equals("1***"), "mask the nickname by default");
-        RequestEntry oneCharacter = new RequestEntry(2, song, "白", RequestCacheState.READY);
-        check(displayName.invoke(oneCharacter, false).equals("***"), "mask single-character nicknames");
-        RequestEntry alreadyMasked = new RequestEntry(3, song, "1***", RequestCacheState.READY);
-        check(displayName.invoke(alreadyMasked, true).equals("1***"), "keep the nickname as received from Bilibili");
-
+    private static void verifyCommandCopy() throws Exception {
         String hud = "me.sorihiko.dangomusicgtnh.client.BilibiliRequestHud";
         Class<?> target = Class.forName(hud + "$CommandKey");
         java.lang.reflect.Constructor<?> key = target.getDeclaredConstructor(long.class, long.class);

@@ -37,7 +37,7 @@ import kotlin.math.floor
 
 internal object BilibiliRequestHud {
     private const val PADDING = 12f
-    private const val HEADER_HEIGHT = 144f
+    private const val HEADER_HEIGHT = 138f
     private const val ROW_HEIGHT = 38f
     private const val NOTICE_PADDING = 8f
     private const val NOTICE_LINE_HEIGHT = 19f
@@ -136,11 +136,11 @@ internal object BilibiliRequestHud {
     private var panelPress: PanelPress? = null
     private val commandTargets = mutableMapOf<CommandKey, LayoutBounds>()
     private var copyFeedback: CopyFeedback? = null
-    private val creditScrollStartedAt = System.nanoTime()
     private var canvas: GuiCanvas? = null
     private val backdrop = HudBackdrop { checkNotNull(canvas) }
     private val hudFontStyles = CjkStyle.REQUEST_HUD to CjkStyle.REQUEST_HUD_BOLD
     private var renderedNoticeHeight = 0f
+    private var panelHit: LayoutBounds? = null
     private var primaryText = Theme.TEXT_PRIMARY
     private var secondaryText = DIM_TEXT
     private var scrollRows = 0f
@@ -236,8 +236,12 @@ internal object BilibiliRequestHud {
         scrollRows = scrollRows.coerceIn(0f, (count - layout.visibleRows).coerceAtLeast(0f))
     }
 
+    fun blocksPointer(x: Int, y: Int): Boolean =
+        BilibiliRequests.enabled && panelHit?.contains(x, y) == true
+
     fun render(mc: Minecraft) {
         commandTargets.clear()
+        panelHit = null
         if (!BilibiliRequests.enabled || mc.theWorld == null || mc.thePlayer == null ||
             mc.displayWidth <= 0 || mc.displayHeight <= 0
         ) return
@@ -265,6 +269,9 @@ internal object BilibiliRequestHud {
         if (interactive && movingPanel != null && Mouse.isButtonDown(0) && movePanel(movingPanel, layout, mouseX, mouseY)) {
             layout = layout(mc, entries.size)
         }
+        val panel = layout.panel
+        panelHit = LayoutBounds(panel.x * layout.scale, panel.y * layout.scale,
+            panel.width * layout.scale, panel.height * layout.scale)
         val drag = if (interactive) gesture.move(mouseX, mouseY) else null
         val dragIndex = entries.indexOfFirst { it.id == drag?.id }
         val dt = ((now - lastFrameTime) / 1e9f).coerceIn(0f, 0.05f)
@@ -346,21 +353,21 @@ internal object BilibiliRequestHud {
         val line = layout.lineScale
         val titleSize = 14f * layout.textScale
         val detailSize = 11f * layout.textScale
-        val p = LayoutBounds(left, layout.panel.y + 53f * line, layout.rows.width, 62f * line)
-        text.text(ctx, I18n.text("Current track"), left + 2f, p.y - 17f * line, detailSize, secondaryText)
-        val art = LayoutBounds(p.x + 2f, p.y + (p.height - 58f) / 2f, 50f, 50f)
+        val top = layout.panel.y + 53f * line
+        text.text(ctx, I18n.text("Current track"), left + 2f, top - 17f * line, detailSize, secondaryText)
+        val art = LayoutBounds(left + 2f, top + line, 50f, 50f)
         drawCover(ctx, art, playback.track)
         val x = art.right + 10f
-        val right = p.right - 2f
+        val right = layout.rows.right - 2f
         val track = playback.track
         if (track == null) {
-            text.text(ctx, I18n.text("Nothing playing"), x, p.y + 13f * line, SONG_TITLE_SIZE * layout.textScale, secondaryText)
+            text.text(ctx, I18n.text("Nothing playing"), x, top + 13f * line, SONG_TITLE_SIZE * layout.textScale, secondaryText)
             return
         }
         text.text(ctx, text.trim(track.name, right - x, titleSize, Theme.FONT_SEMIBOLD),
-            x, p.y, titleSize, primaryText, Theme.FONT_SEMIBOLD)
+            x, top, titleSize, primaryText, Theme.FONT_SEMIBOLD)
         text.text(ctx, text.trim(track.artists.joinToString(" / "), right - x, detailSize),
-            x, p.y + 15f * line, detailSize, secondaryText)
+            x, top + 14f * line, detailSize, secondaryText)
         val duration = playback.durationMs.coerceAtLeast(0L)
         val position = playback.positionMs.coerceAtLeast(0L)
         val elapsed = fmtTime(position)
@@ -368,7 +375,7 @@ internal object BilibiliRequestHud {
         val timeSize = 10f * layout.textScale
         val totalX = right - text.width(total, timeSize)
         val barLeft = x + text.width(elapsed, timeSize) + 7f
-        val barY = p.bottom - 13f * line
+        val barY = top + 40f * line
         val bar = LayoutBounds(barLeft, barY, (totalX - barLeft - 7f).coerceAtLeast(0f), 2f)
         ctx.drawShape(bar, ShapeStyle(Theme.TRACK, 1f))
         val progress = if (duration > 0L) (position.toDouble() / duration).coerceIn(0.0, 1.0).toFloat() else 0f
@@ -485,20 +492,12 @@ internal object BilibiliRequestHud {
         val detailSize = 11f * layout.textScale
         text.text(ctx, text.trim(entry.track.name, available, titleSize, Theme.FONT_SEMIBOLD),
             textX, row.y + 5f * layout.lineScale, titleSize, primaryText, Theme.FONT_SEMIBOLD)
-        val showFullName = module.requestShowFullName.get()
-        val credited = I18n.format("Requested by %s", entry.displayName(showFullName))
-        val requester = if (showFullName) credited else text.trim(credited, available * 0.64f, detailSize)
+        val requester = text.trim(I18n.format("Requested by %s", entry.user), available * 0.64f, detailSize)
         val separator = " · "
         val artistWidth = available - text.width("$separator$requester", detailSize)
         val artist = text.trim(entry.track.artists.joinToString(" / "), artistWidth, detailSize)
         val details = if (artist.isNotEmpty()) "$artist$separator$requester" else requester
-        val top = row.y + 20f * layout.lineScale
-        val overflow = text.width(details, detailSize) - available
-        if (showFullName && overflow > 0f) {
-            drawScrollingCredit(ctx, row, details, textX, top, detailSize, available, overflow)
-        } else {
-            text.text(ctx, details, textX, top, detailSize, secondaryText)
-        }
+        text.text(ctx, details, textX, row.y + 20f * layout.lineScale, detailSize, secondaryText)
         when (entry.cache) {
             RequestCacheState.READY -> dot(ctx, statusX, centerY, READY)
             RequestCacheState.LOADING -> PlayerIcons.loadingRing(ctx, statusX, centerY, null, 14f)
@@ -507,25 +506,6 @@ internal object BilibiliRequestHud {
         val remove = layout.remove(row)
         val removeColor = if (hover == RequestQueueGesture.Target.REMOVE) FAILED else Theme.TEXT_PRIMARY
         PlayerIcons.draw(ctx, trash, remove.x + remove.width / 2f, centerY, 13f, removeColor)
-    }
-
-    private fun drawScrollingCredit(
-        ctx: GuiCanvas, row: LayoutBounds, value: String, x: Float, y: Float, size: Float, width: Float, overflow: Float,
-    ) {
-        val previous = text.clip
-        val region = LayoutBounds(x, row.y, width, row.height)
-        val clip = previous?.intersect(region) ?: region
-        val speed = 24.0
-        val phase = ((System.nanoTime() - creditScrollStartedAt) / 1e9) % (2.0 + overflow / speed)
-        val offset = ((phase - 1.0) * speed).toFloat().coerceIn(0f, overflow)
-        ctx.pushClip(clip)
-        text.clip = clip
-        try {
-            text.text(ctx, value, x - offset, y, size, secondaryText)
-        } finally {
-            text.clip = previous
-            ctx.popClip()
-        }
     }
 
     private fun noticeViews(notices: List<RequestNotice>, now: Long): List<NoticeView> {
