@@ -1,101 +1,78 @@
-<h1 align="center">DangoMusic GTNH Edition</h1>
-<p align="center">在 GT New Horizons 里，听音乐、看歌词、和朋友分享正在播放的歌。</p>
+# DangoMusic GTNH Edition
 
-<p align="center">
-<a href="https://github.com/1gbc/DangoMusic-GTNH/releases"><img alt="Development version" src="https://img.shields.io/badge/version-0.1.0-blue"></a>
-<a href="https://www.gtnewhorizons.com/version-history/"><img alt="Target GTNH" src="https://img.shields.io/badge/target-GTNH%202.9.0-blue"></a>
-<a href="LICENSE"><img alt="Project license GPL v3" src="https://img.shields.io/badge/license-GPL--3.0-green"></a>
-</p>
+在 GT New Horizons 里听网易云音乐和 Apple Music。支持游戏内歌词、灵动岛、听歌房，以及 B 站直播弹幕点歌。
 
-<p align="center">
-<a href="#功能概览">功能</a> · <a href="#运行环境">环境</a> · <a href="#下载与安装">安装</a> · <a href="#快速上手">上手</a> · <a href="CHANGELOG.md">更新记录</a> · <a href="TODO.md">团队待办</a> · <a href="docs/RELEASE_AUDIT.md">发布审查</a>
-</p>
+[下载最新正式版](https://github.com/1gbc/DangoMusic-GTNH/releases/latest) · [更新记录](CHANGELOG.md) · [反馈问题](https://github.com/1gbc/DangoMusic-GTNH/issues/new/choose)
 
-## 项目与来源
+## 安装与打开播放器
 
-本项目基于 **[Sorihiko 的 DangoMusic](https://github.com/Sorihiko/DangoMusic)** 移植开发，起点为上游 [v1.7.3 / `1e82730`](https://github.com/Sorihiko/DangoMusic/tree/1e82730e6cbf19301e33cc6901f210bcffe9ea2c)，目标为 **Minecraft 1.7.10 / Forge / GTNH 2.9.0**。
+1. 使用 **GTNH 2.9.0 / Minecraft 1.7.10 / Forge 10.13.4.1614**，保留整合包原有的 Java 和启动设置。
+2. 退出游戏，从 [正式版下载页](https://github.com/1gbc/DangoMusic-GTNH/releases/latest) 下载 `dangomusicgtnh-<版本号>.jar`（例如 `dangomusicgtnh-0.5.7.jar`），放进对应实例的 `mods/`。升级时移走旧版 JAR，并保留原来的 Mod 配置和登录资料。
+3. 进入 **选项 → 控制 → DangoMusic GTNH Edition**，绑定「打开 / 关闭播放器」。在游戏中按下你绑定的按键，在播放器侧栏左下角选择网易云或 Apple Music。
+4. 在侧栏搜索歌曲或打开歌单。列表模式单击歌名可以选中歌曲，点击小封面上的播放按钮即可播放。底部控制栏可以暂停、切歌、调整进度、音量或查看播放队列。
 
-**这是非官方 GTNH 移植版本。** 本项目独立维护，不代表 Sorihiko、GTNH 团队或各音乐平台，也未声称获得其官方背书。上游原作的播放器、多音源、液态玻璃界面、3D 歌词和 HUD 是本项目的基础；1.7.10 平台适配、GTNH 联机共享与听歌房、歌词和交互调整、Apple Music 实验接入等工作见本仓库[更新记录](CHANGELOG.md)。上游其他 Minecraft 版本的功能和安装包不等于本移植版的兼容范围。
+## 音源、歌单和播放队列
 
-感谢 Sorihiko 和本项目实际贡献者。完整来源与第三方说明见 [CREDITS](CREDITS.md) 和 [第三方许可](THIRD_PARTY_NOTICES.md)。
+| 功能 | 怎么用 |
+| --- | --- |
+| **网易云音乐** | 扫码登录后可使用个人歌单、我喜欢、每日推荐、私人 FM 等入口。在「我喜欢」可启动心动模式。 |
+| **Apple Music** | 在 Windows x64 电脑上安装 .NET 8 Desktop Runtime 和 WebView2 Evergreen Runtime，然后切换音源并在弹出的 Apple 窗口登录。内置播放组件会自动启动。 |
+| **待播队列** | 点击底栏的队列图标，按住歌曲拖动重排。切换到歌单封面模式后，单击封面可以直接播放，也可以拖动封面队列，停稳后播放居中的歌曲。 |
+| **收藏到歌单** | 点击播放控制栏的三点菜单，选「收藏到歌单」并选择可写入的歌单。网易云的爱心对应「我喜欢」。 |
+| **缓存与续播** | 网易云支持下一首预取、本地音频缓存及退出后恢复上次播放状态。在设置中可查看缓存占用和文件数，也可清理缓存。 |
 
-> **0.1.0 正式发行包**：提供普通 JAR、对应源码及可选 Apple Windows 组件。Apple 与多人共享仍有实验性范围；本轮构建/许可检查通过，但没有重新进行 GTNH 游戏内测试。详见[本次发行说明](docs/RELEASE_0_1_0.md)。仓库若为私有，下载仍需仓库访问权限。
+播放与收藏权限由各音源和账号决定。Apple Music 正常播放需要有效订阅和当地曲库权限。Apple Music 的搜索、队列和歌词界面在游戏内，授权与受保护音频播放由后台 WebView2 组件处理。 [安装运行时](https://dotnet.microsoft.com/download/dotnet/8.0) · [安装 WebView2](https://developer.microsoft.com/microsoft-edge/webview2/)
 
-## 功能概览
+![网易云歌单封面模式，右上角是视图切换，底部是播放控制栏](docs/screenshots/player-coverflow.png)
 
-以下状态以 `0.1.0`（沿用 dev.5.38 功能）源码及已有记录为准。**已实现**表示存在实际逻辑；**已实测**只指所链接记录中的具体场景，不能推及全部歌曲、平台或环境。本次文档整理没有新增游戏实测。
+*歌单封面模式（界面演示）。右上角切换列表或封面视图，点击中央或两侧封面可播放，拖动也可以浏览整条队列。*
 
-| 功能 | 当前范围 | 状态与依据 |
-|---|---|---|
-| 网易云 | 登录、搜索、歌单、曲目信息与播放；能力受平台及账号权限限制 | 已实现；[移植验证](docs/PHASE5_VALIDATION.md)，登录和接口需持续回归 |
-| 播放器与队列 | 播放/暂停、停止、上下首、跳转、音量；顺序、一次打乱的随机队列、单曲循环；网易云喜欢列表的心动模式 | 已实现；[历史更新与验证](CHANGELOG.md) |
-| 歌词 | 大歌词页、独立设置的 3D 歌词、多句滚动、翻译/音译、KTV 覆盖、当前行抖动、偏移及前奏/间奏/尾声提示 | 已实现；缺少逐字时间时不能保证精确逐字覆盖 |
-| HUD 与快捷键 | 歌曲卡片、灵动岛、封面进度条、位置设置、Tab 玩家列表避让、组合键与停止快捷键 | 已实现；停止后显示玩家 ID、FPS、延迟 |
-| 附近共享 | 同服同维度附近播放与歌词投影，默认 32 格 | 实验性；服务端和参与客户端均须安装，见[联机说明](docs/NEARBY_SHARING.md) |
-| 听歌房（音乐群组） | 同服跨距离、邀请、多房间成员关系、单个当前房间、服务端保存、回房与本地音乐接管 | 已实现，待多客户端完整回归；[5.38 记录](CHANGELOG.md)；不宣称支持上游 Firebase 跨服房间 |
-| 续播与缓冲 | 非 Apple 队列下次启动恢复为暂停；可调缓冲、网易云下一首预取 | 已实现；5.38 构建与服务端冷启动记录，听感待回归 |
+## 歌词与灵动岛
 
-### Apple Music：实验性、单独说明
+- **大歌词页**。点击底栏当前歌曲的封面进入。Apple Music 可从歌词页三点菜单单独切换「音译」和「翻译」。
+- **3D 歌词**。在「设置 → 歌词」选择 3D 样式。可调字体、大小、配色、发光、行数和逐词效果。多行模式位于镜头左侧并保持透视角度。翻译、音译和 KTV 效果取决于歌曲提供的歌词数据。
+- **驾驶舱歌词**。在「设置 → 歌词」切到驾驶舱样式，独立调整位置、字体、行数、颜色和发光。
+- **灵动岛**。在「设置 → 界面与 HUD → 灵动岛」选择布局和背景。提供液态玻璃、深色玻璃和封面流动。位置默认锁定。先在设置中解锁，再按住「HUD 鼠标交互」（默认左 Alt）拖动。关闭点歌台时也可以调出鼠标，已有自定义绑定会保留。
 
-**游戏内操作，后台组件实际播放。** Windows WebView2 组件既处理官方登录，也承载受保护播放；它并非只负责登录验证。尚未实现由 Mod 的 Java 解码器直接播放 Apple 完整音频。窗口可以隐藏，组件进程必须运行。
+![GTNH 实机里的左侧多行 3D 歌词和顶部灵动岛](docs/screenshots/world-lyrics.png)
 
-| 能力 | 已有内容 | 验证边界 |
-|---|---|---|
-| 登录与恢复 | 官方账号弹窗、本机独立资料、关闭主窗口隐藏、恢复有效会话 | 真实账号退出重启恢复有记录；过期/撤销后须重新授权，不是扫码登录 |
-| 完整播放与控制 | 游戏队列、暂停/继续、停止、跳转、音量；完整播放权限校验 | 已实测出声及跳到 90 秒后继续播放；不是全曲、全地区、长期稳定性验收 |
-| 搜索与媒体库 | 目录搜索、个人歌曲和歌单、热门、最近播放、推荐卡片 | 已接入；最近播放真实接口返回 10 项；收藏修改未实现，全部推荐类型未完整验收 |
-| 歌词与 KTV | 本地 LRC/YRC/TTML 或严格匹配的网易云歌词，复用游戏显示 | 解析/时钟回归通过；非 Apple 官方歌词，3D 游戏内效果待完整目视验收 |
-| 音质与音效 | 以官方网页实际能力为准 | 不保证无损、Hi-Res、空间音频、Java 均衡器或全部淡入淡出效果 |
-| 一起听 | 未完成独立账号的 Apple 同步播放路线 | 开发中；不提供 Apple 音频 URL 转发或 DRM 音频下载 |
+*GTNH 开发版实机截图。多行 3D 歌词在屏幕左侧显示，顶部的灵动岛显示当前曲目。*
 
-新版 JAR 内置 Windows x64 播放组件，首次切换到 Apple Music 时自动安装并启动。Windows 仍需 .NET 8 Desktop Runtime x64 和 WebView2 Evergreen Runtime。旧版 `0.1.0` 使用同页的配套组件 ZIP。[安装指南](docs/INSTALL.md#apple-music-可选组件)
+## B 站直播点歌台
 
-## 运行环境
+点歌台目前使用网易云音源。主播端需要 **Windows x64** 和 **.NET 8 Runtime**。启用点歌台后，游戏会按设置启动 JAR 内置的弹幕助手。
 
-| 项目 | 玩家需要什么 |
-|---|---|
-| 游戏与整合包 | GTNH **2.9.0** / Minecraft **1.7.10** / Forge **10.13.4.1614**；不用于 Fabric、NeoForge 或其他 MC 版本 |
-| Java 与图形环境 | 沿用 GTNH 对应发行包的 Java 和启动参数。已有 Windows 基线：**Java 25.0.3 + lwjgl3ify 3.0.42 + LWJGL 3.4.3**；保留整合包依赖，不自行混装 LWJGL |
-| 渲染与声音 | 可用 OpenGL 与系统声音设备；平滑中文字体使用系统字体回退。精简 Java 环境未经完整验证 |
-| Apple 可选组件 | 目前仅 Windows x64；另需 WebView2 Evergreen Runtime。是否另装 .NET 8 Desktop Runtime 取决于组件包，见[安装指南](docs/INSTALL.md) |
-| 联机可选组件 | 单人只装客户端；附近共享、听歌房需要服务器及参与客户端均安装 |
+1. 开播后复制直播链接中的房间号。播放器切到网易云音源，打开「设置 → 界面与 HUD → B 站直播点歌台」。
+2. 开启点歌台，填写房间号。Mod 会把房间号存到本机。每次启动游戏后手动开启点歌台，就会自动连接上次填写的房间。
+3. 观众在 B 站直播间发送以下任意一种指令。
 
-GTNH 官方提供不同 Java 发行包，见[官方下载历史](https://www.gtnewhorizons.com/version-history/)和 [lwjgl3ify 安装说明](https://github.com/GTNewHorizons/lwjgl3ify/blob/master/README.MD)。Mod 没有声明 lwjgl3ify 的 Forge 硬依赖，但当前验证基线使用它；纯 LWJGL 2、Java 8 游戏运行、Linux/macOS 客户端尚未完整验收。**编译目标 Java 8 不是玩家推荐运行版本。**
+| 指令用法 | 示例 |
+| --- | --- |
+| 按歌名 | `/song 青のすみか` |
+| 按歌名和歌手 | `/song 泡沫-邓紫棋` |
+| 按网易云歌曲 ID | `/song 3459356843` |
+| 按网易云单曲链接 | `/song https://music.163.com/song?id=3459356843` |
+| 使用旧指令 | `/点歌 青のすみか キタニタツヤ` |
 
-<details>
-<summary>开发者构建环境</summary>
+歌名匹配到多个版本时，卡片底部会显示候选的歌手、专辑和歌曲 ID 指令。主播按住 **左 Alt** 后，点击候选按钮的左侧「列表＋加号」，可将该版本直接加入点歌队尾并开始缓存。点击右侧会复制完整的 `/song 歌曲ID` 指令，可粘贴到 B 站弹幕。若 B 站客户端截断分享链接，也可直接发送歌曲 ID。
 
-使用 **JDK 25 运行 Gradle**、**JDK 8 编译 toolchain**，并安装 **.NET 8 SDK** 以构建内置播放组件。执行 `./gradlew build`，Windows 执行 `gradlew.bat build`。首次构建需联网获取依赖，产物在 `build/libs/`。[贡献指南](CONTRIBUTING.md)
+歌曲入队后会提前缓存。当前歌曲结束，或主播手动点「下一首」时，优先播放待播点歌。队首最多等待缓存 10 秒，超时或无法播放会提示并跳过。点歌播完后继续原歌单。按住**左 Alt**可以释放鼠标、拖动队列排序、点击封面上的播放按钮提前播放，或点垃圾桶删除。也可以拖动已解锁的点歌卡片贴到屏幕边缘。
 
-</details>
+连接有问题时，核对直播间号后点「重新连接」。需要先验证 Mod 内部流程时，可以开启「模拟弹幕」并发送示例。 [点歌台详细指南](tools/bilibili-live-helper/README.md)
 
-## 下载与安装
+![GTNH 实机里的点歌台，卡片显示当前播放、进度、待播歌曲和队列操作](docs/screenshots/bilibili-request-hud.png)
 
-1. 前往 [Releases](https://github.com/1gbc/DangoMusic-GTNH/releases)。当前正式发行包为 [0.1.0](https://github.com/1gbc/DangoMusic-GTNH/releases/tag/0.1.0)，先阅读本次测试范围和已知限制。仓库未公开时需要访问权限。
-2. 玩家安装包为 **`dangomusicgtnh-0.1.0.jar`**。不要安装 `-dev.jar`、`-dev-preshadow.jar`、`-sources.jar`，不要把 Source code ZIP 当作 Mod。
-3. 退出游戏并备份实例，把 JAR 放进该实例 **`.minecraft/mods/`**，移走旧版同 Mod JAR，只保留一份。
-4. **保留 `.minecraft/config/dangomusicgtnh/`**，尤其 `accounts/`、个人设置、续播与本地歌词。升级不需要删除账号。
-5. 进入世界按 **M**。Apple 及服务端安装见[完整指南](docs/INSTALL.md)，附近共享与听歌房见[联机说明](docs/NEARBY_SHARING.md)。
+*GTNH 开发版实机截图。卡片上半部分是当前播放与进度，下半部分是点歌队列。按住交互键后可以拖动排序或点击垃圾桶删除。*
 
-源码及依赖源码请下载同页 `source-bundle.zip`，校验值在 `SHA256SUMS.txt`。缺少 JAR 的历史条目不可安装；CI 成功不等于全部游戏场景已实测。
+## 联机、设置和反馈
 
-## 快速上手
+- **附近共享**。服务端和参与的客户端都装同版本 Mod。进入「设置 → 多人」开启共享或收听。同一服务器、同维度的附近玩家可以听歌或看歌词投影。
+- **听歌房**。从侧栏的「听歌房」创建房间、加入或邀请同服玩家。房间收听覆盖同服不同距离。 [多人使用指南](docs/NEARBY_SHARING.md)
+- **设置搜索与导出**。设置页顶部可模糊搜索选项。「导出设置」保存为 `settings.json`。关闭目标实例后，可用文件覆盖其 `config/dangomusicgtnh/settings.json`。B 站房间号保存在本机单独的文件里。
+- **反馈**。附上 GTNH 和 Mod 版本、音源、复现步骤和脱敏日志。安全问题可按项目的安全指南私下报告。 [安全指南](SECURITY.md) · [提交问题](https://github.com/1gbc/DangoMusic-GTNH/issues/new/choose)
 
-1. 默认 **M** 打开播放器，在左下角选音源并进入账号入口。会员、订阅和地区权限由平台决定。
-2. 搜索歌曲或打开歌单，点击曲目或“播放全部”。底栏控制播放、停止、队列、模式、音量和进度。
-3. **设置 → 快捷键**可录制按键或组合键；也可在 Minecraft 控制设置修改 DangoMusic 分类。除打开播放器的 M 外，播放/暂停、上下首、停止、音量和歌词默认未绑定，避免整合包冲突。
-4. 从当前播放区进入大歌词页；世界内 3D 歌词和 HUD 从设置启用。两套歌词设置独立，翻译、音译和 KTV 依赖实际歌词数据。
-5. 同服服务器已安装 Mod 时，在 **设置 → 多人**启用分享/收听，或从侧栏进入 **听歌房**。
+## 项目来源与开发
 
-## 截图、限制与反馈
+本项目是 Sorihiko 的 DangoMusic 的非官方 GTNH 移植版，以 GPL-3.0 发布。 [上游项目](https://github.com/Sorihiko/DangoMusic) · [移植起点 v1.7.3](https://github.com/Sorihiko/DangoMusic/tree/1e82730e6cbf19301e33cc6901f210bcffe9ea2c)
 
-尚未整理可公开的 GTNH 截图，不使用上游其他 MC 版本图片冒充。需要补充：播放器首页/搜索、世界内灵动岛和多行 KTV、大歌词页、双客户端共享/听歌房。截图先隐藏账号、服务器地址和聊天隐私。
-
-- 平台接口可能变化；登录和播放受订阅、版权及网络限制。选择最高音质不等于实际返回该档位。
-- 音乐、封面、歌词与商标属于各自权利人。代码开源许可不授予内容分发权，短期 URL 和服务端中转另有平台条款风险，见[审查报告](docs/RELEASE_AUDIT.md)。
-- 配置在 `.minecraft/config/dangomusicgtnh/`。普通音源下载的音频、预取与封面主要在内存；Apple WebView2 保存自己的登录资料和浏览器缓存。见[目录说明](docs/INSTALL.md#配置与缓存位置)。
-- [提交问题](https://github.com/1gbc/DangoMusic-GTNH/issues/new/choose)时提供版本、音源、复现步骤和脱敏日志。**不要上传 accounts、Cookie、令牌、私钥、签名地址或浏览器资料。** 安全问题按 [SECURITY](SECURITY.md) 使用私密渠道。
-
----
-
-[更新记录](CHANGELOG.md) · [贡献指南](CONTRIBUTING.md) · [致谢](CREDITS.md) · [第三方许可](THIRD_PARTY_NOTICES.md) · [GPL-3.0](LICENSE) · [发布审查](docs/RELEASE_AUDIT.md)
+开发者可使用 JDK 25 运行 Gradle、JDK 8 作为编译工具链、.NET 8 SDK 构建内置组件。 [贡献指南](CONTRIBUTING.md) · [致谢](CREDITS.md) · [第三方许可](THIRD_PARTY_NOTICES.md) · [许可证](LICENSE)
