@@ -75,6 +75,8 @@ object CjkStyle {
     const val NOTO_SC_BOLD = 6
     const val MENU = 7
     const val MENU_BOLD = 8
+    const val REQUEST_HUD = 9
+    const val REQUEST_HUD_BOLD = 10
 }
 
 /** 一段要画的平滑字体文字。centered = (x, y) 是可见部分的中心；否则 y 是基线 */

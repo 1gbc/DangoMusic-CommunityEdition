@@ -14,6 +14,7 @@ import me.sorihiko.dangomusicgtnh.module.Category
 import me.sorihiko.dangomusicgtnh.module.Module
 import me.sorihiko.dangomusicgtnh.module.ModuleMeta
 import me.sorihiko.dangomusicgtnh.module.values.BooleanValue
+import me.sorihiko.dangomusicgtnh.module.values.ColorValue
 import me.sorihiko.dangomusicgtnh.module.values.FloatValue
 import me.sorihiko.dangomusicgtnh.module.values.IntValue
 import me.sorihiko.dangomusicgtnh.module.values.TextValue
@@ -144,6 +145,33 @@ class NeteaseMusicModule : Module() {
 
     @ModuleValue("Lock request HUD", "Keep the song request HUD in place while using the queue")
     internal val requestHudLocked = BooleanValue(false)
+
+    @ModuleValue("Request notice duration", "Seconds that each request message stays visible")
+    internal val requestNoticeSeconds = IntValue(3, 60, 15)
+
+    @ModuleValue("Request HUD background", "Choose the request card material")
+    internal val requestHudBackground = IntValue(0, 2, 0)
+
+    @ModuleValue("Small corners", "Use smaller corners on the request card")
+    internal val requestHudSmallCorners = BooleanValue(false)
+
+    @ModuleValue("Request HUD width", "Set the width of the request card")
+    internal val requestHudWidth = IntValue(250, 480, 318)
+
+    @ModuleValue("Request HUD height", "Set the card height; request messages can expand it")
+    internal val requestHudHeight = IntValue(178, 406, 292)
+
+    @ModuleValue("Automatic height", "Fit the queue to its contents within the selected height")
+    internal val requestHudAutoHeight = BooleanValue(true)
+
+    @ModuleValue("Request HUD font", "Choose a font just for the request card and its messages")
+    internal val requestHudFont = TextValue("")
+
+    @ModuleValue("Request HUD text size", "Scale the text on the request card and its messages")
+    internal val requestHudTextSize = IntValue(75, 135, 100)
+
+    @ModuleValue("Request HUD text color", "Set the text color for song titles and request messages")
+    internal val requestHudTextColor = ColorValue(0xFFFFFF)
 
     @ModuleValue("Volume normalization", "Keep songs at a similar loudness")
     private val normalize = BooleanValue(true)
@@ -461,7 +489,9 @@ class NeteaseMusicModule : Module() {
         if (musicSource.value != source.configId) musicSource.setValue(source.configId)
         MusicSources.selected = source
         syncPlayerKeys()
-        me.sorihiko.dangomusicgtnh.client.BilibiliRequests.update(enabled && bilibiliRequests.get(), bilibiliMock.get())
+        me.sorihiko.dangomusicgtnh.client.BilibiliRequests.update(
+            enabled && bilibiliRequests.get(), bilibiliMock.get(), requestNoticeSeconds.value,
+        )
         if (!enabled) return
         // 歌词模块一直开着（显示与否由 3D lyrics 控制）；等配置读回之后再检查
         if (++tickCount > 5) lyrics()?.let { if (!it.enabled) it.enabled = true }

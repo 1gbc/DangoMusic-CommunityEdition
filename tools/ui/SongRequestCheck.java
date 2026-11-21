@@ -69,6 +69,7 @@ public final class SongRequestCheck {
             "copied share text");
         verifyMatchFallback(japanese, args);
         verifyShortLinks(args);
+        verifyNoticeSchedule();
         verifyPlayback();
         System.out.println("Bilibili request parsing, disambiguation, repeat, timed skip, queue order and resume checks passed.");
     }
@@ -93,10 +94,12 @@ public final class SongRequestCheck {
         Method show = SongRequests.class.getDeclaredMethod("show", String.class, RequestNoticeKind.class, List.class);
         show.setAccessible(true);
         show.invoke(SongRequests.INSTANCE, query.getSearchText(), RequestNoticeKind.AMBIGUOUS, candidates);
-        RequestNotice notice = SongRequests.INSTANCE.snapshot().getNotice();
+        RequestNotice notice = SongRequests.INSTANCE.snapshot().getNotices().get(0);
         check(notice.getMatchCount() == 2 && notice.getCandidates().get(1).getId() == 2061989812L &&
             notice.getCandidates().get(1).getAlbum().equals("Alternate edition"),
             "disambiguation notice retains the ID and album needed to specify a version");
+        Object notices = field(SongRequests.class, "notices").get(SongRequests.INSTANCE);
+        notices.getClass().getMethod("clear").invoke(notices);
 
         if (Arrays.asList(args).contains("--live")) {
             Class<?> api = Class.forName("me.sorihiko.dangomusicgtnh.music.NeteaseApi");
@@ -163,6 +166,39 @@ public final class SongRequestCheck {
         }
     }
 
+    @SuppressWarnings("unchecked")
+    private static void verifyNoticeSchedule() throws Exception {
+        Class<?> type;
+        try {
+            type = Class.forName("me.sorihiko.dangomusicgtnh.music.request.RequestNoticeQueue");
+        } catch (ClassNotFoundException missing) {
+            throw new AssertionError("The HUD needs a notice queue instead of a single replaceable message", missing);
+        }
+        Object queue = type.getConstructor().newInstance();
+        Method add = type.getMethod("add", long.class, int.class, String.class, RequestNoticeKind.class, List.class);
+        Method visible = type.getMethod("visible", long.class);
+        long now = 100_000_000_000L;
+        List<?> noCandidates = Collections.emptyList();
+        add.invoke(queue, now, 5, "first", RequestNoticeKind.NOT_FOUND, noCandidates);
+        add.invoke(queue, now, 5, "second", RequestNoticeKind.AMBIGUOUS, noCandidates);
+        add.invoke(queue, now, 5, "third", RequestNoticeKind.NOT_FOUND, noCandidates);
+        add.invoke(queue, now, 5, "fourth", RequestNoticeKind.NOT_FOUND, noCandidates);
+        List<RequestNotice> opening = (List<RequestNotice>) visible.invoke(queue, now + 100_000_000L);
+        check(opening.size() == 1 && opening.get(0).getTitle().equals("first"), "arrivals start in order");
+        List<RequestNotice> stacked = (List<RequestNotice>) visible.invoke(queue, now + 1_200_000_000L);
+        check(stacked.size() == 3 && stacked.get(1).getTitle().equals("second"), "three notices coexist in arrival order");
+        RequestNotice first = stacked.get(0);
+        check(first.reveal(now) == 0f && first.reveal(now + 125_000_000L) == 0.5f &&
+            first.reveal(now + 300_000_000L) == 1f && first.reveal(now + 5_375_000_000L) == 0.5f,
+            "notice height and opacity interpolate while it opens and closes");
+        List<RequestNotice> leaving = (List<RequestNotice>) visible.invoke(queue, now + 5_550_000_000L);
+        check(leaving.size() == 3 && leaving.get(0).getTitle().equals("second") &&
+            leaving.get(2).getTitle().equals("fourth"), "first expires before later arrivals and frees a visible slot");
+        check(((List<?>) visible.invoke(queue, now + 11_000_000_000L)).isEmpty(), "each remaining notice expires");
+        add.invoke(queue, now + 12_000_000_000L, 9, "longer", RequestNoticeKind.NOT_FOUND, noCandidates);
+        check(((List<?>) visible.invoke(queue, now + 20_000_000_000L)).size() == 1, "configured hold controls lifetime");
+    }
+
     private static NeteaseTrack track(long id, String title, String artist) {
         return new NeteaseTrack(id, title, Collections.singletonList(artist), 210_000L, "");
     }
@@ -195,7 +231,7 @@ public final class SongRequestCheck {
             entries.add(new RequestEntry(2, good, "Viewer", RequestCacheState.READY));
             naturalEnd(player);
             check(player.getCurrent() == good && player.getQueue() == original, "failed request skips into next without replacing host list");
-            check(requests.snapshot().getNotice().getKind() == RequestNoticeKind.SKIPPED, "failure publishes a notice");
+            check(requests.snapshot().getNotices().get(0).getKind() == RequestNoticeKind.SKIPPED, "failure publishes a notice");
             naturalEnd(player);
             check(player.getCurrent() == original.get(1), "natural insertion resumes at the next original track");
 

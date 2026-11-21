@@ -69,7 +69,7 @@ class MusicScreen(
     private val groupPage = GroupPage(this)
     private val settings = SettingsPage(this, module)
     internal val songComments = SongComments(ui)
-    internal val coverBackdrop = FlowingCoverBackdrop(ui)
+    internal val coverBackdrop = FlowingCoverBackdrop { ui.ctx }
     private val lyricsPage = LyricsPage(ui, module, songComments, coverBackdrop)
     private val appleLyricsMenu = AppleLyricsMenu(ui, module.lyricsPageRomanization, module.lyricsPageTranslation)
     private val appleBarMenu = AppleLyricsMenu(ui, module.lyricsPageRomanization, module.lyricsPageTranslation).apply {

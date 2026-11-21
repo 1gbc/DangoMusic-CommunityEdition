@@ -30,7 +30,10 @@ internal object BilibiliRequests {
         "BilibiliLiveHelper.exe", "BilibiliLiveHelper.dll",
         "BilibiliLiveHelper.deps.json", "BilibiliLiveHelper.runtimeconfig.json",
     )
-    private val examples = listOf("/song id:233931", "/song 同桌的你 - 胡夏", "/点歌 归去来兮 叶炫清")
+    private val examples = listOf(
+        "/song 233931", "/点歌 归去来兮 叶炫清",
+        "/song 青のすみか - キタニタツヤ", "/song id:99999999999999", "/song 群青 - YOASOBI",
+    )
     private val gson = Gson()
     private val supervisor = Executors.newSingleThreadExecutor { task ->
         Thread(task, "Dango-Bilibili-Helper").apply { isDaemon = true }
@@ -50,7 +53,8 @@ internal object BilibiliRequests {
     @Volatile private var useMock = false
     private var closing = false
 
-    @Synchronized fun update(active: Boolean, mock: Boolean) {
+    @Synchronized fun update(active: Boolean, mock: Boolean, noticeSeconds: Int) {
+        SongRequests.noticeSeconds = noticeSeconds
         if (closing || (enabled == active && useMock == mock)) return
         enabled = active
         useMock = mock

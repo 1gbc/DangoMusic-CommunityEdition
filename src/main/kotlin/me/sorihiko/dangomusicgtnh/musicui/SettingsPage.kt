@@ -66,13 +66,16 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
      * [show]：不满足时整组收起（比如只用驾驶舱歌词时 3D 歌词的几组）；
      * [dim]：不满足时整组变暗，标题旁边换成 [note] 说明原因
      */
+    private class Section(val title: String?, val rows: List<Row>)
+
     private class Group(
-        val title: String, val sub: String, val owner: Module, val toggle: Boolean, val rows: List<Row>,
+        val title: String, val sub: String, val owner: Module, val toggle: Boolean, rows: List<Row>,
         val show: (() -> Boolean)? = null,
         val dim: (() -> Boolean)? = null,
         val note: (() -> String?)? = null,
         val collapsible: Boolean = true,
         val fullWidth: Boolean = false,
+        val sections: List<Section> = listOf(Section(null, rows)),
     )
 
     /** 用 ◀ ▶ 切换的选项：设置名 → 每个值的显示名（从最小值开始） */
@@ -83,6 +86,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         "islandLayout" to listOf("Style C", "Style A", "Style B"),
         "uiStyle" to listOf("Classic", "Continuous corners"),
         "appleSidebarStyle" to listOf("Flowing cover colors", "Dark glass"),
+        "requestHudBackground" to listOf("Liquid glass", "Dark glass", "Flowing cover colors"),
         "neteaseInterfaceStyle" to listOf("NetEase classic style", "NetEase Apple style"),
         "lyricStyle" to listOf("3D world lyrics", "Cockpit lyrics", "Both", "Hidden"),
         "sidePosition" to listOf("Left middle", "Left bottom", "Right middle"),
@@ -296,7 +300,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                 val (ann, v) = left.remove(k) ?: return@mapNotNull null
                 val ctl = when {
                     k == "language" -> Ctl.LANGUAGE
-                    k == "lyricFont" || k == "sideFont" || k.endsWith("MenuFont") -> Ctl.FONT
+                    k == "lyricFont" || k == "sideFont" || k == "requestHudFont" || k.endsWith("MenuFont") -> Ctl.FONT
                     k in choiceLabels -> Ctl.CHOICE
                     v is BooleanValue -> Ctl.TOGGLE
                     k == "openKey" || (k.startsWith("key") && v is IntValue) -> Ctl.KEY
@@ -412,7 +416,9 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         val player = Src(module,
             deps = mapOf("envRain" to "envAudio", "envStrength" to "envAudio", "envRays" to "envAudio"),
             fmts = mapOf("volume" to ::percent, "envStrength" to ::percent,
-                "requestPosX" to ::percent, "requestPosY" to ::percent),
+                "requestPosX" to ::percent, "requestPosY" to ::percent,
+                "requestHudTextSize" to { (it as IntValue).value.toString() + "%" },
+                "requestNoticeSeconds" to { I18n.format("%s s", (it as IntValue).value) }),
             // 原声模式绕过音量均衡，开着时均衡这一行收起
             shows = mapOf("normalize" to { !original.get() }))
         player.left.remove("shuffle")   // 随机播放用播放栏上的按钮就够了，设置页不再显示（状态照样保存）
@@ -442,6 +448,21 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                 dim = { original.get() }, note = { if (original.get()) "Off while Original audio is on" else null }),
             Group("Advanced", "Output and buffering", module, false, advanced),
         )
+        val requestFunction = player.take(listOf("bilibiliRequests", "bilibiliMock")) + listOf(
+            Row("Bilibili connection", "", BilibiliAction.STATUS, Ctl.BILIBILI, null, { "" },
+                show = { module.bilibiliRequests.get() }),
+            Row("Bilibili room number", "Enter the number shown in the livestream link", BilibiliAction.ROOM,
+                Ctl.BILIBILI, null, { "" }, show = { module.bilibiliRequests.get() && !module.bilibiliMock.get() }),
+            Row("Reconnect to Bilibili", "", BilibiliAction.RETRY, Ctl.BILIBILI, null, { "" },
+                show = { module.bilibiliRequests.get() && !module.bilibiliMock.get() }),
+            Row("Send mock requests", "Test with sample danmaku and NetEase search", BilibiliAction.MOCK,
+                Ctl.BILIBILI, null, { "" }, show = { module.bilibiliRequests.get() && module.bilibiliMock.get() }),
+        ) + player.take(listOf("requestNoticeSeconds"))
+        val requestAppearance = player.take(listOf(
+            "requestHudBackground", "requestHudSmallCorners", "requestHudWidth", "requestHudHeight",
+            "requestHudAutoHeight", "requestHudFont", "requestHudTextSize", "requestHudTextColor",
+            "requestPosX", "requestPosY", "requestHudLocked",
+        ))
         val interfaceGroups = listOf(
             Group("Interface", "Look and language", module, false, looks, collapsible = false, fullWidth = true),
             Group("NetEase interface settings", "Player menu appearance", module, false, neteaseLooks, fullWidth = true),
@@ -449,17 +470,11 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             Group("Dynamic Island", "Overlay", islandModule, true, island.take(listOf(
                 "islandLayout", "islandAnimations", "glass", "scale", "posX", "posY",
             )) + island.take(), fullWidth = true),
-            Group("Bilibili song requests", "Live danmaku and request queue", module, false,
-                player.take(listOf("bilibiliRequests", "bilibiliMock", "requestPosX", "requestPosY", "requestHudLocked")) + listOf(
-                    Row("Bilibili connection", "", BilibiliAction.STATUS, Ctl.BILIBILI, null, { "" },
-                        show = { module.bilibiliRequests.get() }),
-                    Row("Bilibili room number", "Enter the number shown in the livestream link", BilibiliAction.ROOM,
-                        Ctl.BILIBILI, null, { "" }, show = { module.bilibiliRequests.get() && !module.bilibiliMock.get() }),
-                    Row("Reconnect to Bilibili", "", BilibiliAction.RETRY, Ctl.BILIBILI, null, { "" },
-                        show = { module.bilibiliRequests.get() && !module.bilibiliMock.get() }),
-                    Row("Send mock requests", "Test with sample danmaku and NetEase search", BilibiliAction.MOCK,
-                        Ctl.BILIBILI, null, { "" }, show = { module.bilibiliRequests.get() && module.bilibiliMock.get() }),
-                ), fullWidth = true),
+            Group("Bilibili song requests", "Live danmaku and request queue", module, false, emptyList(),
+                fullWidth = true, sections = listOf(
+                    Section("Requests and connection", requestFunction),
+                    Section("Appearance and position", requestAppearance),
+                )),
         )
         val hotkeys = listOf(Group("Hotkeys", "Click, then press a key · Backspace clears",
             module, false, player.take(), collapsible = false, fullWidth = true))
@@ -731,7 +746,11 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
     private val rowH = 40f
     private val headH = 36f
 
-    private class Placed(val g: Group, val x: Float, val y: Float, val width: Float, val h: Float, val vis: Float)
+    private class PlacedSection(val section: Section, val x: Float, val y: Float, val width: Float, val heading: Float)
+    private class Placed(
+        val g: Group, val x: Float, val y: Float, val width: Float, val h: Float, val vis: Float,
+        val sections: List<PlacedSection>,
+    )
 
     private val groupVis = HashMap<Group, Spring>()
     private val rowVis = HashMap<Row, Spring>()
@@ -748,18 +767,33 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                 .tick(if (shown) 1f else 0f).coerceIn(0f, 1f)
             val expanded = shown && (!g.collapsible || g in expandedGroups)
             val width = if (g.fullWidth) fullWidth else colWidth
+            val split = g.sections.size > 1 && width >= 560f
+            val inner = (width - 28f).coerceAtLeast(0f)
+            val sectionGap = 22f
+            val sectionWidth = if (split) (inner - sectionGap) / g.sections.size else inner
             var rows = 0f
-            for (r in g.rows) {
-                val on = expanded && r.show?.invoke() != false
-                rows += rowVis.getOrPut(r) { Spring(260f, 30f, if (on) 1f else 0f) }
-                    .tick(if (on) 1f else 0f).coerceIn(0f, 1f) * rowHeight(r, width - 28f)
+            val sections = g.sections.mapIndexed { index, section ->
+                var height = 0f
+                for (r in section.rows) {
+                    val on = expanded && r.show?.invoke() != false
+                    height += rowVis.getOrPut(r) { Spring(260f, 30f, if (on) 1f else 0f) }
+                        .tick(if (on) 1f else 0f).coerceIn(0f, 1f) * rowHeight(r, sectionWidth)
+                }
+                val heading = if (section.title == null) 0f else
+                    26f * (section.rows.firstOrNull()?.let { rowVis[it]?.x } ?: 0f).coerceIn(0f, 1f)
+                val placed = PlacedSection(section,
+                    if (split) index * (sectionWidth + sectionGap) else 0f,
+                    if (split) 0f else rows, sectionWidth, heading)
+                val sectionHeight = height + heading
+                rows = if (split) max(rows, sectionHeight) else rows + sectionHeight
+                placed
             }
             val col = if (g.fullWidth) 0 else columnIndex++ % columns
             if (vis < 0.02f && rows < 0.02f) return@mapNotNull null
             val height = (headH + 6f) * vis + rows
             val y = if (g.fullWidth) heights.maxOrNull() ?: 0f else heights[col]
             if (g.fullWidth) heights.fill(y + height + gap * vis) else heights[col] += height + gap * vis
-            Placed(g, col * (colWidth + gap), y, width, height, vis)
+            Placed(g, col * (colWidth + gap), y, width, height, vis, sections)
         }
     }
 
@@ -844,37 +878,51 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                 ui.hits += header.intersect(clip) to action
                 ui.hits += arrow.intersect(clip) to action
             }
-            var y = b.y + headH
-            val groupDim = !g.owner.enabled || g.dim?.invoke() == true
-            for (r in g.rows) {
-                val rv = rowVis[r]?.x ?: 1f
-                if (rv < 0.02f) continue
-                val rowHeight = rowHeight(r, iw)
-                // 依赖的开关 / 整个模块关掉时变暗：渐变过去，不是一下子变
-                val dim = groupDim || (r.dep != null && !r.dep.invoke())
-                val target = if (dim) 0.4f else 1f
-                val alpha = rowFade.getOrPut(r) { Spring(170f, 26f, target) }.tick(target).coerceIn(0.4f, 1f)
-                // 展开 / 收起：位置先让出来，字再淡入；还没完全展开的行不接受点击
-                val appear = ((rv - 0.4f) / 0.6f).coerceIn(0f, 1f)
-                val a = alpha * appear
-                if (a > 0.01f) {
-                    val faded = a < 0.999f
-                    if (faded) ctx.pushOpacity(a)
-                    val keep = ui.hits.size
-                    try {
-                        ctx.drawShape(LayoutBounds(x, y, iw, 1f), ShapeStyle(Color(1f, 1f, 1f, 0.06f)))
-                        drawRow(LayoutBounds(x, y, iw, rowHeight), r, clip)
-                    } finally {
-                        if (faded) ctx.popOpacity()
-                    }
-                    if (!visible || (g.collapsible && g !in expandedGroups) || r.show?.invoke() == false || rv < 0.9f) {
-                        while (ui.hits.size > keep) ui.hits.removeAt(ui.hits.size - 1)
-                    }
-                }
-                y += rowHeight * rv
-            }
+            for (section in p.sections) drawGroupRows(g, section, x, b.y + headH, clip, visible)
         } finally {
             if (fadedGroup) ctx.popOpacity()
+        }
+    }
+
+    private fun drawGroupRows(g: Group, section: PlacedSection, left: Float, top: Float, clip: LayoutBounds, visible: Boolean) {
+        val ctx = ui.ctx
+        val x = left + section.x
+        val iw = section.width
+        var y = top + section.y
+        section.section.title?.takeIf { section.heading > 12f }?.let { title ->
+            ctx.pushOpacity((section.heading - 12f) / 14f)
+            ui.text(ui.trim(I18n.text(title), iw, 11f, Theme.FONT_SEMIBOLD),
+                x, y + 7f, 11f, Theme.TEXT_SECONDARY, Theme.FONT_SEMIBOLD)
+            ctx.popOpacity()
+        }
+        y += section.heading
+        val groupDim = !g.owner.enabled || g.dim?.invoke() == true
+        for (r in section.section.rows) {
+            val rv = rowVis[r]?.x ?: 1f
+            if (rv < 0.02f) continue
+            val rowHeight = rowHeight(r, iw)
+            // 依赖的开关 / 整个模块关掉时变暗：渐变过去，不是一下子变
+            val dim = groupDim || (r.dep != null && !r.dep.invoke())
+            val target = if (dim) 0.4f else 1f
+            val alpha = rowFade.getOrPut(r) { Spring(170f, 26f, target) }.tick(target).coerceIn(0.4f, 1f)
+            // 展开 / 收起：位置先让出来，字再淡入；还没完全展开的行不接受点击
+            val appear = ((rv - 0.4f) / 0.6f).coerceIn(0f, 1f)
+            val a = alpha * appear
+            if (a > 0.01f) {
+                val faded = a < 0.999f
+                if (faded) ctx.pushOpacity(a)
+                val keep = ui.hits.size
+                try {
+                    ctx.drawShape(LayoutBounds(x, y, iw, 1f), ShapeStyle(Color(1f, 1f, 1f, 0.06f)))
+                    drawRow(LayoutBounds(x, y, iw, rowHeight), r, clip)
+                } finally {
+                    if (faded) ctx.popOpacity()
+                }
+                if (!visible || (g.collapsible && g !in expandedGroups) || r.show?.invoke() == false || rv < 0.9f) {
+                    while (ui.hits.size > keep) ui.hits.removeAt(ui.hits.size - 1)
+                }
+            }
+            y += rowHeight * rv
         }
     }
 
@@ -988,6 +1036,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
     private val fontHits = mutableListOf<LayoutBounds>()
 
     private fun defaultFontName(choice: FontChoice): String = I18n.text(when {
+        choice.font === module.requestHudFont -> "Default request HUD font"
         choice.smooth == null -> "Default menu font"
         choice.font === cockpitFont -> "Default bold"
         else -> "Smooth font"
@@ -1357,7 +1406,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         bindingKey = null
         for (tab in tabs) for (g in tab) {
             if (g.toggle && g.owner.enabled != g.owner.enabledByDefault) g.owner.enabled = g.owner.enabledByDefault
-            for (r in g.rows) {
+            for (section in g.sections) for (r in section.rows) {
                 when (val v = r.value) {
                     is BooleanValue -> v.reset()
                     is IntValue -> when (r.ctl) {

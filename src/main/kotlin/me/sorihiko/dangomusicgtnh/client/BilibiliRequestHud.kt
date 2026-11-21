@@ -3,10 +3,12 @@ package me.sorihiko.dangomusicgtnh.client
 import me.sorihiko.dangomusicgtnh.DangoClient
 import me.sorihiko.dangomusicgtnh.DangoMusic
 import me.sorihiko.dangomusicgtnh.font.MixedText
+import me.sorihiko.dangomusicgtnh.gfx.CjkStyle
 import me.sorihiko.dangomusicgtnh.gfx.GuiCanvas
 import me.sorihiko.dangomusicgtnh.i18n.I18n
 import me.sorihiko.dangomusicgtnh.module.impls.music.NeteaseMusicModule
 import me.sorihiko.dangomusicgtnh.music.CoverCache
+import me.sorihiko.dangomusicgtnh.music.LyricFonts
 import me.sorihiko.dangomusicgtnh.music.NeteaseTrack
 import me.sorihiko.dangomusicgtnh.music.PlaybackView
 import me.sorihiko.dangomusicgtnh.music.request.RequestCacheState
@@ -14,9 +16,9 @@ import me.sorihiko.dangomusicgtnh.music.request.RequestEntry
 import me.sorihiko.dangomusicgtnh.music.request.RequestNotice
 import me.sorihiko.dangomusicgtnh.music.request.RequestNoticeKind
 import me.sorihiko.dangomusicgtnh.music.request.SongRequests
+import me.sorihiko.dangomusicgtnh.musicui.FlowingCoverBackdrop
 import me.sorihiko.dangomusicgtnh.musicui.PlayerIcons
 import me.sorihiko.dangomusicgtnh.musicui.SidebarIcons
-import me.sorihiko.dangomusicgtnh.musicui.TimedNotice
 import me.sorihiko.dangomusicgtnh.musicui.fmtTime
 import me.sorihiko.dangomusicgtnh.ui.GlassStyle
 import me.sorihiko.dangomusicgtnh.ui.LayoutBounds
@@ -33,16 +35,14 @@ import kotlin.math.exp
 import kotlin.math.floor
 
 internal object BilibiliRequestHud {
-    private const val WIDTH = 318f
     private const val MARGIN = 18f
     private const val PADDING = 12f
     private const val HEADER_HEIGHT = 128f
     private const val ROW_HEIGHT = 38f
-    private const val MAX_VISIBLE_ROWS = 4
-    private const val NOTICE_HEIGHT = 25f
-    private const val NOTICE_GAP = 5f
-    private const val CHOICE_ROW_HEIGHT = 19f
-    private const val CHOICE_HOLD_NANOS = 15_000_000_000L
+    private const val NOTICE_PADDING = 8f
+    private const val NOTICE_LINE_HEIGHT = 19f
+    private const val NOTICE_MAX_LINES = 6
+    private const val SONG_TITLE_SIZE = 12f
 
     private val READY = Color.fromHex("#A4EBC9")
     private val FAILED = Color.fromHex("#F87794")
@@ -128,6 +128,11 @@ internal object BilibiliRequestHud {
     private var lifted: LiftedRow? = null
     private var panelPress: PanelPress? = null
     private var canvas: GuiCanvas? = null
+    private val coverBackdrop = FlowingCoverBackdrop { checkNotNull(canvas) }
+    private val hudFontStyles = CjkStyle.REQUEST_HUD to CjkStyle.REQUEST_HUD_BOLD
+    private var renderedNoticeHeight = 0f
+    private var primaryText = Theme.TEXT_PRIMARY
+    private var secondaryText = DIM_TEXT
     private var scrollRows = 0f
     private var selected: Long? = null
     private var lastFrameTime = 0L
@@ -142,47 +147,69 @@ internal object BilibiliRequestHud {
 
     private class LiftedRow(val id: Long, var x: Float, var y: Float, var emphasis: Float = 1f) {
         fun bounds(layout: Layout) = layout.rows.copy(
-            x = layout.rows.x + x, y = layout.rows.y + y, height = ROW_HEIGHT,
+            x = layout.rows.x + x, y = layout.rows.y + y, height = layout.rowHeight,
         )
     }
 
     private data class QueueHit(val control: RequestQueueGesture.Hit, val row: LayoutBounds)
 
     private class Layout(
-        val scale: Float, width: Float, val height: Float, rowCount: Int, positionX: Float, positionY: Float,
+        val scale: Float, width: Float, height: Float, cardWidth: Float, bodyHeight: Float,
+        val textScale: Float, val lineScale: Float, positionX: Float, positionY: Float, noticeHeight: Float,
     ) {
-        private val panelHeight = HEADER_HEIGHT + rowCount * ROW_HEIGHT + PADDING
-        val travelX = (width - WIDTH - MARGIN * 2f).coerceAtLeast(0f)
-        val travelY = (height - panelHeight - MARGIN * 2f).coerceAtLeast(0f)
-        val panel = LayoutBounds(MARGIN + positionX * travelX, MARGIN + positionY * travelY, WIDTH, panelHeight)
-        val rows = LayoutBounds(panel.x + PADDING, panel.y + HEADER_HEIGHT, WIDTH - PADDING * 2f, rowCount * ROW_HEIGHT)
-        val lock = LayoutBounds(panel.right - PADDING - 23f, panel.y + 5f, 23f, 24f)
+        private val headerHeight = HEADER_HEIGHT * lineScale
+        val rowHeight = ROW_HEIGHT * lineScale
+        val travelX = (width - cardWidth - MARGIN * 2f).coerceAtLeast(0f)
+        val travelY = (height - bodyHeight - MARGIN * 2f).coerceAtLeast(0f)
+        val panelHeight = bodyHeight + noticeHeight
+        private val restingTop = MARGIN + positionY * travelY
+        val panel = LayoutBounds(MARGIN + positionX * travelX,
+            minOf(restingTop, height - MARGIN - panelHeight).coerceAtLeast(0f), cardWidth, panelHeight)
+        val rows = LayoutBounds(panel.x + PADDING, panel.y + headerHeight, cardWidth - PADDING * 2f, bodyHeight - headerHeight - PADDING)
+        val noticeTop = rows.bottom + PADDING / 2f
+        val visibleRows = rows.height / rowHeight
+        val lock = LayoutBounds(panel.right - PADDING - 23f, panel.y + 17f * lineScale - 12f, 23f, 24f)
 
         fun row(index: Float, offset: Float) =
-            rows.copy(y = rows.y + (index - offset) * ROW_HEIGHT, height = ROW_HEIGHT)
-        fun cover(row: LayoutBounds) = LayoutBounds(row.x + 22f, row.y + 5f, 28f, 28f)
-        fun remove(row: LayoutBounds) = LayoutBounds(row.right - 25f, row.y + (ROW_HEIGHT - 25f) / 2f, 21f, 25f)
+            rows.copy(y = rows.y + (index - offset) * rowHeight, height = rowHeight)
+        fun cover(row: LayoutBounds) = LayoutBounds(row.x + 22f, row.y + (rowHeight - 28f) / 2f, 28f, 28f)
+        fun remove(row: LayoutBounds) = LayoutBounds(row.right - 25f, row.y + (rowHeight - 25f) / 2f, 21f, 25f)
         fun dropIndex(rowTop: Float, offset: Float, lastIndex: Int) =
-            floor((rowTop - rows.y) / ROW_HEIGHT + offset + 0.5f).toInt().coerceIn(0, lastIndex)
+            floor((rowTop - rows.y) / rowHeight + offset + 0.5f).toInt().coerceIn(0, lastIndex)
     }
+
+    private data class NoticeView(
+        val notice: RequestNotice,
+        val title: String,
+        val guidance: List<String>,
+        val height: Float,
+        val fraction: Float,
+    )
 
     private val module get() = DangoMusic.instance.moduleManager.get(NeteaseMusicModule::class.java)
+    private val textScale get() = module.requestHudTextSize.value / 100f
+    private val lineScale get() = textScale.coerceAtLeast(1f)
+    private val bodyLimit get() = module.requestHudHeight.value.toFloat().coerceAtLeast((HEADER_HEIGHT + ROW_HEIGHT) * lineScale + PADDING)
 
-    private fun scale(mc: Minecraft) =
-        minOf(mc.displayWidth / 1280f, mc.displayHeight / 800f).coerceIn(0.5f, 1.65f)
-            .coerceAtMost(mc.displayWidth / (WIDTH + MARGIN * 2f))
-            .coerceAtMost(mc.displayHeight / (HEADER_HEIGHT + ROW_HEIGHT * MAX_VISIBLE_ROWS + PADDING + MARGIN * 2f))
-
-    private fun layout(mc: Minecraft, count: Int): Layout {
-        val rowCount = count.coerceIn(1, MAX_VISIBLE_ROWS)
-        clampScroll(count)
-        val scale = scale(mc)
-        return Layout(scale, mc.displayWidth / scale, mc.displayHeight / scale,
-            rowCount, module.requestPosX.value, module.requestPosY.value)
+    private fun scale(mc: Minecraft): Float {
+        val maxNoticeHeight = RequestNotice.MAX_VISIBLE * (NOTICE_PADDING * 2f + NOTICE_MAX_LINES * NOTICE_LINE_HEIGHT * lineScale)
+        return minOf(mc.displayWidth / 1280f, mc.displayHeight / 800f).coerceIn(0.5f, 1.65f)
+            .coerceAtMost(mc.displayWidth / (module.requestHudWidth.value + MARGIN * 2f))
+            .coerceAtMost(mc.displayHeight / (bodyLimit + maxNoticeHeight + MARGIN * 2f))
     }
 
-    private fun clampScroll(count: Int) {
-        scrollRows = scrollRows.coerceIn(0f, (count - MAX_VISIBLE_ROWS).coerceAtLeast(0).toFloat())
+    private fun layout(mc: Minecraft, count: Int): Layout {
+        val scale = scale(mc)
+        val naturalHeight = (HEADER_HEIGHT + count.coerceAtLeast(1) * ROW_HEIGHT) * lineScale + PADDING
+        val bodyHeight = if (module.requestHudAutoHeight.get()) minOf(naturalHeight, bodyLimit) else bodyLimit
+        val layout = Layout(scale, mc.displayWidth / scale, mc.displayHeight / scale, module.requestHudWidth.value.toFloat(),
+            bodyHeight, textScale, lineScale, module.requestPosX.value, module.requestPosY.value, renderedNoticeHeight)
+        clampScroll(count, layout)
+        return layout
+    }
+
+    private fun clampScroll(count: Int, layout: Layout) {
+        scrollRows = scrollRows.coerceIn(0f, (count - layout.visibleRows).coerceAtLeast(0f))
     }
 
     fun render(mc: Minecraft) {
@@ -194,6 +221,17 @@ internal object BilibiliRequestHud {
         val interactive = BilibiliRequestInput.interacting(screen)
         val snapshot = SongRequests.snapshot()
         val entries = snapshot.entries
+        val now = System.nanoTime()
+        val (font, fontKey) = LyricFonts.load(module.requestHudFont.value)
+        val gfx = DangoClient.gfx
+        gfx.text.font(hudFontStyles.first, font, fontKey)
+        gfx.text.font(hudFontStyles.second, font, fontKey)
+        text.customFontStyles = hudFontStyles.takeIf { font != null }
+        val rgb = module.requestHudTextColor.value
+        primaryText = if (rgb == 0xFFFFFF) Theme.TEXT_PRIMARY else Color.fromRGB(rgb).copy(a = Theme.TEXT_PRIMARY.a)
+        secondaryText = if (rgb == 0xFFFFFF) DIM_TEXT else primaryText.copy(a = DIM_TEXT.a * 0.86f)
+        val notices = noticeViews(snapshot.notices, now)
+        renderedNoticeHeight = notices.sumOf { (it.height * it.fraction).toDouble() }.toFloat()
         var layout = layout(mc, entries.size)
         val look = if (module.neteaseUsesAppleLayout) apple else classic
         val mouseX = if (interactive) Mouse.getX() / layout.scale else -1f
@@ -204,7 +242,6 @@ internal object BilibiliRequestHud {
         }
         val drag = if (interactive) gesture.move(mouseX, mouseY) else null
         val dragIndex = entries.indexOfFirst { it.id == drag?.id }
-        val now = System.nanoTime()
         val dt = ((now - lastFrameTime) / 1e9f).coerceIn(0f, 0.05f)
         lastFrameTime = now
         if (dragIndex >= 0 && mouseX >= layout.rows.left - 12f && mouseX < layout.rows.right + 12f) {
@@ -212,7 +249,7 @@ internal object BilibiliRequestHud {
             val top = ((layout.rows.top + edge - mouseY) / edge).coerceIn(0f, 1f)
             val bottom = ((mouseY - layout.rows.bottom + edge) / edge).coerceIn(0f, 1f)
             scrollRows += (bottom - top) * dt * 7f
-            clampScroll(entries.size)
+            clampScroll(entries.size, layout)
         }
         val targetIndex = if (drag != null && dragIndex >= 0 && mouseX >= layout.rows.left && mouseX < layout.rows.right) {
             layout.dropIndex(drag.top, scrollRows, entries.lastIndex)
@@ -221,15 +258,17 @@ internal object BilibiliRequestHud {
         animateQueue(layout, entries, dragIndex, targetIndex, dt)
         val hover = if (dragIndex < 0 && panelPress == null) hit(layout, entries, mouseX, mouseY)?.control else null
         val ctx = canvas ?: DangoClient.gfx.newCanvas().also { canvas = it }
-        ctx.begin(true, mouseX.toInt(), mouseY.toInt())
+        val background = module.requestHudBackground.value
+        val playback = PlaybackView.snapshot()
+        ctx.begin(background != 2, mouseX.toInt(), mouseY.toInt())
         ctx.pushScale(layout.scale, layout.scale, 1f)
         text.clear()
         try {
-            drawPanel(ctx, layout.panel, look.panel)
+            drawPanel(ctx, layout.panel, look, playback.track, background)
             header(ctx, layout, look, mc.session.username, layout.lock.containsPoint(mouseX, mouseY))
-            nowPlaying(ctx, layout, PlaybackView.snapshot())
+            nowPlaying(ctx, layout, playback)
             queue(ctx, layout, look, entries, hover)
-            snapshot.notice?.let { drawNotice(ctx, layout, look, it, now) }
+            drawNotices(ctx, layout, notices)
             val floating = lifted
             val entry = entries.firstOrNull { it.id == floating?.id }
             if (floating != null && entry != null) {
@@ -249,19 +288,34 @@ internal object BilibiliRequestHud {
         }
     }
 
-    private fun drawPanel(ctx: GuiCanvas, bounds: LayoutBounds, style: GlassStyle) {
+    private fun drawPanel(ctx: GuiCanvas, bounds: LayoutBounds, look: Look, track: NeteaseTrack?, background: Int) {
+        val radius = if (module.requestHudSmallCorners.get()) 5f else look.panel.radius
+        if (background == 2) {
+            coverBackdrop.prepareMenuFrame(track)
+            coverBackdrop.drawControlPanel(bounds, radius)
+            return
+        }
+        val glass = if (background == 1) look.panel.copy(
+            tint = Color(0.045f, 0.05f, 0.06f, 0.76f), maxLuma = 0.18f,
+            saturation = 0.7f, frost = 0.38f, dispersion = 0f, highlight = 0.48f,
+            fallback = Color(0.07f, 0.075f, 0.09f, 0.96f),
+        ) else look.panel
         ctx.pushOpacity(0.94f)
-        ctx.drawGlass(bounds, style)
+        ctx.drawGlass(bounds, glass.copy(radius = radius))
         ctx.popOpacity()
     }
 
     private fun header(ctx: GuiCanvas, layout: Layout, look: Look, player: String, lockHovered: Boolean) {
         val left = layout.rows.x
-        val y = layout.panel.y + 17f
+        val y = layout.panel.y + 17f * layout.lineScale
+        val titleSize = 14f * layout.textScale
+        val nameSize = SONG_TITLE_SIZE * layout.textScale
         PlayerIcons.draw(ctx, noteList, left + 8f, y - 0.5f, 16f, look.accent)
-        text.text(ctx, I18n.text("Song requests"), left + 24f, y - 6f, 14f, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
-        val name = text.trim(player, 132f, 12f)
-        val nameX = layout.lock.left - 7f - text.width(name, 12f)
+        val name = text.trim(player, layout.rows.width * 0.38f, nameSize)
+        val nameX = layout.lock.left - 7f - text.width(name, nameSize)
+        val titleX = left + 24f
+        val title = text.trim(I18n.text("Song requests"), nameX - titleX - 17f, titleSize, Theme.FONT_SEMIBOLD)
+        text.text(ctx, title, titleX, y - titleSize * 0.43f, titleSize, primaryText, Theme.FONT_SEMIBOLD)
         val color = when (BilibiliRequests.state) {
             BilibiliState.CONNECTED -> READY
             BilibiliState.CONNECTING, BilibiliState.RECONNECTING -> WAITING
@@ -269,7 +323,7 @@ internal object BilibiliRequestHud {
             BilibiliState.DISCONNECTED -> DIM_TEXT
         }
         dot(ctx, nameX - 9f, y, color)
-        text.text(ctx, name, nameX, y - 5f, 12f, Theme.TEXT_PRIMARY)
+        text.text(ctx, name, nameX, y - nameSize * 0.43f, nameSize, primaryText)
         val locked = module.requestHudLocked.get()
         if (lockHovered) {
             ctx.drawShape(layout.lock, ShapeStyle(look.accent.copy(a = 0.17f), look.panel.radius / 2f))
@@ -280,33 +334,37 @@ internal object BilibiliRequestHud {
 
     private fun nowPlaying(ctx: GuiCanvas, layout: Layout, playback: PlaybackView.Snapshot) {
         val left = layout.rows.x
-        val p = LayoutBounds(left, layout.panel.y + 53f, layout.rows.width, 47f)
-        text.text(ctx, I18n.text("Current track"), left + 2f, p.y - 17f, 11f, DIM_TEXT)
-        val art = LayoutBounds(p.x + 2f, p.y + 2f, 34f, 34f)
+        val line = layout.lineScale
+        val titleSize = 14f * layout.textScale
+        val detailSize = 11f * layout.textScale
+        val p = LayoutBounds(left, layout.panel.y + 53f * line, layout.rows.width, 47f * line)
+        text.text(ctx, I18n.text("Current track"), left + 2f, p.y - 17f * line, detailSize, secondaryText)
+        val art = LayoutBounds(p.x + 2f, p.y + (p.height - 43f) / 2f, 34f, 34f)
         drawCover(ctx, art, playback.track)
         val x = art.right + 10f
         val right = p.right - 2f
         val track = playback.track
         if (track == null) {
-            text.text(ctx, I18n.text("Nothing playing"), x, p.y + 13f, 12f, DIM_TEXT)
+            text.text(ctx, I18n.text("Nothing playing"), x, p.y + 13f * line, SONG_TITLE_SIZE * layout.textScale, secondaryText)
             return
         }
-        text.text(ctx, text.trim(track.name, right - x, 14f, Theme.FONT_SEMIBOLD),
-            x, p.y, 14f, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
-        text.text(ctx, text.trim(track.artists.joinToString(" / "), right - x, 11f),
-            x, p.y + 15f, 11f, DIM_TEXT)
+        text.text(ctx, text.trim(track.name, right - x, titleSize, Theme.FONT_SEMIBOLD),
+            x, p.y, titleSize, primaryText, Theme.FONT_SEMIBOLD)
+        text.text(ctx, text.trim(track.artists.joinToString(" / "), right - x, detailSize),
+            x, p.y + 15f * line, detailSize, secondaryText)
         val duration = playback.durationMs.coerceAtLeast(0L)
         val position = playback.positionMs.coerceAtLeast(0L)
         val stamp = "${fmtTime(position)} / ${if (duration > 0L) fmtTime(duration) else "–:––"}"
-        val stampX = right - text.width(stamp, 10f)
-        val bar = LayoutBounds(x, p.bottom - 13f, stampX - x - 7f, 2f)
+        val timeSize = 10f * layout.textScale
+        val stampX = right - text.width(stamp, timeSize)
+        val bar = LayoutBounds(x, p.bottom - 13f * line, (stampX - x - 7f).coerceAtLeast(0f), 2f)
         ctx.drawShape(bar, ShapeStyle(Theme.TRACK, 1f))
         val progress = if (duration > 0L) (position.toDouble() / duration).coerceIn(0.0, 1.0).toFloat() else 0f
         if (progress > 0f) {
             val width = bar.width * progress
             ctx.drawShape(bar.copy(width = width), ShapeStyle(Theme.TEXT_PRIMARY, minOf(width / 2f, 1f)))
         }
-        text.text(ctx, stamp, stampX, p.bottom - 18f, 10f, DIM_TEXT)
+        text.text(ctx, stamp, stampX, p.bottom - 18f * line, timeSize, secondaryText)
     }
 
     private fun lift(layout: Layout, drag: RequestQueueGesture.Drag) {
@@ -319,7 +377,7 @@ internal object BilibiliRequestHud {
             current.emphasis = 1f
         } else {
             // A second drag can start while the previous card is still settling.
-            if (current != null) rowPositions[current.id] = current.y / ROW_HEIGHT + scrollRows
+            if (current != null) rowPositions[current.id] = current.y / layout.rowHeight + scrollRows
             lifted = LiftedRow(drag.id, x, y)
         }
     }
@@ -363,14 +421,15 @@ internal object BilibiliRequestHud {
     ) {
         val rows = layout.rows
         val title = I18n.text("Request queue")
-        val headerY = rows.y - 20f
-        ctx.drawShape(LayoutBounds(rows.x, rows.y - 29f, rows.width, 1f), ShapeStyle(Theme.HAIRLINE))
-        text.text(ctx, title, rows.x + 1f, headerY, 12f, Theme.TEXT_PRIMARY, Theme.FONT_MEDIUM)
-        text.text(ctx, entries.size.toString(), rows.x + text.width(title, 12f, Theme.FONT_MEDIUM) + 9f,
-            headerY, 12f, DIM_TEXT)
+        val size = SONG_TITLE_SIZE * layout.textScale
+        val headerY = rows.y - 20f * layout.lineScale
+        ctx.drawShape(LayoutBounds(rows.x, rows.y - 29f * layout.lineScale, rows.width, 1f), ShapeStyle(Theme.HAIRLINE))
+        text.text(ctx, title, rows.x + 1f, headerY, size, primaryText, Theme.FONT_MEDIUM)
+        text.text(ctx, entries.size.toString(), rows.x + text.width(title, size, Theme.FONT_MEDIUM) + 9f,
+            headerY, size, secondaryText)
         if (entries.isEmpty()) {
             selected = null
-            text.text(ctx, I18n.text("No song requests"), rows.x + 1f, rows.y + 12f, 12f, DIM_TEXT)
+            text.text(ctx, I18n.text("No song requests"), rows.x + 1f, rows.y + 12f * layout.lineScale, size, secondaryText)
             return
         }
         ctx.pushClip(rows)
@@ -387,9 +446,9 @@ internal object BilibiliRequestHud {
         }
         text.clip = null
         ctx.popClip()
-        if (entries.size > MAX_VISIBLE_ROWS) {
-            val height = rows.height * MAX_VISIBLE_ROWS / entries.size
-            val top = rows.y + (rows.height - height) * scrollRows / (entries.size - MAX_VISIBLE_ROWS)
+        if (entries.size > layout.visibleRows) {
+            val height = rows.height * layout.visibleRows / entries.size
+            val top = rows.y + (rows.height - height) * scrollRows / (entries.size - layout.visibleRows)
             ctx.drawShape(LayoutBounds(rows.right + 4f, top, 2f, height), ShapeStyle(Theme.TEXT_TERTIARY, 1f))
         }
     }
@@ -408,17 +467,19 @@ internal object BilibiliRequestHud {
         val textX = cover.right + 7f
         val statusX = row.right - 43f
         val available = statusX - textX - 10f
-        text.text(ctx, text.trim(entry.track.name, available, 12f, Theme.FONT_SEMIBOLD),
-            textX, row.y + 5f, 12f, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
+        val titleSize = SONG_TITLE_SIZE * layout.textScale
+        val detailSize = 11f * layout.textScale
+        text.text(ctx, text.trim(entry.track.name, available, titleSize, Theme.FONT_SEMIBOLD),
+            textX, row.y + 5f * layout.lineScale, titleSize, primaryText, Theme.FONT_SEMIBOLD)
         // Reserve part of the line for the requester even when the artist credit is long.
-        val requester = text.trim(I18n.format("Requested by %s", entry.user), available * 0.64f, 11f)
+        val requester = text.trim(I18n.format("Requested by %s", entry.user), available * 0.64f, detailSize)
         val artist = entry.track.artists.joinToString(" / ")
         val details = if (artist.isEmpty()) requester else {
             val separator = " · "
-            val artistWidth = available - text.width("$separator$requester", 11f)
-            text.trim(artist, artistWidth, 11f).takeIf { it.isNotEmpty() }?.let { "$it$separator$requester" } ?: requester
+            val artistWidth = available - text.width("$separator$requester", detailSize)
+            text.trim(artist, artistWidth, detailSize).takeIf { it.isNotEmpty() }?.let { "$it$separator$requester" } ?: requester
         }
-        text.text(ctx, details, textX, row.y + 20f, 11f, DIM_TEXT)
+        text.text(ctx, details, textX, row.y + 20f * layout.lineScale, detailSize, secondaryText)
         when (entry.cache) {
             RequestCacheState.READY -> dot(ctx, statusX, centerY, READY)
             RequestCacheState.LOADING -> PlayerIcons.loadingRing(ctx, statusX, centerY, null, 14f)
@@ -429,48 +490,66 @@ internal object BilibiliRequestHud {
         PlayerIcons.draw(ctx, trash, remove.x + remove.width / 2f, centerY, 13f, removeColor)
     }
 
-    private fun drawNotice(ctx: GuiCanvas, layout: Layout, look: Look, notice: RequestNotice, now: Long) {
-        val hasChoices = notice.kind == RequestNoticeKind.AMBIGUOUS
-        val message = when (notice.kind) {
-            RequestNoticeKind.SKIPPED -> I18n.format("Unable to play “%s”. Skipped.", notice.title)
-            RequestNoticeKind.NOT_FOUND -> I18n.format("No matching song for “%s”.", notice.title)
-            RequestNoticeKind.AMBIGUOUS -> I18n.format("“%s” matched %s songs.", notice.title, notice.matchCount)
-            RequestNoticeKind.QUEUE_FULL -> I18n.text("The request queue is full.")
-            RequestNoticeKind.SEARCH_ERROR -> I18n.format("Could not search for “%s”.", notice.title)
-            RequestNoticeKind.INVALID_LINK -> I18n.text("Could not read the link. Try /song with the song ID.")
+    private fun noticeViews(notices: List<RequestNotice>, now: Long): List<NoticeView> {
+        val size = SONG_TITLE_SIZE * textScale
+        val width = module.requestHudWidth.value - PADDING * 2f
+        return notices.mapNotNull { notice ->
+            val fraction = notice.reveal(now)
+            if (fraction <= 0f) return@mapNotNull null
+            val message = when (notice.kind) {
+                RequestNoticeKind.SKIPPED -> I18n.format("Unable to play “%s”. Skipped.", notice.title)
+                RequestNoticeKind.NOT_FOUND -> I18n.format("No matching song for “%s”.", notice.title)
+                RequestNoticeKind.AMBIGUOUS -> I18n.format("“%s” matched %s songs.", notice.title, notice.matchCount)
+                RequestNoticeKind.QUEUE_FULL -> I18n.text("The request queue is full.")
+                RequestNoticeKind.SEARCH_ERROR -> I18n.format("Could not search for “%s”.", notice.title)
+                RequestNoticeKind.INVALID_LINK -> I18n.text("Could not read the link. Try /song with the song ID.")
+            }
+            val guide = if (notice.kind == RequestNoticeKind.AMBIGUOUS)
+                text.wrap2(I18n.text("In Bilibili live chat, send a command below."), width, size)
+            else emptyList()
+            val lines = 1 + guide.size + notice.candidates.size
+            NoticeView(notice, text.trim(message, width, size, Theme.FONT_SEMIBOLD), guide,
+                NOTICE_PADDING * 2f + lines * NOTICE_LINE_HEIGHT * lineScale, fraction)
         }
-        val timed = if (hasChoices) TimedNotice(message, notice.createdAtNanos, CHOICE_HOLD_NANOS)
-            else TimedNotice(message, notice.createdAtNanos)
-        val opacity = timed.opacity(now)
-        if (opacity <= 0f) return
+    }
 
-        val candidates = notice.candidates
-        val height = if (hasChoices) 41f + candidates.size * CHOICE_ROW_HEIGHT else NOTICE_HEIGHT
-        val below = layout.panel.bottom + NOTICE_GAP
-        val above = layout.panel.top - NOTICE_GAP - height
-        val top = when {
-            below + height <= layout.height -> below
-            above >= 0f -> above
-            else -> (layout.height - height).coerceAtLeast(0f)
-        }
-        val bounds = LayoutBounds(layout.panel.x, top, WIDTH, height)
-        val x = bounds.left + PADDING
-        val right = bounds.right - PADDING
-        ctx.pushOpacity(opacity)
-        drawPanel(ctx, bounds, look.panel.copy(radius = 7f, shadow = ShadowStyle()))
-        text.text(ctx, text.trim(message, right - x, 11f), x, bounds.y + 8f, 11f, Theme.TEXT_PRIMARY)
-        if (hasChoices) {
-            text.text(ctx, I18n.text("Send one of these in Bilibili live chat:"), x, bounds.y + 23f, 10f, DIM_TEXT)
-            candidates.forEachIndexed { index, candidate ->
-                val command = "/song ${candidate.id}"
-                val label = listOf(candidate.artist, candidate.album).filter(String::isNotBlank).joinToString(" · ")
-                val y = bounds.y + 39f + index * CHOICE_ROW_HEIGHT
-                val commandLeft = right - text.width(command, 11f, Theme.FONT_SEMIBOLD)
-                text.text(ctx, text.trim(label, commandLeft - x - 8f, 10f), x, y, 10f, Theme.TEXT_PRIMARY)
-                text.text(ctx, command, commandLeft, y, 11f, look.accent, Theme.FONT_SEMIBOLD)
+    private fun drawNotices(ctx: GuiCanvas, layout: Layout, notices: List<NoticeView>) {
+        var y = layout.noticeTop
+        val x = layout.rows.x
+        val right = layout.rows.right
+        val lineHeight = NOTICE_LINE_HEIGHT * layout.lineScale
+        val size = SONG_TITLE_SIZE * layout.textScale
+        for (view in notices) {
+            val height = view.height * view.fraction
+            val bounds = LayoutBounds(x, y, layout.rows.width, height)
+            y += height
+            if (height < 1f) continue
+            ctx.pushOpacity(view.fraction)
+            ctx.pushClip(bounds)
+            text.clip = bounds
+            try {
+                ctx.drawShape(bounds.copy(height = 1f), ShapeStyle(Theme.HAIRLINE))
+                var top = bounds.top + NOTICE_PADDING
+                text.text(ctx, view.title, x, top, size, primaryText, Theme.FONT_SEMIBOLD)
+                top += lineHeight
+                for (line in view.guidance) {
+                    text.text(ctx, line, x, top, size, primaryText)
+                    top += lineHeight
+                }
+                for (candidate in view.notice.candidates) {
+                    val command = "/song ${candidate.id}"
+                    val label = listOf(candidate.artist, candidate.album).filter(String::isNotBlank).joinToString(" · ")
+                    val commandLeft = right - text.width(command, size, Theme.FONT_SEMIBOLD)
+                    text.text(ctx, text.trim(label, commandLeft - x - 8f, size), x, top, size, primaryText)
+                    text.text(ctx, command, commandLeft, top, size, primaryText, Theme.FONT_SEMIBOLD)
+                    top += lineHeight
+                }
+            } finally {
+                text.clip = null
+                ctx.popClip()
+                ctx.popOpacity()
             }
         }
-        ctx.popOpacity()
     }
 
     private fun dot(ctx: GuiCanvas, x: Float, y: Float, color: Color) {
@@ -602,7 +681,7 @@ internal object BilibiliRequestHud {
         val layout = layout(mc, count)
         if (!layout.rows.containsPoint(pixelX / layout.scale, pixelY / layout.scale)) return
         scrollRows -= wheel.coerceIn(-120, 120) / 120f
-        clampScroll(count)
+        clampScroll(count, layout)
     }
 
     private fun finishPanelPress() {

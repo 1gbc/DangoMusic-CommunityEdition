@@ -880,7 +880,7 @@ Requested by %s	%s 点歌
 Unable to play “%s”. Skipped.	《%s》无法播放，已跳过
 No matching song for “%s”.	找不到匹配的歌曲「%s」
 “%s” matched %s songs.	「%s」找到 %s 首匹配歌曲
-Send one of these in Bilibili live chat:	请在 B 站直播间弹幕发送下面任一指令
+In Bilibili live chat, send a command below.	选择歌曲版本时，请在 B 站直播间弹幕发送下方任一指令。
 Could not read the link. Try /song with the song ID.	无法识别单曲链接，请发送 /song 歌曲ID
 The request queue is full.	点歌队列已满
 Could not search for “%s”.	搜索「%s」失败
@@ -888,6 +888,28 @@ Cache usage	缓存占用
 NetEase audio stored on disk	本地保存的网易云音频
 %s / %s · %s files	%s / %s · %s 个文件
 Reading cache usage…	正在读取缓存占用…
+Requests and connection	功能与连接
+Appearance and position	外观与位置
+Request notice duration	点歌提示停留时间
+Seconds that each request message stays visible	设置每条提示显示的秒数
+%s s	%s 秒
+Request HUD background	点歌台背景风格
+Choose the request card material	选择点歌台卡片的背景材质
+Small corners	小圆角
+Use smaller corners on the request card	缩小点歌台卡片的外轮廓圆角
+Request HUD width	点歌台宽度
+Set the width of the request card	设置点歌台卡片的宽度
+Request HUD height	点歌台高度
+Set the card height; request messages can expand it	设置卡片高度，出现点歌提示时可继续展开
+Automatic height	自动高度
+Fit the queue to its contents within the selected height	内容较少时自动缩短卡片，最多达到设定高度
+Request HUD font	点歌台字体
+Choose a font just for the request card and its messages	为点歌台内容和提示选择独立字体
+Request HUD text size	点歌台字号
+Scale the text on the request card and its messages	一起缩放点歌台内容和提示的字号
+Request HUD text color	点歌台文字颜色
+Set the text color for song titles and request messages	同时设置歌曲名称和点歌提示的文字颜色
+Default request HUD font	默认点歌台字体
 Request HUD X	点歌台横向位置
 Request HUD Y	点歌台纵向位置
 Horizontal position of the song request HUD	卡片在可移动范围内的横向坐标
