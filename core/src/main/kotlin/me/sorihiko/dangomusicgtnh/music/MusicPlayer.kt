@@ -3,6 +3,7 @@ package me.sorihiko.dangomusicgtnh.music
 import me.sorihiko.dangomusicgtnh.DangoLogger
 import me.sorihiko.dangomusicgtnh.music.request.RequestCacheState
 import me.sorihiko.dangomusicgtnh.music.request.SongRequests
+import me.sorihiko.dangomusicgtnh.music.request.RequestEntry
 
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.Executors
@@ -105,7 +106,8 @@ object MusicPlayer {
         var checkScheduled = false
     }
     private var requestReturn: RequestReturn? = null
-    private var requestedTrack: NeteaseTrack? = null
+    private class RequestPlayback(val entry: RequestEntry, var started: Boolean = false)
+    private var requestPlayback: RequestPlayback? = null
     private var requestWait: RequestWait? = null
 
     val durationMs: Long get() = current?.durationMs ?: 0L
@@ -409,12 +411,13 @@ object MusicPlayer {
         message = "加载中…"
         saveResume(position)
         val quality = neteaseQuality
-        val exactRequest = requestedTrack === track
+        val exactRequest = requestPlayback?.entry?.track === track
         loader.execute { load(gen, track, quality, position, paused, exactRequest) }
     }
 
     @Synchronized internal fun playRequestedSong(id: Long) {
         if (MusicSources.selected != MusicSource.NETEASE || !SongRequests.enabled || SongRequests.get(id) == null) return
+        if (requestPlayback?.let { it.entry.id == id && !it.started } == true || requestWait?.id == id) return
         requestWait = null
         if (requestReturn == null) requestReturn = RequestReturn.NEXT
         SongRequests.prioritize(id)
@@ -423,6 +426,7 @@ object MusicPlayer {
 
     /** The catalog queue and its index stay intact while a separate request is playing. */
     private fun advanceRequests(initialPreference: Long?) {
+        requestPlayback = null
         var preferred = initialPreference
         while (SongRequests.enabled && MusicSources.selected == MusicSource.NETEASE) {
             val item = SongRequests.first(preferred) ?: break
@@ -453,15 +457,25 @@ object MusicPlayer {
                     return
                 }
                 else -> {
-                    val ready = SongRequests.takeReady(item.id) ?: continue
                     requestWait = null
-                    requestedTrack = ready.track
-                    loadTrack(ready.track, 0L, false)
+                    requestPlayback = RequestPlayback(item)
+                    loadTrack(item.track, 0L, false)
                     return
                 }
             }
         }
         resumeAfterRequests()
+    }
+
+    private fun markRequestStarted(): Boolean {
+        val playing = requestPlayback ?: return true
+        if (playing.started) return true
+        if (!SongRequests.remove(playing.entry.id)) {
+            advanceRequests(null)
+            return false
+        }
+        playing.started = true
+        return true
     }
 
     private fun checkRequest(wait: RequestWait) {
@@ -491,7 +505,7 @@ object MusicPlayer {
     private fun clearRequestPlayback() {
         if (requestReturn != null) SongRequests.prioritize(null)
         requestWait = null
-        requestedTrack = null
+        requestPlayback = null
         requestReturn = null
     }
 
@@ -578,9 +592,11 @@ object MusicPlayer {
     }
 
     @Synchronized fun next() {
-        if (requestReturn != null && MusicSources.selected == MusicSource.NETEASE) {
-            requestWait = null
-            if (!fadeOut { advanceRequests(null) }) advanceRequests(null)
+        if (MusicSources.selected == MusicSource.NETEASE &&
+            (requestReturn != null || (state == State.PLAYING && hasWaitingRequests()))) {
+            if (requestWait != null || requestPlayback?.started == false ||
+                requestReturn != null && pendingFade?.pausing == false) return
+            advanceAfterTrack(RequestReturn.NEXT, fade = true)
             return
         }
         if (MusicSources.selected == MusicSource.APPLE && appleQueueCleared) return
@@ -605,6 +621,10 @@ object MusicPlayer {
             if (AppleWebPlayer.stationActive || queue.none { it.source == MusicSource.APPLE }) AppleWebPlayer.command("previous")
             else if ((!shuffle && positionMs > 3000) || index <= 0 && !appleRepeatQueue) AppleWebPlayer.command("seek", 0.0)
             else playIndex(index - 1)
+            return
+        }
+        if (requestReturn != null && queue.isNotEmpty()) {
+            playIndex(index)
             return
         }
         if (mode != Mode.SHUFFLE && pendingFade?.pausing != false && positionMs > 3000) {
@@ -652,6 +672,7 @@ object MusicPlayer {
                     // 声卡输出只是停住了，接着放就行；解码线程看到状态变回 PLAYING 会继续写数据
                     l.fadeTo(1f)
                     l.start()
+                    if (!markRequestStarted()) return
                     state = State.PLAYING
                 } else if (audio == null) {
                     // 恢复的上次会话：还没加载过，从记住的进度开始加载
@@ -1073,9 +1094,9 @@ object MusicPlayer {
             return
         }
         pendingFade = null
-        requestedTrack?.let { track ->
-            SongRequests.skipped(track.name)
-            requestedTrack = null
+        requestPlayback?.entry?.let { entry ->
+            SongRequests.remove(entry.id)
+            SongRequests.skipped(entry.track.name)
             advanceRequests(null)
             return
         }
@@ -1299,6 +1320,7 @@ object MusicPlayer {
                             fading.stop()
                         } else {
                             fading.start()
+                            if (!markRequestStarted()) return
                             state = State.PLAYING
                         }
                         fading
@@ -1407,10 +1429,8 @@ object MusicPlayer {
                     seekBaseMs = positionMs
                     line = null
                     outputInfo = null
-                    if (MusicSources.selected == MusicSource.NETEASE && current?.source == MusicSource.NETEASE &&
-                        (requestReturn != null || (SongRequests.enabled && SongRequests.hasRequests()))) {
-                        if (requestReturn == null) requestReturn = if (repeatOne && !heartMode) RequestReturn.REPEAT else RequestReturn.NEXT
-                        advanceRequests(null)
+                    if (MusicSources.selected == MusicSource.NETEASE && (requestReturn != null || hasWaitingRequests())) {
+                        advanceAfterTrack(if (repeatOne && !heartMode) RequestReturn.REPEAT else RequestReturn.NEXT)
                     } else if (!heartMode && repeatOne) {
                         // 复用已下载的音频，从头解码，不重新请求播放地址或下载。
                         seekLocal(0L, fadeIn = true)
@@ -1422,6 +1442,14 @@ object MusicPlayer {
             }
             while (state == State.PAUSED && gen == generation) Thread.sleep(15)
         }
+    }
+
+    private fun hasWaitingRequests(): Boolean =
+        current?.source == MusicSource.NETEASE && SongRequests.enabled && SongRequests.hasRequests()
+
+    private fun advanceAfterTrack(continuation: RequestReturn, fade: Boolean = false) {
+        if (requestReturn == null) requestReturn = continuation
+        if (!fade || !fadeOut { advanceRequests(null) }) advanceRequests(null)
     }
 
     private fun stopLine() {

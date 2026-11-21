@@ -44,7 +44,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
     private val ui = screen.ui
 
     private enum class Ctl { TOGGLE, SLIDER, KEY, LANGUAGE, COLOR, FONT, CHOICE, CACHE, BILIBILI }
-    private enum class CacheAction { OPEN, CLEAR }
+    private enum class CacheAction { USAGE, OPEN, CLEAR }
     private enum class BilibiliAction { STATUS, ROOM, RETRY, MOCK }
     private var clearCacheUntil = 0L
     @Volatile private var clearingCache = false
@@ -411,7 +411,8 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         val original = bool(module, "originalAudio")
         val player = Src(module,
             deps = mapOf("envRain" to "envAudio", "envStrength" to "envAudio", "envRays" to "envAudio"),
-            fmts = mapOf("volume" to ::percent, "envStrength" to ::percent),
+            fmts = mapOf("volume" to ::percent, "envStrength" to ::percent,
+                "requestPosX" to ::percent, "requestPosY" to ::percent),
             // 原声模式绕过音量均衡，开着时均衡这一行收起
             shows = mapOf("normalize" to { !original.get() }))
         player.left.remove("shuffle")   // 随机播放用播放栏上的按钮就够了，设置页不再显示（状态照样保存）
@@ -431,6 +432,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         val neteaseLooks = player.take(listOf("neteaseInterfaceStyle", "neteaseMenuTextSize", "neteaseMenuFont", "neteasePlayerBarSize"))
         val appleLooks = player.take(listOf("appleSidebarStyle", "appleMenuTextSize", "appleMenuFont", "applePlayerBarSize"))
         val advanced = player.take(listOf("audioOutput", "audioBuffer")) + listOf(
+            Row("Cache usage", "NetEase audio stored on disk", CacheAction.USAGE, Ctl.CACHE, null, { "" }),
             Row("Open cache folder", "Open the NetEase audio cache location", CacheAction.OPEN, Ctl.CACHE, null, { "" }),
             Row("Clear cache", "Remove downloaded NetEase audio from disk", CacheAction.CLEAR, Ctl.CACHE, null, { "" }),
         )
@@ -446,9 +448,9 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             Group("Apple Music interface settings", "Player menu appearance", module, false, appleLooks, fullWidth = true),
             Group("Dynamic Island", "Overlay", islandModule, true, island.take(listOf(
                 "islandLayout", "islandAnimations", "glass", "scale", "posX", "posY",
-            )) + island.take()),
+            )) + island.take(), fullWidth = true),
             Group("Bilibili song requests", "Live danmaku and request queue", module, false,
-                player.take(listOf("bilibiliRequests", "bilibiliMock")) + listOf(
+                player.take(listOf("bilibiliRequests", "bilibiliMock", "requestPosX", "requestPosY", "requestHudLocked")) + listOf(
                     Row("Bilibili connection", "", BilibiliAction.STATUS, Ctl.BILIBILI, null, { "" },
                         show = { module.bilibiliRequests.get() }),
                     Row("Bilibili room number", "Enter the number shown in the livestream link", BilibiliAction.ROOM,
@@ -883,7 +885,8 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             Ctl.LANGUAGE -> 142f
             Ctl.COLOR -> 92f
             Ctl.FONT -> 166f
-            Ctl.CHOICE, Ctl.CACHE -> 144f
+            Ctl.CHOICE -> 144f
+            Ctl.CACHE -> if (r.value == CacheAction.USAGE) 210f else 144f
             Ctl.BILIBILI -> (width * 0.48f).coerceIn(118f, 250f)
     }
 
@@ -1374,6 +1377,15 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
     }
 
     private fun drawCacheButton(action: CacheAction, b: LayoutBounds, clip: LayoutBounds) {
+        if (action == CacheAction.USAGE) {
+            val usage = NeteaseDiskCache.usage()
+            val status = usage?.let {
+                I18n.format("%s / %s · %s files", cacheSize(it.bytes), cacheSize(it.limit), it.fileCount)
+            } ?: I18n.text("Reading cache usage…")
+            val text = ui.trim(status, b.width, 11f)
+            ui.text(text, b.right - ui.width(text, 11f), b.y + 7f, 11f, Theme.TEXT_SECONDARY)
+            return
+        }
         val clear = action == CacheAction.CLEAR
         val armed = clear && System.nanoTime() < clearCacheUntil
         val busy = clear && clearingCache
@@ -1409,6 +1421,13 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                 }, "Dango-ClearCache").apply { isDaemon = true; start() }
             }
         }
+    }
+
+    private fun cacheSize(bytes: Long): String = when {
+        bytes >= 1L shl 30 -> "%.2f GiB".format(bytes.toDouble() / (1L shl 30))
+        bytes >= 1L shl 20 -> "%.1f MiB".format(bytes.toDouble() / (1L shl 20))
+        bytes >= 1L shl 10 -> "%.1f KiB".format(bytes.toDouble() / (1L shl 10))
+        else -> "$bytes B"
     }
 
     private fun drawBilibiliButton(action: BilibiliAction, b: LayoutBounds, clip: LayoutBounds) {

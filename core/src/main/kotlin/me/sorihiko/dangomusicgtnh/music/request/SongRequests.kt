@@ -71,9 +71,11 @@ object SongRequests {
 
     private fun resolve(acceptedGeneration: Long, user: String, query: SongRequestQuery) {
         val matches = runCatching {
-            NeteaseApi.search(query.searchText, 25)
+            val candidates = query.trackId?.let { listOfNotNull(NeteaseApi.trackById(it)) }
+                ?: NeteaseApi.search(query.searchText, 25)
+            candidates
                 .filter { it.source == MusicSource.NETEASE && it.id > 0L && !it.cloud && query.matches(it) }
-                .distinctBy { it.key }
+                .distinctBy { it.id }
         }
         synchronized(lock) {
             if (!enabled || generation != acceptedGeneration) return
@@ -105,13 +107,13 @@ object SongRequests {
         wakeCache()
     }
 
-    fun remove(id: Long) {
+    fun remove(id: Long): Boolean =
         synchronized(lock) {
-            entries.removeAll { it.id == id }
+            val removed = entries.removeAll { it.id == id }
             if (priority == id) priority = null
             wakeCache()
+            removed
         }
-    }
 
     fun play(id: Long) = MusicPlayer.playRequestedSong(id)
 
@@ -127,14 +129,6 @@ object SongRequests {
     internal fun following(id: Long): Long? = synchronized(lock) {
         val index = entries.indexOfFirst { it.id == id }
         if (index < 0) null else entries.getOrNull(index + 1)?.id
-    }
-
-    internal fun takeReady(id: Long): RequestEntry? = synchronized(lock) {
-        val item = entries.firstOrNull { it.id == id && it.cache == RequestCacheState.READY } ?: return@synchronized null
-        entries.remove(item)
-        if (priority == id) priority = null
-        wakeCache()
-        item
     }
 
     internal fun prioritize(id: Long?) = synchronized(lock) {

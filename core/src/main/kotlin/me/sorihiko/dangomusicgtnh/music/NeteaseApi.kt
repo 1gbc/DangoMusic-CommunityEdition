@@ -6,6 +6,7 @@ import me.sorihiko.dangomusicgtnh.DangoLogger
 import me.sorihiko.dangomusicgtnh.DangoMusic
 
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.StandardCharsets
@@ -490,6 +491,14 @@ object NeteaseApi {
      * 播放地址。登录后能拿到账号有权限的完整音频；拿不到时退回网易云外链（只对免费歌曲有效）。
      * 先请求所选音质，仅使用播放器支持的音频格式。
      */
+    internal fun trackById(id: Long): NeteaseTrack? {
+        if (id <= 0L) return null
+        val response = getJson("https://music.163.com/api/song/detail?ids=" + enc("[$id]"))
+            ?: throw IOException("NetEase song detail request failed")
+        if (response.int("code") != 200) throw IOException("NetEase song detail request failed")
+        return tracksOf(response.getAsJsonArray("songs")).firstOrNull { it.id == id }
+    }
+
     fun songUrl(id: Long): SongUrl? = songUrl(NeteaseTrack(id, "", emptyList(), 0, ""))
 
     fun songUrl(track: NeteaseTrack): SongUrl? = songUrl(track, MusicPlayer.neteaseQuality)

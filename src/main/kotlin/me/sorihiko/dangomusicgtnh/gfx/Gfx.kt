@@ -181,6 +181,9 @@ interface WorldView {
     /** 当前画面使用的镜头角度；睡觉、第三人称时不能用玩家朝向代替。 */
     fun cameraAngles(): ViewAngles
 
+    /** Snapshot the world camera before any lyric framebuffer changes the render state. */
+    fun lyricCamera(): WorldLyricCamera? = null
+
     /** 开始画世界里的文字：关深度测试、设好混合和贴图状态 */
     fun begin()
 

@@ -882,3 +882,13 @@ No matching song for “%s”.	找不到匹配的歌曲「%s」
 Multiple songs match “%s”.	「%s」匹配到多个版本，请指定版本
 The request queue is full.	点歌队列已满
 Could not search for “%s”.	搜索「%s」失败
+Cache usage	缓存占用
+NetEase audio stored on disk	本地保存的网易云音频
+%s / %s · %s files	%s / %s · %s 个文件
+Reading cache usage…	正在读取缓存占用…
+Request HUD X	点歌台横向位置
+Request HUD Y	点歌台纵向位置
+Horizontal position of the song request HUD	卡片在可移动范围内的横向坐标
+Vertical position of the song request HUD	卡片在可移动范围内的纵向坐标
+Lock request HUD	锁定点歌台位置
+Keep the song request HUD in place while using the queue	锁定卡片位置，仍可操作点歌队列

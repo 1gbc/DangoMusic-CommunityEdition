@@ -136,6 +136,15 @@ class NeteaseMusicModule : Module() {
     @ModuleValue("Simulate Bilibili messages", "Try the request queue without connecting a livestream")
     internal val bilibiliMock = BooleanValue(false)
 
+    @ModuleValue("Request HUD X", "Horizontal position of the song request HUD")
+    internal val requestPosX = FloatValue(0f, 1f, 1f, 4)
+
+    @ModuleValue("Request HUD Y", "Vertical position of the song request HUD")
+    internal val requestPosY = FloatValue(0f, 1f, 0f, 4)
+
+    @ModuleValue("Lock request HUD", "Keep the song request HUD in place while using the queue")
+    internal val requestHudLocked = BooleanValue(false)
+
     @ModuleValue("Volume normalization", "Keep songs at a similar loudness")
     private val normalize = BooleanValue(true)
 

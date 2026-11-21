@@ -37,6 +37,15 @@ public final class SongRequestCheck {
         check(SongRequestQuery.parse("/点歌曲 稻香 周杰伦") == null, "unrelated command");
         check(SongRequestQuery.parse("/点歌　稻香　周杰伦").matches(track(5, "稻香", "周杰伦")), "full-width spaces");
         check(SongRequestQuery.parse("/点歌 \"稻香\" 周杰伦").matches(track(5, "稻香", "周杰伦")), "quoted title only");
+        SongRequestQuery titleOnly = SongRequestQuery.parse("/song Always Remember Us This Way");
+        check(titleOnly.matches(studio) && titleOnly.matches(cover) && !titleOnly.matches(live), "short command matches exact multiword title and keeps cover candidates");
+        SongRequestQuery titleAndArtist = SongRequestQuery.parse("/song Always Remember Us This Way - Lady Gaga");
+        check(titleAndArtist.matches(studio) && !titleAndArtist.matches(cover), "optional artist disambiguates multiword title");
+        check(SongRequestQuery.parse("/song id:202").getTrackId() == 202L, "explicit ID");
+        check(SongRequestQuery.parse("/song https://music.163.com/#/song?id=202").getTrackId() == 202L, "web song link");
+        check(SongRequestQuery.parse("/song https://y.music.163.com/m/song?id=202&uct=fixture").getTrackId() == 202L, "mobile song link");
+        check(SongRequestQuery.parse("/song https://music.163.com.evil.invalid/song?id=202") == null &&
+            SongRequestQuery.parse("/song id:99999999999999999999") == null, "reject unrelated links and invalid IDs");
         verifyPlayback();
         System.out.println("Bilibili request parsing, repeat, timed skip, queue order and resume checks passed.");
     }
@@ -78,6 +87,23 @@ public final class SongRequestCheck {
             check(player.getCurrent() == original.get(1), "natural insertion resumes at the next original track");
 
             restore(player, original);
+            entries.add(new RequestEntry(8, good, "Viewer", RequestCacheState.READY));
+            field(MusicPlayer.class, "state").set(player, MusicPlayer.State.PLAYING);
+            player.next();
+            check(player.getCurrent() == good && player.getQueue() == original,
+                "manual next prioritizes the waiting request before the original queue");
+            check(requests.snapshot().getEntries().size() == 1, "keep the request while audio is opening");
+            player.next();
+            check(player.getCurrent() == good && requests.snapshot().getEntries().size() == 1,
+                "consecutive next calls cannot consume the same loading entry");
+            startRequest(player);
+            check(requests.snapshot().getEntries().isEmpty(), "consume the request when playback starts");
+            player.prev();
+            check(player.getCurrent() == original.get(0), "previous returns to the interrupted original track");
+            player.next();
+            check(player.getCurrent() == original.get(1), "next never reinserts the consumed request");
+
+            restore(player, original);
             player.setRepeatOne(true);
             entries.add(new RequestEntry(3, good, "Viewer", RequestCacheState.READY));
             naturalEnd(player);
@@ -92,12 +118,16 @@ public final class SongRequestCheck {
             synchronized (player) {
                 Object wait = field(MusicPlayer.class, "requestWait").get(player);
                 check(wait != null && player.getState() == MusicPlayer.State.LOADING, "wait for the uncached queue head");
+                player.next();
+                check(field(MusicPlayer.class, "requestWait").get(player) == wait, "next must not restart or bypass the same pending wait");
                 player.togglePause();
                 check(player.getState() == MusicPlayer.State.PAUSED, "request wait can be paused");
                 field(wait.getClass(), "deadline").setLong(wait, System.nanoTime() - 1_000_000_000L);
                 player.togglePause();
-                check(player.getCurrent() == good && requests.snapshot().getEntries().isEmpty(), "expired cache wait skips without blocking");
+                check(player.getCurrent() == good && requests.snapshot().getEntries().size() == 1, "expired cache wait skips without blocking");
             }
+            startRequest(player);
+            check(requests.snapshot().getEntries().isEmpty(), "the successor is consumed after its output starts");
 
             restore(player, original);
             entries.add(new RequestEntry(6, bad, "Viewer", RequestCacheState.FAILED));
@@ -107,7 +137,7 @@ public final class SongRequestCheck {
             requests.remove(6);
             player.setRepeatOne(true);
             requests.play(7);
-            check(player.getCurrent() == good && requests.snapshot().getEntries().isEmpty(), "manual request inserts directly");
+            check(player.getCurrent() == good && requests.snapshot().getEntries().size() == 1, "manual request inserts directly");
             naturalEnd(player);
             check(player.getCurrent() == original.get(1), "manual request resumes the next original track");
         } finally {
@@ -123,6 +153,7 @@ public final class SongRequestCheck {
     }
 
     private static void naturalEnd(MusicPlayer player) throws Exception {
+        startRequest(player);
         AudioOutput silent = (AudioOutput) Proxy.newProxyInstance(AudioOutput.class.getClassLoader(),
             new Class<?>[] {AudioOutput.class}, (proxy, method, args) -> {
                 if (method.getReturnType() == boolean.class) return false;
@@ -135,6 +166,15 @@ public final class SongRequestCheck {
         Method complete = MusicPlayer.class.getDeclaredMethod("finishTrack", int.class, FadingAudioOutput.class);
         complete.setAccessible(true);
         complete.invoke(player, field(MusicPlayer.class, "generation").getInt(player), output);
+    }
+
+    private static void startRequest(MusicPlayer player) throws Exception {
+        Method started = MusicPlayer.class.getDeclaredMethod("markRequestStarted");
+        started.setAccessible(true);
+        synchronized (player) {
+            started.invoke(player);
+            field(MusicPlayer.class, "state").set(player, MusicPlayer.State.PLAYING);
+        }
     }
 
     private static Field field(Class<?> owner, String name) throws Exception {

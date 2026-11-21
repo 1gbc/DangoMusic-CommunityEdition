@@ -4,18 +4,54 @@ import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.IOException
 import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
 import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.attribute.BasicFileAttributes
 import java.nio.file.attribute.FileTime
 import java.security.MessageDigest
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.zip.CRC32
 
 /** Persistent copies of complete NetEase audio, isolated by login session. */
 object NeteaseDiskCache {
     private const val MAGIC = 0x444D4301
     private const val LIMIT = 5L * 1024 * 1024 * 1024
+    private val cacheName = Regex("[0-9a-f]{64}[.]audio")
+    private val usageWorker = Executors.newSingleThreadExecutor { task ->
+        Thread(task, "Dango-CacheUsage").apply { isDaemon = true }
+    }
+    private val usagePending = AtomicBoolean()
+    @Volatile private var usageScanAt = System.nanoTime()
+    @Volatile private var lastUsage: Usage? = null
+
+    data class Usage(val bytes: Long, val fileCount: Int, val limit: Long = LIMIT)
+    private data class CacheFile(val path: Path, val bytes: Long, val modified: FileTime)
+
+    /** The settings screen can call this each frame. Directory I/O runs on the worker. */
+    fun usage(): Usage? {
+        val now = System.nanoTime()
+        if (now - usageScanAt >= 0 && usagePending.compareAndSet(false, true)) {
+            usageScanAt = now + TimeUnit.SECONDS.toNanos(2)
+            usageWorker.execute {
+                try {
+                    synchronized(this) {
+                        val files = cacheFiles()
+                        lastUsage = Usage(files.sumOf { it.bytes }, files.size)
+                    }
+                } catch (_: IOException) {
+                    // Keep the last usable sample and retry while the page is visible.
+                } finally {
+                    usagePending.set(false)
+                }
+            }
+        }
+        return lastUsage
+    }
     val directory: Path by lazy {
         val home = Paths.get(System.getProperty("user.home"))
         if (System.getProperty("os.name").startsWith("Windows")) {
@@ -33,11 +69,17 @@ object NeteaseDiskCache {
     @Synchronized
     fun clear() {
         generation++
-        if (!Files.isDirectory(directory)) return
-        Files.newDirectoryStream(directory, "*.audio").use { files ->
-            for (file in files) {
-                if (file.fileName.toString().matches(Regex("[0-9a-f]{64}[.]audio"))) Files.deleteIfExists(file)
+        try {
+            if (Files.isDirectory(directory)) {
+                Files.newDirectoryStream(directory, "*.audio").use { files ->
+                    for (file in files) {
+                        if (cacheName.matches(file.fileName.toString())) Files.deleteIfExists(file)
+                    }
+                }
             }
+            lastUsage = Usage(0, 0)
+        } finally {
+            usageScanAt = System.nanoTime()
         }
     }
 
@@ -72,6 +114,7 @@ object NeteaseDiskCache {
             result
         } catch (_: IOException) {
             runCatching { Files.deleteIfExists(file) }
+            usageScanAt = System.nanoTime()
             null
         }
     }
@@ -111,19 +154,33 @@ object NeteaseDiskCache {
     private fun checksum(bytes: ByteArray): Long = CRC32().apply { update(bytes) }.value
 
     private fun prune() {
-        val entries = Files.newDirectoryStream(directory, "*.audio").use { files ->
-            files.mapNotNull { file ->
-                try {
-                    Triple(file, Files.size(file), Files.getLastModifiedTime(file))
-                } catch (_: IOException) {
-                    null
+        val entries = cacheFiles()
+        var total = entries.sumOf { it.bytes }
+        var count = entries.size
+        if (total > LIMIT) {
+            for ((file, size) in entries.sortedBy { it.modified }) {
+                if (total <= LIMIT) break
+                if (Files.deleteIfExists(file) || !Files.exists(file)) {
+                    total -= size
+                    count--
                 }
             }
-        }.sortedBy { it.third }
-        var total = entries.sumOf { it.second }
-        for ((file, size) in entries) {
-            if (total <= LIMIT) break
-            if (Files.deleteIfExists(file)) total -= size
         }
+        lastUsage = Usage(total, count)
     }
+
+    private fun cacheFiles(): List<CacheFile> =
+        if (!Files.isDirectory(directory)) emptyList() else {
+            Files.newDirectoryStream(directory, "*.audio").use { files ->
+                files.mapNotNull { file ->
+                    if (!cacheName.matches(file.fileName.toString())) return@mapNotNull null
+                    try {
+                        val attrs = Files.readAttributes(file, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
+                        if (attrs.isRegularFile) CacheFile(file, attrs.size(), attrs.lastModifiedTime()) else null
+                    } catch (_: IOException) {
+                        null
+                    }
+                }
+            }
+        }
 }
