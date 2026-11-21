@@ -7,6 +7,7 @@ import me.sorihiko.dangomusicgtnh.platform.NativePlayerKey
 import me.sorihiko.dangomusicgtnh.platform.PlayerAction
 import me.sorihiko.dangomusicgtnh.platform.PlayerKeyBinding
 import me.sorihiko.dangomusicgtnh.platform.savedPlayerKeys
+import net.minecraft.client.settings.GameSettings
 import net.minecraft.client.settings.KeyBinding
 import cpw.mods.fml.client.registry.ClientRegistry
 
@@ -53,6 +54,15 @@ object LegacyKeyBindings {
         if (registered) return
         mappings.values.forEach { ClientRegistry.registerKeyBinding(it) }
         registered = true
+    }
+
+    // GUI text arrives through Keyboard events, independently of the gameplay binding state.
+    fun suppressMovementWhileTyping(settings: GameSettings, typing: Boolean) {
+        if (!typing) return
+        for (binding in arrayOf(settings.keyBindForward, settings.keyBindBack, settings.keyBindLeft,
+            settings.keyBindRight, settings.keyBindJump, settings.keyBindSneak, settings.keyBindSprint)) {
+            KeyBinding.setKeyBindState(binding.keyCode, false)
+        }
     }
 
     fun sync(bindings: Collection<PlayerKeyBinding>) {

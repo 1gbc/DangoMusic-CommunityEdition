@@ -1,6 +1,7 @@
 package me.sorihiko.dangomusicgtnh.client
 
 import me.sorihiko.dangomusicgtnh.DangoMusic
+import me.sorihiko.dangomusicgtnh.legacy.LegacyKeyBindings
 import me.sorihiko.dangomusicgtnh.module.impls.music.NeteaseMusicModule
 import me.sorihiko.dangomusicgtnh.music.MusicPlayer
 import me.sorihiko.dangomusicgtnh.music.PlaybackView
@@ -117,6 +118,7 @@ internal class PlayerScreen(private val parent: GuiScreen?) : GuiScreen() {
     }
 
     override fun updateScreen() {
+        LegacyKeyBindings.suppressMovementWhileTyping(mc.gameSettings, !loginVisible && query.isFocused)
         query.updateCursorCounter()
         val pending = searchTask
         if (pending != null && pending.isDone) {
