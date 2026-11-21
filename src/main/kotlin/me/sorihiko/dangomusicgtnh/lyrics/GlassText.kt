@@ -37,8 +37,6 @@ class GlassText : GlassTextPass {
 
     private companion object {
         const val LEVELS = 6
-        /** 镜头到屏幕的距离 = 窗口高度 × 这个数；越大透视越弱（1.6 ≈ 35° 视角） */
-        const val FOCAL = 1.6f
 
         const val VERT = """
 #version 120
@@ -300,7 +298,7 @@ void main() {
         }
 
         // 透视：z = 0 的平面正好铺满窗口（1 单位 = 1 像素，y 向下），再绕支点倾斜
-        val d = h * FOCAL
+        val d = h * GlassTextView.FOCAL
         val near = d * 0.25f
         val sx = w / 2.0 * near / d
         val sy = h / 2.0 * near / d

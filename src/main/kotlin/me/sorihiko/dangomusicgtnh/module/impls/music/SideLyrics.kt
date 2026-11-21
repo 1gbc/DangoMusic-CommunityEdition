@@ -21,7 +21,8 @@ import kotlin.math.tanh
  * 侧边滚动歌词（歌词样式“驾驶舱歌词”），座舱 HUD 的感觉：没有背景板，字自己发光（也可以是透明的玻璃字）。
  * 颜色可以跟着封面主色走、自己选、用封面渐变、彩虹或者流动的极光；光晕用每个字自己的颜色，踩到节拍时亮一下。
  * 整列可以透视倾斜（像座舱侧边的屏，朝屏幕中间转）、前后倾斜，字可以斜体。
- * 歌词一行行向上滚，当前行放大、逐字点亮；按住预览键滚轮可以翻看前后的歌词。
+ * 歌词一行行向上滚，当前行放大、逐字点亮。按住 HUD 鼠标键（默认左 Alt）调出鼠标后，
+ * 指着的那一行会亮起来，滚轮翻看前后的歌词，单击从那一行开始播放（见 [rowAt]、[covers]）。
  *
  * 只负责画：歌词、当前行、进度和设置都由 [LyricsModule] 每帧传进来。玻璃效果见 [GlassTextPass]。
  */
@@ -98,6 +99,9 @@ internal class SideLyrics {
         val visible: Boolean,
         /** 预览：翻到了第几行（0 = 歌名那一行，第 n 句歌词是 n），-1 = 不在预览，跟着正在唱的那一行 */
         val previewRow: Int,
+        /** HUD 鼠标的位置（窗口像素，y 向下），没调出鼠标时是 -1；指着的那一行会亮起来 */
+        val pointerX: Int = -1,
+        val pointerY: Int = -1,
     )
 
     private var lastNanos = 0L
@@ -113,6 +117,32 @@ internal class SideLyrics {
     private var glowR = 0.95f
     private var glowG = 0.65f
     private var glowB = 0.76f
+
+    /**
+     * 最近一帧的透视和排版，给 HUD 鼠标判断指着哪一行（窗口像素）；这一帧没画出来时是 null。
+     * 隐藏 HUD（F1）时不会再画，所以超过 [HIT_TTL_NS] 没更新也当作没有
+     */
+    private var hit: Hit? = null
+    private var hitNanos = 0L
+    /** HUD 鼠标这一帧指着的行（0 = 歌名那一行），-1 = 没指着 */
+    private var hoverRow = -1
+    private val corners = FloatArray(8)
+    private val projected = FloatArray(2)
+
+    private class Hit(
+        val view: GlassTextView,
+        val width: Float,
+        val height: Float,
+        /** 逻辑像素 × k = 窗口像素 */
+        val k: Float,
+        val left: Float,
+        val right: Float,
+        val center: Float,
+        val rowH: Float,
+        val scroll: Float,
+        val half: Float,
+        val rows: Int,
+    )
 
     /** 截断结果缓存（文字、字号、宽度、字体都不变时不用每帧重新量） */
     private val trimCache = HashMap<String, String>()
@@ -165,6 +195,8 @@ internal class SideLyrics {
     private val rgb = FloatArray(3)
 
     fun draw(e: HudRenderEvent?, frame: Frame?, s: Settings) {
+        hit = null
+        hoverRow = -1
         val platform = DangoClient.platform
         if (platform.windowWidth <= 0 || platform.windowHeight <= 0) return
         val now = System.nanoTime()
@@ -277,6 +309,9 @@ internal class SideLyrics {
             yaw = if (alignRight) -tilt else tilt,
             pitch = s.pitch.coerceIn(-35f, 35f),
         )
+        val g = Hit(view, platform.windowWidth.toFloat(), platform.windowHeight.toFloat(), k,
+            area.x, area.right, center, rowH, scroll, visibleRows / 2f, rows)
+        if (f.pointerX >= 0 && appear > 0.5f) hoverRow = rowAt(g, f.pointerX.toFloat(), f.pointerY.toFloat())
         // begin 成功之后一定要走到 end，所以能出错的准备工作都放在 begin 前面
         tc = DangoClient.gfx.text
         italicTan = tan(Math.toRadians(s.italic.coerceIn(-10f, 25f).toDouble())).toFloat()
@@ -296,6 +331,8 @@ internal class SideLyrics {
         )
         val pass = DangoClient.gfx.glassText
         if (!pass.begin(view)) return
+        hit = g
+        hitNanos = now
         try {
             tc.push()
             try {
@@ -337,7 +374,7 @@ internal class SideLyrics {
             val emph = (1f - dist).coerceIn(0f, 1f)
             val cy = center + d * rowH
             if (r == 0) {
-                drawHeader(f, area, cy, ts, emph, fade, other)
+                drawHeader(f, area, cy, ts, if (r == hoverRow) 1f else emph, fade, other)
                 continue
             }
             val line = f.lines[r - 1]
@@ -352,10 +389,13 @@ internal class SideLyrics {
             val isCurrent = r - 1 == f.index
             val sung = if (isCurrent) line.sungCharacters(f.positionMs, f.lines.getOrNull(r)?.timeMs ?: Long.MAX_VALUE) else null
             // 刚唱完的那行往上滚时慢慢暗下去
-            val lit = if (isCurrent) 1f else otherLit + (centerLit - otherLit) * emph * emph
+            // HUD 鼠标指着的那一行：像当前行一样亮，提示单击会跳到这里
+            val hl = r == hoverRow
+            val lit = if (isCurrent || hl) 1f else otherLit + (centerLit - otherLit) * emph * emph
             // 预览别的行时，正在唱的这一行也按“其它行”变淡，好分清中间那行
-            val alpha = if (isCurrent) fade * (if (previewing) other + (1f - other) * emph else 1f)
+            val baseAlpha = if (isCurrent) fade * (if (previewing) other + (1f - other) * emph else 1f)
             else (other + (1f - other) * emph) * fade
+            val alpha = if (hl) maxOf(baseAlpha, 0.95f * fade) else baseAlpha
             // 太不太长按最大字号量：滚动时字号在变，能看到的字不跟着变
             val fullW = fullWidth(line.text, currentSize)
             if (fullW <= area.width) {
@@ -366,7 +406,7 @@ internal class SideLyrics {
                 drawWindowed(line.text, area, baseline, size, size / currentSize, r, alpha, sung, lit, shift, fullW)
             }
             if (annCount > 0) {
-                val annAlpha = (0.35f + 0.4f * emph) * fade * (0.6f + 0.4f * other)
+                val annAlpha = (0.35f + 0.4f * (if (hl) 1f else emph)) * fade * (0.6f + 0.4f * other)
                 val annLit = 0.22f + 0.2f * emph
                 // 音译、翻译太长时也跟着这一句唱到的比例滚
                 val progress = sung?.let { it / line.text.count { c -> !c.isWhitespace() }.coerceAtLeast(1) }
@@ -754,6 +794,67 @@ internal class SideLyrics {
         }
     }
 
+    // ---------------------------------------------------------------- HUD 鼠标
+
+    /** 最近一帧画出来了、而且看得见（不是正在淡出），才能用鼠标操作 */
+    private fun liveHit(): Hit? {
+        val g = hit ?: return null
+        if (appear < 0.5f || System.nanoTime() - hitNanos > HIT_TTL_NS) return null
+        return g
+    }
+
+    /** 窗口像素 (x, y)（y 向下）指着第几行：0 = 歌名那一行，第 n 句歌词是 n；没指着任何一行是 -1 */
+    fun rowAt(x: Int, y: Int): Int {
+        val g = liveHit() ?: return -1
+        return rowAt(g, x.toFloat(), y.toFloat())
+    }
+
+    /** (x, y) 在不在驾驶舱歌词这一块上（含外侧的引导线）：在的话滚轮和点击都归歌词 */
+    fun covers(x: Int, y: Int): Boolean {
+        val g = liveHit() ?: return false
+        val top = g.center - g.half * g.rowH
+        val bottom = g.center + g.half * g.rowH
+        return inQuad(g, g.left - GUIDE_PAD, top, g.right + GUIDE_PAD, bottom, x.toFloat(), y.toFloat())
+    }
+
+    private fun rowAt(g: Hit, x: Float, y: Float): Int {
+        val first = floor(g.scroll - g.half).toInt().coerceAtLeast(0)
+        val last = ceil(g.scroll + g.half).toInt().coerceAtMost(g.rows)
+        for (r in first..last) {
+            val d = r - g.scroll
+            // 和 drawRows 的渐隐对应：淡到几乎看不见（不透明度低于约 15%）的边缘行不算
+            if (abs(d) > g.half - 0.05f) continue
+            val cy = g.center + d * g.rowH
+            if (inQuad(g, g.left - 4f, cy - g.rowH / 2f, g.right + 4f, cy + g.rowH / 2f, x, y)) return r
+        }
+        return -1
+    }
+
+    /** 文字平面上的矩形（逻辑像素）倾斜投影到屏幕后是个凸四边形，(x, y)（窗口像素）在不在里面 */
+    private fun inQuad(g: Hit, l: Float, t: Float, r: Float, b: Float, x: Float, y: Float): Boolean {
+        corner(g, 0, l, t)
+        corner(g, 1, r, t)
+        corner(g, 2, r, b)
+        corner(g, 3, l, b)
+        var sign = 0
+        for (i in 0 until 4) {
+            val j = (i + 1) % 4
+            val ax = corners[i * 2]
+            val ay = corners[i * 2 + 1]
+            val cross = (corners[j * 2] - ax) * (y - ay) - (corners[j * 2 + 1] - ay) * (x - ax)
+            if (cross == 0f) continue
+            val side = if (cross > 0f) 1 else -1
+            if (sign == 0) sign = side else if (side != sign) return false
+        }
+        return sign != 0
+    }
+
+    private fun corner(g: Hit, i: Int, lx: Float, ly: Float) {
+        g.view.project(lx * g.k, ly * g.k, g.width, g.height, projected)
+        corners[i * 2] = projected[0]
+        corners[i * 2 + 1] = projected[1]
+    }
+
     /** 按 [size] 截断到 [maxW] 以内（结果缓存，换歌、换字体时清空） */
     private fun trim(s: String, maxW: Float, size: Float, style: Int): String {
         val key = "$style|${size.toBits()}|${maxW.toBits()}|$s"
@@ -771,6 +872,11 @@ internal class SideLyrics {
     }
 
     private companion object {
+        /** 引导线画在歌词外侧 14 逻辑像素处：鼠标判定范围左右各多留这么宽 */
+        const val GUIDE_PAD = 18f
+        /** 超过这么久没画（隐藏了 HUD）就不再响应鼠标 */
+        const val HIT_TTL_NS = 250_000_000L
+
         /** 像素字体按这个字号缩放（游戏的字 8 像素高，和平滑字体的字号看起来差不多大） */
         const val PIXEL_EM = 9f
 

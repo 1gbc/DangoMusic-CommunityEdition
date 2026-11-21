@@ -4,7 +4,6 @@ import me.sorihiko.dangomusicgtnh.DangoClient
 import me.sorihiko.dangomusicgtnh.DangoLogger
 import me.sorihiko.dangomusicgtnh.DangoMusic
 import me.sorihiko.dangomusicgtnh.event.EventHandler
-import me.sorihiko.dangomusicgtnh.events.GameMouseEvent
 import me.sorihiko.dangomusicgtnh.events.HudRenderEvent
 import me.sorihiko.dangomusicgtnh.events.WorldRenderEndEvent
 import me.sorihiko.dangomusicgtnh.gfx.ViewAngles
@@ -174,9 +173,14 @@ class LyricsModule : Module() {
     @ModuleValue("Auto contrast", "Text too close in color to what is behind it is lightened or darkened so it stays readable")
     internal val autoContrast = BooleanValue(false)
 
-    /** 按住预览键滚轮翻看驾驶舱歌词：翻到了第几行（0 = 歌名，第 n 句是 n），-1 = 不在预览 */
+    /** HUD 鼠标在驾驶舱歌词上滚轮翻看：翻到了第几行（0 = 歌名，第 n 句是 n），-1 = 不在预览 */
     private var previewRow = -1
     private var previewInputAt = 0L
+    /** 翻看的是哪首歌：换歌后旧的行号作废（鼠标一直停在歌词上时不会自动回去，要在这里清掉） */
+    private var previewKey: String? = null
+    /** HUD 鼠标的位置（窗口像素，y 向下），没调出鼠标时是 -1；HudPointerInput 每次鼠标事件更新 */
+    private var pointerX = -1
+    private var pointerY = -1
 
     private val side = SideLyrics()
     /** 快捷键关掉歌词前用的样式（再按一次恢复成它；存盘，重开游戏后也能恢复；设置页里不显示） */
@@ -835,6 +839,8 @@ class LyricsModule : Module() {
                 beat = playbackBeatPulse(playbackPositionMs()),
                 visible = sideVisible() && !platform.chatOpen,
                 previewRow = previewRow,
+                pointerX = pointerX,
+                pointerY = pointerY,
             )
         }
         side.draw(e, frame, SideLyrics.Settings(
@@ -869,45 +875,61 @@ class LyricsModule : Module() {
         ))
     }
 
-    // ---------------------------------------------------------------- 驾驶舱歌词预览（按住预览键 + 滚轮）
+    // ---------------------------------------------------------------- 驾驶舱歌词：HUD 鼠标翻看、单击跳转
 
-    private fun previewHeld(): Boolean = try {
-        DangoMusic.instance.moduleManager.get(NeteaseMusicModule::class.java).lyricPreviewHeld()
-    } catch (_: Exception) {
-        false
+    /** 不操作 3 秒自动回到正在唱的那一行；鼠标还停在歌词上时不回去 */
+    private fun updatePreview() {
+        if (previewRow < 0) return
+        if (previewKey != currentKey) {
+            previewRow = -1
+            return
+        }
+        val now = System.currentTimeMillis()
+        if (pointerX >= 0 && side.covers(pointerX, pointerY)) previewInputAt = now
+        else if (now - previewInputAt > PREVIEW_RETURN_MS) previewRow = -1
     }
 
-    /** 不操作 3 秒自动回到正在唱的那一行 */
-    private fun updatePreview() {
-        if (previewRow >= 0 && System.currentTimeMillis() - previewInputAt > PREVIEW_RETURN_MS) previewRow = -1
+    /** HUD 鼠标（按住交互键）移到了 (x, y)，窗口像素、y 向下；鼠标收起时传 (-1, -1) */
+    fun cockpitPointerMove(x: Int, y: Int) {
+        pointerX = x
+        pointerY = y
     }
 
     /**
-     * 游戏里的鼠标：按住预览键时，滚轮翻看驾驶舱歌词（不切换快捷栏），左键跳到中间那一行（不挖方块 / 攻击）。
-     * 没按预览键、没在用驾驶舱歌词时什么都不做，鼠标照常交给游戏
+     * HUD 鼠标在驾驶舱歌词上滚动滚轮：往上看前面的歌词，往下看后面的（不切换快捷栏）。
+     * 返回 true = 这次滚轮归歌词；鼠标不在歌词上时返回 false，交给点歌台等别的 HUD
      */
-    @EventHandler
-    fun mouse(e: GameMouseEvent) {
-        if (!enabled || !sideVisible() || !DangoClient.platform.inGame || !previewHeld()) return
-        val s = current ?: return
-        val lyrics = currentKey?.let { lyricsFor(it) } ?: return
+    fun cockpitPointerScroll(x: Int, y: Int, wheel: Int): Boolean {
+        if (wheel == 0 || !side.covers(x, y)) return false
+        if (!enabled || !sideVisible() || current == null) return true
+        val lyrics = currentKey?.let { lyricsFor(it) } ?: return true
         val rows = lyrics.lines.size
-        if (rows == 0) return
-        val currentRow = ((lyrics.indexAt(songPos.toLong())) + 1).coerceIn(0, rows)
-        if (e.wheel != 0) {
-            // 滚轮往上 = 看前面的歌词
-            // 记的是固定的行号：唱到下一句时，正在看的那一行不会跟着挪
-            previewRow = ((if (previewRow >= 0) previewRow else currentRow) - Integer.signum(e.wheel)).coerceIn(0, rows)
-            previewInputAt = System.currentTimeMillis()
-            e.consumed = true
-        } else if (e.button == 0 && e.pressed) {
-            e.consumed = true
-            val row = (if (previewRow >= 0) previewRow else currentRow).coerceIn(0, rows)
-            val target = if (row == 0) 0L else lyrics.lines[row - 1].timeMs
-            PlaybackView.seek(target.coerceAtLeast(0L))
-            previewRow = -1
-            DangoLogger.info("Cockpit lyrics: jump to line {} ({} ms) of {}", row, target, s.key)
-        }
+        if (rows == 0) return true
+        val currentRow = (lyrics.indexAt(songPos.toLong()) + 1).coerceIn(0, rows)
+        // 记的是固定的行号：唱到下一句时，正在看的那一行不会跟着挪
+        previewRow = ((if (previewRow >= 0 && previewKey == currentKey) previewRow else currentRow) - Integer.signum(wheel)).coerceIn(0, rows)
+        previewKey = currentKey
+        previewInputAt = System.currentTimeMillis()
+        return true
+    }
+
+    /**
+     * HUD 鼠标在驾驶舱歌词上按下左键：从指着的那一行开始播放（歌名那一行 = 从头放）。
+     * 返回 true = 这次点击归歌词（点在行与行的空隙上也算，免得穿透给别的 HUD）
+     */
+    fun cockpitPointerPress(x: Int, y: Int): Boolean {
+        if (!side.covers(x, y)) return false
+        val s = current
+        if (!enabled || !sideVisible() || s == null) return true
+        val lyrics = currentKey?.let { lyricsFor(it) } ?: return true
+        val rows = lyrics.lines.size
+        val row = side.rowAt(x, y)
+        if (row < 0 || row > rows) return true
+        val target = if (row == 0) 0L else lyrics.lines[row - 1].timeMs.coerceAtLeast(0L)
+        PlaybackView.seek(target)
+        previewRow = -1
+        DangoLogger.info("Cockpit lyrics: jump to line {} ({} ms) of {}", row, target, s.key)
+        return true
     }
 
     /** 对拍时准星下面显示点到第几下 / 点出来的 BPM */
