@@ -7,6 +7,7 @@ import me.sorihiko.dangomusicgtnh.platform.NativePlayerKey
 import me.sorihiko.dangomusicgtnh.platform.PlayerAction
 import me.sorihiko.dangomusicgtnh.platform.PlayerKeyBinding
 import me.sorihiko.dangomusicgtnh.platform.savedPlayerKeys
+import net.minecraft.client.settings.GameSettings
 import net.minecraft.client.settings.KeyBinding
 import cpw.mods.fml.client.registry.ClientRegistry
 
@@ -55,6 +56,15 @@ object LegacyKeyBindings {
         registered = true
     }
 
+    // GUI text arrives through Keyboard events, independently of the gameplay binding state.
+    fun suppressMovementWhileTyping(settings: GameSettings, typing: Boolean) {
+        if (!typing) return
+        for (binding in arrayOf(settings.keyBindForward, settings.keyBindBack, settings.keyBindLeft,
+            settings.keyBindRight, settings.keyBindJump, settings.keyBindSneak, settings.keyBindSprint)) {
+            KeyBinding.setKeyBindState(binding.keyCode, false)
+        }
+    }
+
     fun sync(bindings: Collection<PlayerKeyBinding>) {
         if (!registered) return
         val settings = mc.gameSettings ?: return
@@ -89,6 +99,10 @@ object LegacyKeyBindings {
     fun isModifierKey(keyCode: Int): Boolean = modifiers?.isModifierKey(keyCode) == true
 
     fun activeModifier(): String? = modifiers?.activeModifier()
+
+    /** GuiScreen resets and stops updating the vanilla KeyBinding pressed state. */
+    internal fun isHeld(action: PlayerAction): Boolean =
+        DangoMusic.instance.platform.isKeyDown(mappings.getValue(action).keyCode) && modifierActive(action)
 
     fun modifierActive(action: PlayerAction): Boolean {
         val access = modifiers ?: return true

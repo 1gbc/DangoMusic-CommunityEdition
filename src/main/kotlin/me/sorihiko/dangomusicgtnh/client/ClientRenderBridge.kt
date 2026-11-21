@@ -26,7 +26,10 @@ internal object ClientRenderBridge {
 
     @SubscribeEvent
     fun clientTick(event: ForgeTickEvent.ClientTickEvent) {
-        if (event.phase != ForgeTickEvent.Phase.START) return
+        if (event.phase == ForgeTickEvent.Phase.END) {
+            if (graphicsReady) BilibiliRequestInput.endTick(Minecraft.getMinecraft())
+            return
+        }
         if (!graphicsAttempted) {
             graphicsAttempted = true
             try {
@@ -41,6 +44,7 @@ internal object ClientRenderBridge {
         }
         DangoMusic.callEvent(TickEvent)
         NearbyClient.tick()
+        if (graphicsReady) BilibiliRequestInput.startTick(Minecraft.getMinecraft())
     }
 
     @SubscribeEvent
@@ -57,9 +61,17 @@ internal object ClientRenderBridge {
                 val drawn = playerListResolution === event.resolution
                 playerListResolution = null
                 DangoMusic.callEvent(HudRenderEvent(if (drawn) PlayerListOverlay.bounds(event.resolution) else null))
+                BilibiliRequestHud.render(Minecraft.getMinecraft())
             }
             else -> Unit
         }
+    }
+
+    @SubscribeEvent
+    fun crosshair(event: RenderGameOverlayEvent.Pre) {
+        if (event.type == RenderGameOverlayEvent.ElementType.CROSSHAIRS &&
+            BilibiliRequestInput.owns(Minecraft.getMinecraft().currentScreen)
+        ) event.isCanceled = true
     }
 
     /** 游戏里（没开界面）的鼠标输入：模组用掉的（比如按住预览键滚动歌词）就不再交给游戏 */

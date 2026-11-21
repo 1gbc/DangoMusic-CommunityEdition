@@ -6,7 +6,7 @@ import re
 import subprocess
 
 
-VERSION = re.compile(r'"[0-9]+\.[0-9]+\.[0-9]+(?P<development>-dev[1-9][0-9]*)?"')
+VERSION = re.compile(r'"[0-9]+\.[0-9]+\.[0-9]+(?P<development>-dev\.[1-9][0-9]*)?"')
 
 
 def main():
@@ -14,7 +14,7 @@ def main():
     declarations = re.findall(r"^version[ \t]*=[ \t]*(.*)$", gradle, re.MULTILINE)
     version = VERSION.fullmatch(declarations[0].strip()) if len(declarations) == 1 else None
     if version is None:
-        raise SystemExit('build.gradle.kts must declare one version such as "0.5.4" or "0.5.4-dev2"')
+        raise SystemExit('build.gradle.kts must declare one version such as "0.5.4" or "0.5.4-dev.2"')
 
     jars = subprocess.check_output(
         ["git", "ls-files", "--", ":(top,glob)*.jar"], encoding="utf-8"

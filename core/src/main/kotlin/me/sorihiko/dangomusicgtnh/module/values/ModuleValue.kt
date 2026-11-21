@@ -4,5 +4,6 @@ package me.sorihiko.dangomusicgtnh.module.values
 @Retention(AnnotationRetention.RUNTIME)
 annotation class ModuleValue(
     val name: String = "",
-    val desc: String = ""
+    val desc: String = "",
+    val persistent: Boolean = true,
 )

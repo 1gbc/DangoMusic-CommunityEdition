@@ -11,6 +11,7 @@ import me.sorihiko.dangomusicgtnh.gfx.HudCanvas
 import me.sorihiko.dangomusicgtnh.gfx.TextCanvas
 import me.sorihiko.dangomusicgtnh.gfx.Texture
 import me.sorihiko.dangomusicgtnh.gfx.Textures
+import me.sorihiko.dangomusicgtnh.gfx.WorldLyricCamera
 import me.sorihiko.dangomusicgtnh.gfx.WorldView
 import me.sorihiko.dangomusicgtnh.lyrics.DeepGlow
 import me.sorihiko.dangomusicgtnh.lyrics.ContrastLayer
@@ -27,6 +28,7 @@ import org.lwjgl.opengl.GL11
 import org.lwjgl.opengl.GL13
 import org.lwjgl.opengl.GL14
 import org.lwjgl.opengl.GL20
+import org.lwjgl.util.vector.Matrix4f
 
 import kotlin.math.max
 
@@ -242,6 +244,16 @@ object LegacyWorld : WorldView {
     override val cameraZ: Double get() = net.minecraft.client.renderer.entity.RenderManager.instance.viewerPosZ
 
     private val viewMatrix = org.lwjgl.BufferUtils.createFloatBuffer(16)
+    private val projectionMatrix = org.lwjgl.BufferUtils.createFloatBuffer(16)
+    private val lyricTransform = org.lwjgl.BufferUtils.createFloatBuffer(16)
+
+    override fun lyricCamera(): WorldLyricCamera {
+        viewMatrix.clear()
+        projectionMatrix.clear()
+        GL11.glGetFloat(GL11.GL_MODELVIEW_MATRIX, viewMatrix)
+        GL11.glGetFloat(GL11.GL_PROJECTION_MATRIX, projectionMatrix)
+        return WorldLyricCamera(Matrix4f().apply { load(viewMatrix) }, Matrix4f().apply { load(projectionMatrix) })
+    }
 
     override fun cameraAngles(): me.sorihiko.dangomusicgtnh.gfx.ViewAngles {
         // 在任何歌词变换和发光绘制之前只读一次，保留睡觉时原版附加的镜头旋转。
@@ -265,6 +277,14 @@ object LegacyWorld : WorldView {
         GL11.glRotatef(-yaw, 0f, 1f, 0f)
         GL11.glRotatef(pitch, 1f, 0f, 0f)
         GL11.glScalef(-scale, -scale, scale)
+    }
+
+    override fun push(transform: Matrix4f) {
+        lyricTransform.clear()
+        transform.store(lyricTransform)
+        lyricTransform.flip()
+        GL11.glPushMatrix()
+        GL11.glMultMatrix(lyricTransform)
     }
 
     override fun pop() = GL11.glPopMatrix()

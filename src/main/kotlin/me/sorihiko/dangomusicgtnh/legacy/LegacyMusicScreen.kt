@@ -33,6 +33,7 @@ class LegacyMusicScreen(
     }
 
     override fun onGuiClosed() {
+        screen.closeSettingsPage()
         inputMethod.setActive(false)
         screen.login.close()
         Keyboard.enableRepeatEvents(false)
@@ -41,7 +42,9 @@ class LegacyMusicScreen(
     override fun doesGuiPauseGame() = false
 
     override fun updateScreen() {
-        inputMethod.setActive(screen.textInputActive)
+        val typing = screen.textInputActive
+        inputMethod.setActive(typing)
+        LegacyKeyBindings.suppressMovementWhileTyping(mc.gameSettings, typing)
         if (mc.theWorld == null && parent is GuiMainMenu) parent.updateScreen()
     }
 

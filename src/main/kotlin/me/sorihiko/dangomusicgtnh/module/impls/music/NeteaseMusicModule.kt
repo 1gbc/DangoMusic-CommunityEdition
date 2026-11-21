@@ -14,6 +14,7 @@ import me.sorihiko.dangomusicgtnh.module.Category
 import me.sorihiko.dangomusicgtnh.module.Module
 import me.sorihiko.dangomusicgtnh.module.ModuleMeta
 import me.sorihiko.dangomusicgtnh.module.values.BooleanValue
+import me.sorihiko.dangomusicgtnh.module.values.ColorValue
 import me.sorihiko.dangomusicgtnh.module.values.FloatValue
 import me.sorihiko.dangomusicgtnh.module.values.IntValue
 import me.sorihiko.dangomusicgtnh.module.values.TextValue
@@ -81,6 +82,9 @@ class NeteaseMusicModule : Module() {
     @ModuleValue("Lyrics page romanization", "")
     internal val lyricsPageRomanization = BooleanValue(false)
 
+    @ModuleValue("Collapse settings on close", "Fold settings groups when closing the settings page or the player")
+    internal val collapseSettingsOnClose = BooleanValue(false)
+
     @ModuleValue("Song comments", "Show the NetEase comments button and allow scrolling to comments")
     internal val songCommentsEnabled = BooleanValue(true)
 
@@ -126,6 +130,51 @@ class NeteaseMusicModule : Module() {
 
     @ModuleValue("Lyric preview", "Hold it and scroll the mouse wheel to browse the cockpit lyrics; left-click jumps to the line in the middle")
     private val keyLyricPreview = IntValue(-100, 255, PlayerAction.LYRIC_PREVIEW.defaultKey)
+
+    @ModuleValue("Song request controls", "Hold to operate the song request queue with the mouse")
+    private val keyBilibiliRequests = IntValue(-100, 255, PlayerAction.BILIBILI_REQUESTS.defaultKey)
+
+    @ModuleValue("Enable Bilibili song requests", "Enable for this game session and connect to the saved room", persistent = false)
+    internal val bilibiliRequests = BooleanValue(false)
+
+    @ModuleValue("Simulate Bilibili messages", "Try the request queue without connecting a livestream", persistent = false)
+    internal val bilibiliMock = BooleanValue(false)
+
+    @ModuleValue("Request HUD X", "Horizontal position of the song request HUD")
+    internal val requestPosX = FloatValue(0f, 1f, 1f, 4)
+
+    @ModuleValue("Request HUD Y", "Vertical position of the song request HUD")
+    internal val requestPosY = FloatValue(0f, 1f, 0f, 4)
+
+    @ModuleValue("Lock request HUD", "Keep the song request HUD in place while using the queue")
+    internal val requestHudLocked = BooleanValue(false)
+
+    @ModuleValue("Request notice duration", "Seconds that each request message stays visible")
+    internal val requestNoticeSeconds = IntValue(3, 60, 15)
+
+    @ModuleValue("Request HUD background", "Choose the request card material")
+    internal val requestHudBackground = IntValue(0, 2, 0)
+
+    @ModuleValue("Small corners", "Use smaller corners on the request card")
+    internal val requestHudSmallCorners = BooleanValue(false)
+
+    @ModuleValue("Request HUD width", "Set the width of the request card")
+    internal val requestHudWidth = IntValue(250, 480, 318)
+
+    @ModuleValue("Request HUD height", "Set the card height; request messages can expand it")
+    internal val requestHudHeight = IntValue(194, 406, 308)
+
+    @ModuleValue("Automatic height", "Fit the queue to its contents within the selected height")
+    internal val requestHudAutoHeight = BooleanValue(true)
+
+    @ModuleValue("Request HUD font", "Choose a font just for the request card and its messages")
+    internal val requestHudFont = TextValue("")
+
+    @ModuleValue("Request HUD text size", "Scale the text on the request card and its messages")
+    internal val requestHudTextSize = IntValue(75, 135, 100)
+
+    @ModuleValue("Request HUD text color", "Set the text color for song titles and request messages")
+    internal val requestHudTextColor = ColorValue(0xFFFFFF)
 
     @ModuleValue("Volume normalization", "Keep songs at a similar loudness")
     private val normalize = BooleanValue(true)
@@ -202,6 +251,7 @@ class NeteaseMusicModule : Module() {
             PlayerKeyBinding(PlayerAction.VOLUME_UP, keyVolUp), PlayerKeyBinding(PlayerAction.VOLUME_DOWN, keyVolDown),
             PlayerKeyBinding(PlayerAction.LYRICS, keyLyrics), PlayerKeyBinding(PlayerAction.STOP, keyStop),
             PlayerKeyBinding(PlayerAction.LYRIC_PREVIEW, keyLyricPreview),
+            PlayerKeyBinding(PlayerAction.BILIBILI_REQUESTS, keyBilibiliRequests),
         ).associateBy { it.action }
     }
 
@@ -442,6 +492,9 @@ class NeteaseMusicModule : Module() {
         if (musicSource.value != source.configId) musicSource.setValue(source.configId)
         MusicSources.selected = source
         syncPlayerKeys()
+        me.sorihiko.dangomusicgtnh.client.BilibiliRequests.update(
+            enabled && bilibiliRequests.get(), bilibiliMock.get(), requestNoticeSeconds.value,
+        )
         if (!enabled) return
         // 歌词模块一直开着（显示与否由 3D lyrics 控制）；等配置读回之后再检查
         if (++tickCount > 5) lyrics()?.let { if (!it.enabled) it.enabled = true }

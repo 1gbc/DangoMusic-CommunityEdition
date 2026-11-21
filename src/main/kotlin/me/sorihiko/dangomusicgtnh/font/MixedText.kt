@@ -29,7 +29,13 @@ class MixedText {
     var useNotoSansSc = false
     var useMenuFont = false
 
-    private fun menuStyle(font: String) = if (bold(font)) CjkStyle.MENU_BOLD else CjkStyle.MENU
+    var customFontStyles: Pair<Int, Int>? = null
+
+    private fun fullFontStyle(font: String): Int? {
+        val bold = bold(font)
+        customFontStyles?.let { return if (bold) it.second else it.first }
+        return if (!useMenuFont) null else if (bold) CjkStyle.MENU_BOLD else CjkStyle.MENU
+    }
 
     private fun style(bold: Boolean) =
         if (useNotoSansSc) {
@@ -68,7 +74,7 @@ class MixedText {
     }
 
     fun width(s: String, size: Float, font: String = Theme.FONT_REGULAR): Float {
-        if (useMenuFont) return gfx.cjkWidth(s, size * CJK_SCALE, menuStyle(font))
+        fullFontStyle(font)?.let { return gfx.cjkWidth(s, size * CJK_SCALE, it) }
         var w = 0f
         segments(s) { seg, latin ->
             w += if (latin) Theme.textWidth(seg, size, font) else gfx.cjkWidth(seg, size * CJK_SCALE, style(bold(font)))
@@ -79,9 +85,9 @@ class MixedText {
     fun text(ctx: RenderContext, s: String, x: Float, y: Float, size: Float, color: Color, font: String = Theme.FONT_REGULAR) {
         if (s.isEmpty()) return
         val opacity = ctx.getOpacity()
-        if (useMenuFont) {
+        fullFontStyle(font)?.let { renderStyle ->
             runs += CjkRun(s, x + shiftX, y + size * BASELINE + shiftY, size * CJK_SCALE,
-                color.r, color.g, color.b, color.a * opacity, menuStyle(font), clip, false)
+                color.r, color.g, color.b, color.a * opacity, renderStyle, clip, false)
             return
         }
         var pen = x

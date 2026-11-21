@@ -1,5 +1,6 @@
 package me.sorihiko.dangomusicgtnh.musicui
 
+import me.sorihiko.dangomusicgtnh.gfx.GuiCanvas
 import me.sorihiko.dangomusicgtnh.gfx.Texture
 import me.sorihiko.dangomusicgtnh.music.CoverCache
 import me.sorihiko.dangomusicgtnh.music.NeteaseTrack
@@ -11,7 +12,7 @@ import me.sorihiko.dangomusicgtnh.ui.Vec2
 import me.sorihiko.dangomusicgtnh.utils.Color
 
 /** Uses the same cover palette and flow phase in the full lyrics view and the Apple player window. */
-internal class FlowingCoverBackdrop(private val ui: Ui) {
+internal class FlowingCoverBackdrop(private val canvas: () -> GuiCanvas) {
     private val startedAt = System.nanoTime()
     private var previous: NeteaseTrack? = null
     private var current: NeteaseTrack? = null
@@ -22,8 +23,8 @@ internal class FlowingCoverBackdrop(private val ui: Ui) {
 
     fun drawLyrics(bounds: LayoutBounds, song: NeteaseTrack?, radius: Float = 0f) {
         val texture = song?.let(CoverCache::trackBackdrop)
-        if (texture == null) ui.card(bounds, Color.fromHex("#382122"), radius)
-        else ui.ctx.drawFlowingBackdrop(bounds, texture, phase(System.nanoTime()), radius)
+        if (texture == null) canvas().drawShape(bounds, ShapeStyle(Color.fromHex("#382122"), radius))
+        else canvas().drawFlowingBackdrop(bounds, texture, phase(System.nanoTime()), radius)
     }
 
     fun prepareMenuFrame(song: NeteaseTrack?) {
@@ -50,11 +51,11 @@ internal class FlowingCoverBackdrop(private val ui: Ui) {
         val top = alpha * mix
         if (mix < 1f) {
             // Keep the content fully opaque at rest and respect the whole window's open/close fade.
-            val lower = (alpha - top) / (1f - top * ui.ctx.getOpacity())
+            val lower = (alpha - top) / (1f - top * canvas().getOpacity())
             drawWindowLayer(bounds, from, radius, angle, lower)
         }
         if (top > 0f) drawWindowLayer(bounds, to, radius, angle, top)
-        ui.card(bounds, shade, radius)
+        canvas().drawShape(bounds, ShapeStyle(shade, radius))
     }
 
     fun drawControlBackground(bounds: LayoutBounds, radius: Float) {
@@ -64,21 +65,21 @@ internal class FlowingCoverBackdrop(private val ui: Ui) {
     fun drawControlPanel(bounds: LayoutBounds, radius: Float, unit: Float = 1f) {
         val corner = minOf(radius, bounds.width / 2f, bounds.height / 2f)
         val shadow = ShadowStyle(Color(0f, 0f, 0f, 0.10f), 14f * unit, Vec2(0f, -3f * unit), outside = true)
-        ui.ctx.drawShape(bounds, ShapeStyle(radius = corner, shadow = shadow))
+        canvas().drawShape(bounds, ShapeStyle(radius = corner, shadow = shadow))
         drawControlBackground(bounds, corner)
-        ui.ctx.drawShape(bounds, ShapeStyle(radius = corner, borderWidth = 0.65f * unit, borderColor = Theme.HAIRLINE))
+        canvas().drawShape(bounds, ShapeStyle(radius = corner, borderWidth = 0.65f * unit, borderColor = Theme.HAIRLINE))
     }
 
     private fun drawWindowLayer(bounds: LayoutBounds, texture: Texture?, radius: Float, phase: Float, alpha: Float) {
         if (texture == null) {
-            ui.card(bounds, FALLBACK.copy(a = alpha), radius)
+            canvas().drawShape(bounds, ShapeStyle(FALLBACK.copy(a = alpha), radius))
             return
         }
-        ui.ctx.pushOpacity(alpha)
+        canvas().pushOpacity(alpha)
         try {
-            ui.ctx.drawFlowingBackdrop(bounds, texture, phase, radius)
+            canvas().drawFlowingBackdrop(bounds, texture, phase, radius)
         } finally {
-            ui.ctx.popOpacity()
+            canvas().popOpacity()
         }
     }
 

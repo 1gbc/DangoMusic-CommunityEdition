@@ -3,6 +3,8 @@ package me.sorihiko.dangomusicgtnh.musicui
 import me.sorihiko.dangomusicgtnh.DangoClient
 import me.sorihiko.dangomusicgtnh.DangoMusic
 import me.sorihiko.dangomusicgtnh.DangoLogger
+import me.sorihiko.dangomusicgtnh.client.BilibiliRequests
+import me.sorihiko.dangomusicgtnh.client.BilibiliState
 import me.sorihiko.dangomusicgtnh.client.ClientMusic
 import me.sorihiko.dangomusicgtnh.client.SettingsExport
 import me.sorihiko.dangomusicgtnh.i18n.I18n
@@ -41,8 +43,9 @@ import kotlin.math.roundToInt
 internal class SettingsPage(private val screen: MusicScreen, private val module: NeteaseMusicModule) {
     private val ui = screen.ui
 
-    private enum class Ctl { TOGGLE, SLIDER, KEY, LANGUAGE, COLOR, FONT, CHOICE, CACHE }
-    private enum class CacheAction { OPEN, CLEAR }
+    private enum class Ctl { TOGGLE, SLIDER, KEY, LANGUAGE, COLOR, FONT, CHOICE, CACHE, BILIBILI }
+    private enum class CacheAction { USAGE, OPEN, CLEAR }
+    private enum class BilibiliAction { STATUS, ROOM, RETRY, MOCK }
     private var clearCacheUntil = 0L
     @Volatile private var clearingCache = false
 
@@ -63,14 +66,19 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
      * [show]：不满足时整组收起（比如只用驾驶舱歌词时 3D 歌词的几组）；
      * [dim]：不满足时整组变暗，标题旁边换成 [note] 说明原因
      */
+    private class Section(val title: String?, val rows: List<Row>)
+
     private class Group(
-        val title: String, val sub: String, val owner: Module, val toggle: Boolean, val rows: List<Row>,
+        val title: String, val sub: String, val owner: Module, val toggle: Boolean, rows: List<Row>,
         val show: (() -> Boolean)? = null,
         val dim: (() -> Boolean)? = null,
         val note: (() -> String?)? = null,
         val collapsible: Boolean = true,
         val fullWidth: Boolean = false,
-    )
+        val sections: List<Section> = listOf(Section(null, rows)),
+    ) {
+        val key = owner.name to title
+    }
 
     /** 用 ◀ ▶ 切换的选项：设置名 → 每个值的显示名（从最小值开始） */
     private val choiceLabels = mapOf(
@@ -80,6 +88,8 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         "islandLayout" to listOf("Style C", "Style A", "Style B"),
         "uiStyle" to listOf("Classic", "Continuous corners"),
         "appleSidebarStyle" to listOf("Flowing cover colors", "Dark glass"),
+        "requestHudBackground" to HudBackground.entries.map { it.label },
+        "islandBackground" to HudBackground.entries.map { it.label },
         "neteaseInterfaceStyle" to listOf("NetEase classic style", "NetEase Apple style"),
         "lyricStyle" to listOf("3D world lyrics", "Cockpit lyrics", "Both", "Hidden"),
         "sidePosition" to listOf("Left middle", "Left bottom", "Right middle"),
@@ -100,8 +110,26 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
     }
 
     private val tabs: List<List<Group>> by lazy { buildSettings() }
-    private val expandedGroups = mutableSetOf<Group>()
+    private val expandedGroups get() = ScreenState.expandedSettingsGroups
     private val selectedTab get() = Tab.values()[ScreenState.settingsTab.coerceIn(0, Tab.values().lastIndex)]
+
+    private class SearchHit(val tab: Tab, val group: Group, val row: Row?) {
+        val label get() = row?.label ?: group.title
+        val visible get() = group.show?.invoke() != false && row?.show?.invoke() != false
+    }
+
+    private var searchFocused = false
+    private var searchQuery = ""
+    private var searchResults = emptyList<SearchHit>()
+    private var searchRect = LayoutBounds()
+    private var searchPopup = LayoutBounds()
+    private val searchHits = mutableListOf<Pair<LayoutBounds, SearchHit>>()
+    private var selectedSearch = 0
+    private var searchOffset = 0
+    private var searchVisibleRows = 7
+    private var pendingSearch: SearchHit? = null
+    private var highlightedSearch: SearchHit? = null
+    private var searchHighlightUntil = 0L
 
     /** 本帧画了设置列表的区域（滚轮用），没画就是空的 */
     var area = LayoutBounds()
@@ -130,7 +158,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
     private val keyButtons = mutableListOf<LayoutBounds>()
     private val keyResetButtons = mutableListOf<Hit>()
 
-    val editing: Boolean get() = editRow != null || hexEditing
+    val editing: Boolean get() = editRow != null || hexEditing || searchFocused
 
     // ---------------------------------------------------------------- 取色器（颜色选项点开后的小面板）
 
@@ -179,6 +207,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
     }
 
     fun beginFrame() {
+        searchHits.clear()
         pickerHits.clear()
         fontHits.clear()
         fontAnchorSeen = false
@@ -186,8 +215,18 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         keyResetButtons.clear()
     }
 
+    fun closePage() {
+        commitEdit()
+        stopDrag()
+        bindingKey = null
+        blurSearch(clear = true)
+        closeFontListNow()
+        closePicker()
+        if (module.collapseSettingsOnClose.get()) expandedGroups.clear()
+    }
+
     fun openPage() {
-        expandedGroups.clear()
+        closePage()
         clearCacheUntil = 0L
         resetArmedUntil = 0L
         resetNoticeAt = null
@@ -293,7 +332,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                 val (ann, v) = left.remove(k) ?: return@mapNotNull null
                 val ctl = when {
                     k == "language" -> Ctl.LANGUAGE
-                    k == "lyricFont" || k == "sideFont" || k.endsWith("MenuFont") -> Ctl.FONT
+                    k == "lyricFont" || k == "sideFont" || k == "requestHudFont" || k.endsWith("MenuFont") -> Ctl.FONT
                     k in choiceLabels -> Ctl.CHOICE
                     v is BooleanValue -> Ctl.TOGGLE
                     k == "openKey" || (k.startsWith("key") && v is IntValue) -> Ctl.KEY
@@ -408,7 +447,10 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         val original = bool(module, "originalAudio")
         val player = Src(module,
             deps = mapOf("envRain" to "envAudio", "envStrength" to "envAudio", "envRays" to "envAudio"),
-            fmts = mapOf("volume" to ::percent, "envStrength" to ::percent),
+            fmts = mapOf("volume" to ::percent, "envStrength" to ::percent,
+                "requestPosX" to ::percent, "requestPosY" to ::percent,
+                "requestHudTextSize" to { (it as IntValue).value.toString() + "%" },
+                "requestNoticeSeconds" to { I18n.format("%s s", (it as IntValue).value) }),
             // 原声模式绕过音量均衡，开着时均衡这一行收起
             shows = mapOf("normalize" to { !original.get() }))
         player.left.remove("shuffle")   // 随机播放用播放栏上的按钮就够了，设置页不再显示（状态照样保存）
@@ -424,10 +466,13 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         val island = Src(islandModule, fmts = mapOf("posX" to ::percent, "posY" to ::percent))
         val playback = player.take(listOf("volume", "originalAudio", "normalize", "playbackFades", "resumeSession"))
         val environment = player.take(listOf("envAudio", "envRain", "envStrength", "envRays"))
-        val looks = player.take(listOf("uiStyle", "language", "songCommentsEnabled"))
-        val neteaseLooks = player.take(listOf("neteaseInterfaceStyle", "neteaseMenuTextSize", "neteaseMenuFont", "neteasePlayerBarSize"))
+        val looks = player.take(listOf("uiStyle", "language", "collapseSettingsOnClose"))
+        val neteaseLooks = player.take(listOf(
+            "neteaseInterfaceStyle", "neteaseMenuTextSize", "neteaseMenuFont", "neteasePlayerBarSize", "songCommentsEnabled",
+        ))
         val appleLooks = player.take(listOf("appleSidebarStyle", "appleMenuTextSize", "appleMenuFont", "applePlayerBarSize"))
         val advanced = player.take(listOf("audioOutput", "audioBuffer")) + listOf(
+            Row("Cache usage", "NetEase audio stored on disk", CacheAction.USAGE, Ctl.CACHE, null, { "" }),
             Row("Open cache folder", "Open the NetEase audio cache location", CacheAction.OPEN, Ctl.CACHE, null, { "" }),
             Row("Clear cache", "Remove downloaded NetEase audio from disk", CacheAction.CLEAR, Ctl.CACHE, null, { "" }),
         )
@@ -437,13 +482,33 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                 dim = { original.get() }, note = { if (original.get()) "Off while Original audio is on" else null }),
             Group("Advanced", "Output and buffering", module, false, advanced),
         )
+        val requestFunction = player.take(listOf("bilibiliRequests", "bilibiliMock")) + listOf(
+            Row("Bilibili connection", "", BilibiliAction.STATUS, Ctl.BILIBILI, null, { "" },
+                show = { module.bilibiliRequests.get() }),
+            Row("Bilibili room number", "Enter the number shown in the livestream link", BilibiliAction.ROOM,
+                Ctl.BILIBILI, null, { "" }, show = { module.bilibiliRequests.get() && !module.bilibiliMock.get() }),
+            Row("Reconnect to Bilibili", "", BilibiliAction.RETRY, Ctl.BILIBILI, null, { "" },
+                show = { module.bilibiliRequests.get() && !module.bilibiliMock.get() }),
+            Row("Send mock requests", "Test with sample danmaku and NetEase search", BilibiliAction.MOCK,
+                Ctl.BILIBILI, null, { "" }, show = { module.bilibiliRequests.get() && module.bilibiliMock.get() }),
+        ) + player.take(listOf("requestNoticeSeconds"))
+        val requestAppearance = player.take(listOf(
+            "requestHudBackground", "requestHudSmallCorners", "requestHudWidth", "requestHudHeight",
+            "requestHudAutoHeight", "requestHudFont", "requestHudTextSize", "requestHudTextColor",
+            "requestPosX", "requestPosY", "requestHudLocked",
+        ))
         val interfaceGroups = listOf(
             Group("Interface", "Look and language", module, false, looks, collapsible = false, fullWidth = true),
             Group("NetEase interface settings", "Player menu appearance", module, false, neteaseLooks, fullWidth = true),
             Group("Apple Music interface settings", "Player menu appearance", module, false, appleLooks, fullWidth = true),
             Group("Dynamic Island", "Overlay", islandModule, true, island.take(listOf(
-                "islandLayout", "islandAnimations", "glass", "scale", "posX", "posY",
-            )) + island.take()),
+                "islandLayout", "islandAnimations", "islandBackground", "scale", "posX", "posY", "islandLocked",
+            )) + island.take(), fullWidth = true),
+            Group("Bilibili song requests", "Live danmaku and request queue", module, false, emptyList(),
+                fullWidth = true, sections = listOf(
+                    Section("Requests and connection", requestFunction),
+                    Section("Appearance and position", requestAppearance),
+                )),
         )
         val hotkeys = listOf(Group("Hotkeys", "Click, then press a key · Backspace clears",
             module, false, player.take(), collapsible = false, fullWidth = true))
@@ -486,20 +551,18 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         val tabsPerRow = if (compactTabs) 3 else (page.width / preferredTabWidth).toInt().coerceIn(1, names.size)
         val tabRows = (names.size + tabsPerRow - 1) / tabsPerRow
         val tabStep = if (compactTabs) 28f else 36f
-        val tabTop = page.y + if (UiStyle.continuous || compactTabs) 34f else 48f
+        val resetLabel = I18n.text(if (System.currentTimeMillis() < resetArmedUntil) "Click again to confirm" else "Reset all settings")
+        val resetWidth = (ui.width(resetLabel, 11f, Theme.FONT_SEMIBOLD) + 22f).coerceAtMost(page.width * 0.52f)
+        val exportLabel = I18n.text("Export settings")
+        val exportWidth = (ui.width(exportLabel, 11f, Theme.FONT_SEMIBOLD) + 22f).coerceAtMost(page.width * 0.35f)
+        val available = page.width - resetWidth - exportWidth - 16f
+        val stackedHeader = available < 136f
+        val tabTop = page.y + if (stackedHeader) 62f else 34f
         val top = tabTop + tabRows * tabStep + 6f
         ui.headerAnim {
-            val resetLabel = I18n.text(if (System.currentTimeMillis() < resetArmedUntil) "Click again to confirm" else "Reset all settings")
-            val resetWidth = (ui.width(resetLabel, 11f, Theme.FONT_SEMIBOLD) + 22f).coerceAtMost(page.width * 0.52f)
-            val exportLabel = I18n.text("Export settings")
-            val exportWidth = (ui.width(exportLabel, 11f, Theme.FONT_SEMIBOLD) + 22f).coerceAtMost(page.width * 0.35f)
-            val title = ui.trim(I18n.text("Settings"), page.width - resetWidth - exportWidth - 18f, 22f, Theme.FONT_DISPLAY)
-            ui.text(title, page.x, page.y, 22f, Theme.TEXT_PRIMARY, Theme.FONT_DISPLAY)
-            if (!UiStyle.continuous && !compactTabs) {
-                val subtitle = ui.trim(I18n.text("Changes apply instantly and are saved automatically"), page.width, 11f, Theme.FONT_SEMIBOLD)
-                ui.text(subtitle, page.x, page.y + 30f, 11f, Theme.TEXT_SECONDARY, Theme.FONT_SEMIBOLD)
-            }
-            val reset = LayoutBounds(page.right - resetWidth, page.y + 2f, resetWidth, 24f)
+            drawSearchField(LayoutBounds(page.x, page.y + 2f,
+                if (stackedHeader) page.width else minOf(320f, available), 24f))
+            val reset = LayoutBounds(page.right - resetWidth, page.y + if (stackedHeader) 30f else 2f, resetWidth, 24f)
             val export = LayoutBounds(reset.x - exportWidth - 6f, reset.y, exportWidth, reset.height)
             drawHeaderButton(export, exportLabel, enabled = !exporting, action = ::exportSettings)
             drawResetButton(reset, resetLabel)
@@ -511,6 +574,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         val placed = place(tabs[selectedTab.ordinal], view)
         val contentH = placed.maxOfOrNull { it.y + it.h } ?: 0f
         maxScroll = max(0f, contentH + ui.bottomInset - view.height)
+        alignSearchHit(placed)
         target = target.coerceIn(0f, maxScroll)
         pos = pos.coerceIn(0f, maxScroll)
 
@@ -537,8 +601,207 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         if (picker != null || fontChoice != null) ui.mt.flush(ui.scale)
         drawPicker(view)
         drawFontList(view)
+        drawSearchResults(page)
     }
 
+
+    private fun drawSearchField(bounds: LayoutBounds) {
+        searchRect = bounds
+        val focusColor = if (screen.usesAppleLayout) APPLE_CONTROL_BLUE else RED
+        ui.drawNeteaseAppleSearchField(bounds, searchQuery, I18n.text("Search settings"), searchFocused,
+            bounds.x + 13f, 12f, bounds.x + 25f, bounds.right - 9f, 11f, focusColor)
+    }
+
+    private fun focusSearch() {
+        commitEdit()
+        stopDrag()
+        bindingKey = null
+        closeFontListNow()
+        closePicker()
+        screen.blurTextFields()
+        searchFocused = true
+        refreshSearch()
+    }
+
+    fun blurSearch(clear: Boolean = false) {
+        searchFocused = false
+        searchPopup = LayoutBounds()
+        searchHits.clear()
+        if (clear) {
+            searchQuery = ""
+            searchResults = emptyList()
+            pendingSearch = null
+            highlightedSearch = null
+        }
+    }
+
+    private fun refreshSearch() {
+        selectedSearch = 0
+        searchOffset = 0
+        if (searchQuery.isBlank()) {
+            searchResults = emptyList()
+            return
+        }
+        val matches = mutableListOf<Pair<SearchHit, Int>>()
+        for (tab in Tab.entries) {
+            for (group in tabs[tab.ordinal]) {
+                fun consider(row: Row?) {
+                    val hit = SearchHit(tab, group, row)
+                    val description = row?.desc ?: group.sub
+                    val choices = row?.let { choiceLabels[it.key] }.orEmpty()
+                    val detail = (listOf(description, hit.label, group.title, tab.label) + choices)
+                        .flatMap { listOf(it, I18n.text(it)) }.distinct().joinToString(" ")
+                    val rank = SettingsSearchRank.score(searchQuery, I18n.text(hit.label),
+                        detail, I18n.text(group.title), I18n.text(tab.label))
+                    if (rank >= 0) matches += hit to (rank + if (hit.visible) 2 else 0)
+                }
+                consider(null)
+                for (section in group.sections) for (row in section.rows) consider(row)
+            }
+        }
+        searchResults = matches.sortedByDescending { it.second }.map { it.first }
+    }
+
+    private fun drawSearchResults(page: LayoutBounds) {
+        searchPopup = LayoutBounds()
+        if (!searchFocused || searchQuery.isBlank()) return
+        val itemHeight = 32f
+        val space = page.bottom - ui.bottomInset - searchRect.bottom - 5f
+        val rows = minOf(7, ((space - 8f) / itemHeight).toInt())
+        if (rows <= 0) return
+        searchVisibleRows = rows
+        searchOffset = searchOffset.coerceIn(0, (searchResults.size - rows).coerceAtLeast(0))
+        val shown = searchResults.drop(searchOffset).take(rows)
+        val width = minOf(page.width - 1f, maxOf(searchRect.width, 244f))
+        val popup = LayoutBounds(searchRect.x, searchRect.bottom + 5f, width, maxOf(1, shown.size) * itemHeight + 8f)
+        searchPopup = popup
+        ui.mt.flush(ui.scale)
+        drawSettingsSearchCard(popup)
+        if (shown.isEmpty()) {
+            val none = ui.trim(I18n.text("No matching settings"), popup.width - 24f, 11f)
+            ui.text(none, popup.x + 12f, popup.y + 13f, 11f, Theme.TEXT_SECONDARY)
+        }
+        for ((index, hit) in shown.withIndex()) {
+            val row = LayoutBounds(popup.x + 4f, popup.y + 4f + index * itemHeight, popup.width - 8f, itemHeight)
+            val selected = index + searchOffset == selectedSearch
+            if (index > 0) {
+                ui.ctx.drawShape(LayoutBounds(row.x + 8f, row.y, row.width - 16f, 1f), ShapeStyle(Theme.SEPARATOR))
+            }
+            if (selected || ui.hover(row)) {
+                ui.card(row, if (selected) Theme.CARD_HOVER else Theme.CARD, 4f)
+            }
+            val label = ui.trim(I18n.text(hit.label), row.width - 24f, 12f, Theme.FONT_MEDIUM)
+            val path = listOfNotNull(
+                I18n.text(hit.tab.label), hit.row?.let { I18n.text(hit.group.title) },
+                if (hit.visible) null else I18n.text("Currently hidden"),
+            ).joinToString(" › ")
+            ui.text(label, row.x + 8f, row.y + 4f, 12f, Theme.TEXT_PRIMARY, Theme.FONT_MEDIUM)
+            ui.text(ui.trim(path, row.width - 24f, 9.5f), row.x + 8f, row.y + 18f, 9.5f, Theme.TEXT_TERTIARY)
+            Theme.drawChevron(ui.ctx, row.right - 11f, row.y + row.height / 2f, 7f, 0f, Theme.TEXT_SECONDARY)
+            searchHits += row to hit
+        }
+    }
+
+    private fun drawSettingsSearchCard(bounds: LayoutBounds) {
+        val radius = 6f
+        val ctx = ui.ctx
+        val shadow = ShadowStyle(Color(0f, 0f, 0f, 0.25f), 12f, Vec2(0f, 3f), outside = true)
+        ctx.drawShape(bounds, ShapeStyle(radius = radius, shadow = shadow))
+        if (screen.usesAppleLayout) {
+            screen.coverBackdrop.drawMenuPanel(bounds, radius, Color(0.03f, 0.035f, 0.045f, 0.34f))
+        } else {
+            ctx.drawGlass(bounds, Theme.GLASS_WINDOW.copy(radius = radius, refraction = 0f, bevel = 1f,
+                dispersion = 0f, highlight = 0f, shadow = ShadowStyle()))
+        }
+        ui.card(bounds, Theme.CARD, radius)
+    }
+
+    private fun revealSearchHit(hit: SearchHit) {
+        blurSearch(clear = true)
+        ScreenState.settingsTab = hit.tab.ordinal
+        val destination = when {
+            hit.visible -> hit
+            hit.group.show?.invoke() != false -> SearchHit(hit.tab, hit.group, null)
+            else -> tabs[hit.tab.ordinal].firstOrNull { it.show?.invoke() != false }
+                ?.let { SearchHit(hit.tab, it, null) } ?: return
+        }
+        if (destination.group.collapsible) expandedGroups.add(destination.group.key)
+        groupVis.getOrPut(destination.group) { Spring(240f, 28f, 1f) }.apply { x = 1f; v = 0f }
+        for (section in destination.group.sections) for (row in section.rows) {
+            val visible = if (row.show?.invoke() != false) 1f else 0f
+            rowVis.getOrPut(row) { Spring(260f, 30f, visible) }.apply { x = visible; v = 0f }
+        }
+        pendingSearch = destination
+        highlightedSearch = destination
+        searchHighlightUntil = System.nanoTime() + 1_800_000_000L
+    }
+
+    private fun alignSearchHit(placed: List<Placed>) {
+        val hit = pendingSearch ?: return
+        pendingSearch = null
+        val group = placed.firstOrNull { it.g === hit.group } ?: return
+        var y = group.y
+        val section = hit.row?.let { row -> group.sections.firstOrNull { row in it.section.rows } }
+        if (section != null) {
+            y += headH + section.y + section.heading
+            for (row in section.section.rows) {
+                if (row === hit.row) break
+                y += rowHeight(row, section.width) * (rowVis[row]?.x ?: 0f).coerceIn(0f, 1f)
+            }
+        }
+        target = (y - 10f).coerceIn(0f, maxScroll)
+        pos = target
+    }
+
+    fun searchClick(x: Int, y: Int): Boolean {
+        if (searchRect.contains(x, y)) {
+            focusSearch()
+            return true
+        }
+        if (searchFocused && searchPopup.contains(x, y)) {
+            searchHits.firstOrNull { it.first.contains(x, y) }?.second?.let(::revealSearchHit)
+            return true
+        }
+        blurSearch()
+        return false
+    }
+
+    fun scrollSearch(wheel: Int, x: Int, y: Int): Boolean {
+        if (!searchFocused || !searchPopup.contains(x, y)) return false
+        val maxOffset = (searchResults.size - searchVisibleRows).coerceAtLeast(0)
+        searchOffset = (searchOffset + if (wheel > 0) -1 else 1).coerceIn(0, maxOffset)
+        selectedSearch = selectedSearch.coerceIn(searchOffset, searchOffset + searchVisibleRows - 1)
+        return true
+    }
+
+    private fun searchKeyTyped(typedChar: Char, keyCode: Int): Boolean {
+        val platform = DangoClient.platform
+        if (!searchFocused) {
+            if (!platform.ctrlDown || keyCode != Keys.F) return false
+            focusSearch()
+            return true
+        }
+        val before = searchQuery
+        when {
+            keyCode == Keys.ESCAPE -> blurSearch(clear = true)
+            keyCode == Keys.RETURN || keyCode == Keys.NUMPADENTER ->
+                searchResults.getOrNull(selectedSearch)?.let(::revealSearchHit)
+            keyCode == Keys.UP || keyCode == Keys.DOWN -> if (searchResults.isNotEmpty()) {
+                selectedSearch = (selectedSearch + if (keyCode == Keys.UP) -1 else 1).coerceIn(0, searchResults.lastIndex)
+                if (selectedSearch < searchOffset) searchOffset = selectedSearch
+                if (selectedSearch >= searchOffset + searchVisibleRows) searchOffset = selectedSearch - searchVisibleRows + 1
+            }
+            keyCode == Keys.BACK || keyCode == Keys.DELETE -> if (searchQuery.isNotEmpty()) {
+                searchQuery = searchQuery.substring(0, searchQuery.offsetByCodePoints(searchQuery.length, -1))
+            }
+            platform.ctrlDown && keyCode == Keys.A -> searchQuery = ""
+            platform.ctrlDown && keyCode == Keys.V ->
+                searchQuery = (searchQuery + platform.clipboard.replace(Regex("[\\r\\n\\t]+"), " ")).take(80)
+            Keys.isAllowedChar(typedChar) -> searchQuery = (searchQuery + typedChar).take(80)
+        }
+        if (before != searchQuery) refreshSearch()
+        return true
+    }
     // ---------------------------------------------------------------- 取色器
 
     private fun rgb(c: Int) = Color((c shr 16 and 255) / 255f, (c shr 8 and 255) / 255f, (c and 255) / 255f, 1f)
@@ -715,7 +978,11 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
     private val rowH = 40f
     private val headH = 36f
 
-    private class Placed(val g: Group, val x: Float, val y: Float, val width: Float, val h: Float, val vis: Float)
+    private class PlacedSection(val section: Section, val x: Float, val y: Float, val width: Float, val heading: Float)
+    private class Placed(
+        val g: Group, val x: Float, val y: Float, val width: Float, val h: Float, val vis: Float,
+        val sections: List<PlacedSection>,
+    )
 
     private val groupVis = HashMap<Group, Spring>()
     private val rowVis = HashMap<Row, Spring>()
@@ -730,20 +997,35 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             val shown = g.show?.invoke() != false
             val vis = groupVis.getOrPut(g) { Spring(240f, 28f, if (shown) 1f else 0f) }
                 .tick(if (shown) 1f else 0f).coerceIn(0f, 1f)
-            val expanded = shown && (!g.collapsible || g in expandedGroups)
+            val expanded = shown && (!g.collapsible || g.key in expandedGroups)
             val width = if (g.fullWidth) fullWidth else colWidth
+            val split = g.sections.size > 1 && width >= 560f
+            val inner = (width - 28f).coerceAtLeast(0f)
+            val sectionGap = 22f
+            val sectionWidth = if (split) (inner - sectionGap) / g.sections.size else inner
             var rows = 0f
-            for (r in g.rows) {
-                val on = expanded && r.show?.invoke() != false
-                rows += rowVis.getOrPut(r) { Spring(260f, 30f, if (on) 1f else 0f) }
-                    .tick(if (on) 1f else 0f).coerceIn(0f, 1f) * rowHeight(r, width - 28f)
+            val sections = g.sections.mapIndexed { index, section ->
+                var height = 0f
+                for (r in section.rows) {
+                    val on = expanded && r.show?.invoke() != false
+                    height += rowVis.getOrPut(r) { Spring(260f, 30f, if (on) 1f else 0f) }
+                        .tick(if (on) 1f else 0f).coerceIn(0f, 1f) * rowHeight(r, sectionWidth)
+                }
+                val heading = if (section.title == null) 0f else
+                    26f * (section.rows.firstOrNull()?.let { rowVis[it]?.x } ?: 0f).coerceIn(0f, 1f)
+                val placed = PlacedSection(section,
+                    if (split) index * (sectionWidth + sectionGap) else 0f,
+                    if (split) 0f else rows, sectionWidth, heading)
+                val sectionHeight = height + heading
+                rows = if (split) max(rows, sectionHeight) else rows + sectionHeight
+                placed
             }
             val col = if (g.fullWidth) 0 else columnIndex++ % columns
             if (vis < 0.02f && rows < 0.02f) return@mapNotNull null
             val height = (headH + 6f) * vis + rows
             val y = if (g.fullWidth) heights.maxOrNull() ?: 0f else heights[col]
             if (g.fullWidth) heights.fill(y + height + gap * vis) else heights[col] += height + gap * vis
-            Placed(g, col * (colWidth + gap), y, width, height, vis)
+            Placed(g, col * (colWidth + gap), y, width, height, vis, sections)
         }
     }
 
@@ -786,7 +1068,11 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         val fadedGroup = groupAlpha < 0.999f
         if (fadedGroup) ctx.pushOpacity(groupAlpha)
         try {
-            ctx.drawShape(b, ShapeStyle(Color(1f, 1f, 1f, 0.05f), 14f))
+            ui.card(b, Theme.CARD, 14f)
+            val selected = highlightedSearch
+            if (selected?.group === g && selected.row == null && System.nanoTime() < searchHighlightUntil) {
+                ui.card(b.copy(height = headH), RED.copy(a = 0.18f), 10f)
+            }
             val x = b.x + 14f
             val iw = b.width - 28f
             val arrowWidth = if (g.collapsible) 24f else 0f
@@ -810,10 +1096,10 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             if (g.collapsible && visible) {
                 val arrow = LayoutBounds(b.right - 14f - arrowWidth, b.y + 7f, arrowWidth, 24f)
                 val header = LayoutBounds(b.x, b.y, b.width - arrowWidth - switchWidth - 14f, headH)
-                val open = g in expandedGroups
+                val open = g.key in expandedGroups
                 val action = {
-                    if (!expandedGroups.add(g)) {
-                        expandedGroups.remove(g)
+                    if (!expandedGroups.add(g.key)) {
+                        expandedGroups.remove(g.key)
                         clearCacheUntil = 0L
                         commitEdit()
                         closeFontListNow()
@@ -828,37 +1114,55 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                 ui.hits += header.intersect(clip) to action
                 ui.hits += arrow.intersect(clip) to action
             }
-            var y = b.y + headH
-            val groupDim = !g.owner.enabled || g.dim?.invoke() == true
-            for (r in g.rows) {
-                val rv = rowVis[r]?.x ?: 1f
-                if (rv < 0.02f) continue
-                val rowHeight = rowHeight(r, iw)
-                // 依赖的开关 / 整个模块关掉时变暗：渐变过去，不是一下子变
-                val dim = groupDim || (r.dep != null && !r.dep.invoke())
-                val target = if (dim) 0.4f else 1f
-                val alpha = rowFade.getOrPut(r) { Spring(170f, 26f, target) }.tick(target).coerceIn(0.4f, 1f)
-                // 展开 / 收起：位置先让出来，字再淡入；还没完全展开的行不接受点击
-                val appear = ((rv - 0.4f) / 0.6f).coerceIn(0f, 1f)
-                val a = alpha * appear
-                if (a > 0.01f) {
-                    val faded = a < 0.999f
-                    if (faded) ctx.pushOpacity(a)
-                    val keep = ui.hits.size
-                    try {
-                        ctx.drawShape(LayoutBounds(x, y, iw, 1f), ShapeStyle(Color(1f, 1f, 1f, 0.06f)))
-                        drawRow(LayoutBounds(x, y, iw, rowHeight), r, clip)
-                    } finally {
-                        if (faded) ctx.popOpacity()
-                    }
-                    if (!visible || (g.collapsible && g !in expandedGroups) || r.show?.invoke() == false || rv < 0.9f) {
-                        while (ui.hits.size > keep) ui.hits.removeAt(ui.hits.size - 1)
-                    }
-                }
-                y += rowHeight * rv
-            }
+            for (section in p.sections) drawGroupRows(g, section, x, b.y + headH, clip, visible)
         } finally {
             if (fadedGroup) ctx.popOpacity()
+        }
+    }
+
+    private fun drawGroupRows(g: Group, section: PlacedSection, left: Float, top: Float, clip: LayoutBounds, visible: Boolean) {
+        val ctx = ui.ctx
+        val x = left + section.x
+        val iw = section.width
+        var y = top + section.y
+        section.section.title?.takeIf { section.heading > 12f }?.let { title ->
+            ctx.pushOpacity((section.heading - 12f) / 14f)
+            ui.text(ui.trim(I18n.text(title), iw, 11f, Theme.FONT_SEMIBOLD),
+                x, y + 7f, 11f, Theme.TEXT_SECONDARY, Theme.FONT_SEMIBOLD)
+            ctx.popOpacity()
+        }
+        y += section.heading
+        val groupDim = !g.owner.enabled || g.dim?.invoke() == true
+        for (r in section.section.rows) {
+            val rv = rowVis[r]?.x ?: 1f
+            if (rv < 0.02f) continue
+            val rowHeight = rowHeight(r, iw)
+            // 依赖的开关 / 整个模块关掉时变暗：渐变过去，不是一下子变
+            val dim = groupDim || (r.dep != null && !r.dep.invoke())
+            val target = if (dim) 0.4f else 1f
+            val alpha = rowFade.getOrPut(r) { Spring(170f, 26f, target) }.tick(target).coerceIn(0.4f, 1f)
+            // 展开 / 收起：位置先让出来，字再淡入；还没完全展开的行不接受点击
+            val appear = ((rv - 0.4f) / 0.6f).coerceIn(0f, 1f)
+            val a = alpha * appear
+            if (a > 0.01f) {
+                val faded = a < 0.999f
+                if (faded) ctx.pushOpacity(a)
+                val keep = ui.hits.size
+                try {
+                    val bounds = LayoutBounds(x, y, iw, rowHeight)
+                    if (highlightedSearch?.row === r && System.nanoTime() < searchHighlightUntil) {
+                        ui.card(bounds, RED.copy(a = 0.18f), 8f)
+                    }
+                    ctx.drawShape(bounds.copy(height = 1f), ShapeStyle(Theme.SEPARATOR))
+                    drawRow(bounds, r, clip)
+                } finally {
+                    if (faded) ctx.popOpacity()
+                }
+                if (!visible || (g.collapsible && g.key !in expandedGroups) || r.show?.invoke() == false || rv < 0.9f) {
+                    while (ui.hits.size > keep) ui.hits.removeAt(ui.hits.size - 1)
+                }
+            }
+            y += rowHeight * rv
         }
     }
 
@@ -869,7 +1173,9 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             Ctl.LANGUAGE -> 142f
             Ctl.COLOR -> 92f
             Ctl.FONT -> 166f
-            Ctl.CHOICE, Ctl.CACHE -> 144f
+            Ctl.CHOICE -> 144f
+            Ctl.CACHE -> if (r.value == CacheAction.USAGE) 210f else 144f
+            Ctl.BILIBILI -> (width * 0.48f).coerceIn(118f, 250f)
     }
 
     private fun rowHeight(r: Row, width: Float): Float =
@@ -897,6 +1203,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                 }
             } else drawSlider(b, r, clip, cx, cy)
             Ctl.CACHE -> drawCacheButton(r.value as CacheAction, LayoutBounds(cx, cy - 12f, ctlW, 24f), clip)
+            Ctl.BILIBILI -> drawBilibiliButton(r.value as BilibiliAction, LayoutBounds(cx, cy - 12f, ctlW, 24f), clip)
             Ctl.KEY -> drawKeyButton(r.value as IntValue, clip, cx, cy, ctlW - 58f)
             Ctl.COLOR -> {
                 // 颜色块 + 十六进制值，点一下弹出取色器
@@ -969,6 +1276,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
     private val fontHits = mutableListOf<LayoutBounds>()
 
     private fun defaultFontName(choice: FontChoice): String = I18n.text(when {
+        choice.font === module.requestHudFont -> "Default request HUD font"
         choice.smooth == null -> "Default menu font"
         choice.font === cockpitFont -> "Default bold"
         else -> "Smooth font"
@@ -1338,7 +1646,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         bindingKey = null
         for (tab in tabs) for (g in tab) {
             if (g.toggle && g.owner.enabled != g.owner.enabledByDefault) g.owner.enabled = g.owner.enabledByDefault
-            for (r in g.rows) {
+            for (section in g.sections) for (r in section.rows) {
                 when (val v = r.value) {
                     is BooleanValue -> v.reset()
                     is IntValue -> when (r.ctl) {
@@ -1358,6 +1666,15 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
     }
 
     private fun drawCacheButton(action: CacheAction, b: LayoutBounds, clip: LayoutBounds) {
+        if (action == CacheAction.USAGE) {
+            val usage = NeteaseDiskCache.usage()
+            val status = usage?.let {
+                I18n.format("%s / %s · %s files", cacheSize(it.bytes), cacheSize(it.limit), it.fileCount)
+            } ?: I18n.text("Reading cache usage…")
+            val text = ui.trim(status, b.width, 11f)
+            ui.text(text, b.right - ui.width(text, 11f), b.y + 7f, 11f, Theme.TEXT_SECONDARY)
+            return
+        }
         val clear = action == CacheAction.CLEAR
         val armed = clear && System.nanoTime() < clearCacheUntil
         val busy = clear && clearingCache
@@ -1391,6 +1708,40 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                         clearingCache = false
                     }
                 }, "Dango-ClearCache").apply { isDaemon = true; start() }
+            }
+        }
+    }
+
+    private fun cacheSize(bytes: Long): String = when {
+        bytes >= 1L shl 30 -> "%.2f GiB".format(bytes.toDouble() / (1L shl 30))
+        bytes >= 1L shl 20 -> "%.1f MiB".format(bytes.toDouble() / (1L shl 20))
+        bytes >= 1L shl 10 -> "%.1f KiB".format(bytes.toDouble() / (1L shl 10))
+        else -> "$bytes B"
+    }
+
+    private fun drawBilibiliButton(action: BilibiliAction, b: LayoutBounds, clip: LayoutBounds) {
+        if (action == BilibiliAction.STATUS) {
+            val status = ui.trim(BilibiliRequests.statusText(), b.width - 8f, 11f)
+            ui.text(status, b.right - 4f - ui.width(status, 11f), b.y + 7f, 11f, Theme.TEXT_SECONDARY)
+            return
+        }
+        val label = I18n.text(when (action) {
+            BilibiliAction.STATUS -> error("Already drawn")
+            BilibiliAction.ROOM -> "Enter room number"
+            BilibiliAction.RETRY -> "Reconnect Bilibili"
+            BilibiliAction.MOCK -> "Send examples"
+        })
+        val enabled = action != BilibiliAction.MOCK || BilibiliRequests.state == BilibiliState.CONNECTED
+        val text = ui.trim(label, b.width - 12f, 11f, Theme.FONT_SEMIBOLD)
+        ui.card(b, if (enabled && ui.hover(b)) Theme.CARD_HOVER else Theme.CARD, 7f)
+        ui.text(text, b.x + (b.width - ui.width(text, 11f, Theme.FONT_SEMIBOLD)) / 2f, b.y + 7f, 11f,
+            if (enabled) Theme.TEXT_PRIMARY else Theme.TEXT_SECONDARY, Theme.FONT_SEMIBOLD)
+        if (enabled) ui.hits += b.intersect(clip) to {
+            when (action) {
+                BilibiliAction.STATUS -> Unit
+                BilibiliAction.ROOM -> BilibiliRequests.configureRoom()
+                BilibiliAction.RETRY -> BilibiliRequests.restart()
+                BilibiliAction.MOCK -> BilibiliRequests.sendExamples()
             }
         }
     }
@@ -1550,7 +1901,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             return true
         }
         // 正在录按键：Esc 取消；Backspace / Delete 清空。
-        val v = bindingKey ?: return false
+        val v = bindingKey ?: return searchKeyTyped(typedChar, keyCode)
         when {
             keyCode == Keys.ESCAPE -> {}
             (keyCode == Keys.BACK || keyCode == Keys.DELETE) && v.minRange <= 0 -> module.rebindKey(v, Keys.NONE)

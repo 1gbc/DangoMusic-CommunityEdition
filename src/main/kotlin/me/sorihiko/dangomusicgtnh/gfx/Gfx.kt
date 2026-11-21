@@ -3,6 +3,7 @@ package me.sorihiko.dangomusicgtnh.gfx
 import me.sorihiko.dangomusicgtnh.ui.LayoutBounds
 import me.sorihiko.dangomusicgtnh.ui.RenderContext
 
+import org.lwjgl.util.vector.Matrix4f
 import java.awt.image.BufferedImage
 
 /**
@@ -75,6 +76,8 @@ object CjkStyle {
     const val NOTO_SC_BOLD = 6
     const val MENU = 7
     const val MENU_BOLD = 8
+    const val REQUEST_HUD = 9
+    const val REQUEST_HUD_BOLD = 10
 }
 
 /** 一段要画的平滑字体文字。centered = (x, y) 是可见部分的中心；否则 y 是基线 */
@@ -181,6 +184,9 @@ interface WorldView {
     /** 当前画面使用的镜头角度；睡觉、第三人称时不能用玩家朝向代替。 */
     fun cameraAngles(): ViewAngles
 
+    /** Snapshot the world camera before any lyric framebuffer changes the render state. */
+    fun lyricCamera(): WorldLyricCamera? = null
+
     /** 开始画世界里的文字：关深度测试、设好混合和贴图状态 */
     fun begin()
 
@@ -189,6 +195,7 @@ interface WorldView {
      * 然后缩放成文字坐标（x 向右、y 向下）。之后用 [TextCanvas] 画，最后 [pop]。
      */
     fun push(rx: Double, ry: Double, rz: Double, yaw: Float, pitch: Float, scale: Float)
+    fun push(transform: Matrix4f)
     fun pop()
 
     /** 发光层画完之后，把文字需要的渲染状态重新设好 */

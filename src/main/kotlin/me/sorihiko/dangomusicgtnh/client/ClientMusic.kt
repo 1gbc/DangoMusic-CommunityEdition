@@ -50,6 +50,7 @@ internal object ClientMusic {
     fun start(directory: File, initialVolume: Float) {
         val hasSettings = directory.resolve("settings.json").isFile
         mc = Minecraft.getMinecraft()
+        BilibiliRequests.loadRoom(directory.toPath().resolve("bilibili-room.txt"))
         DangoClient.start(ClientPlatform(directory.toPath()), LegacyGfx)
         NearbyClient.init()
         FMLCommonHandler.instance().bus().register(NearbyClient)
@@ -64,6 +65,7 @@ internal object ClientMusic {
             NeteaseLogin.cancel()
             NativeLogin.cancel()
             NearbyAudioPlayer.stop()
+            BilibiliRequests.shutdown()
             MusicPlayer.shutdown()
         }, "DangoMusic-shutdown"))
     }

@@ -6,6 +6,7 @@ import me.sorihiko.dangomusicgtnh.DangoLogger
 import me.sorihiko.dangomusicgtnh.DangoMusic
 
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.StandardCharsets
@@ -490,11 +491,22 @@ object NeteaseApi {
      * 播放地址。登录后能拿到账号有权限的完整音频；拿不到时退回网易云外链（只对免费歌曲有效）。
      * 先请求所选音质，仅使用播放器支持的音频格式。
      */
+    internal fun trackById(id: Long): NeteaseTrack? {
+        if (id <= 0L) return null
+        val response = getJson("https://music.163.com/api/song/detail?ids=" + enc("[$id]"))
+            ?: throw IOException("NetEase song detail request failed")
+        if (response.int("code") != 200) throw IOException("NetEase song detail request failed")
+        return tracksOf(response.getAsJsonArray("songs")).firstOrNull { it.id == id }
+    }
+
     fun songUrl(id: Long): SongUrl? = songUrl(NeteaseTrack(id, "", emptyList(), 0, ""))
 
     fun songUrl(track: NeteaseTrack): SongUrl? = songUrl(track, MusicPlayer.neteaseQuality)
 
-    internal fun songUrl(track: NeteaseTrack, quality: NeteaseQuality, active: () -> Boolean = { true }): SongUrl? {
+    internal fun songUrl(track: NeteaseTrack, quality: NeteaseQuality, active: () -> Boolean = { true }): SongUrl? =
+        songUrl(track, quality, active, exact = false)
+
+    private fun songUrl(track: NeteaseTrack, quality: NeteaseQuality, active: () -> Boolean, exact: Boolean): SongUrl? {
         if (track.cloud) {
             // 同一云盘条目可能同时给上传标识和曲库标识；不能按歌名猜测另一个版本。
             var info = track
@@ -521,6 +533,7 @@ object NeteaseApi {
             unsupported?.let { throw it }
         } else playerUrl(track.id, quality, active)?.let { return it }
         if (!active()) return null
+        if (exact) return null
         // 私人上传没有公共曲库替代项；换成另一首会让用户误以为自己的上传播放成功。
         if (track.cloud) throw SourceAccessException("No playable cloud audio was returned. Check this upload in the official NetEase client.")
         alternativeVersion(track.id)?.let { alt ->
@@ -665,13 +678,18 @@ object NeteaseApi {
 
     private class AudioHttpFailure(val code: Int, val host: String, message: String) : SourceAccessException(message)
 
+    private fun audioCacheKey(track: NeteaseTrack, quality: NeteaseQuality): String? {
+        if (track.cloud || track.id <= 0) return null
+        val session = cookie().split(';').firstOrNull { it.trimStart().startsWith("MUSIC_U=") }?.trim().orEmpty()
+        return NeteaseDiskCache.key(track.id, quality, session)
+    }
+
     internal fun downloadTrack(
         track: NeteaseTrack, quality: NeteaseQuality, active: () -> Boolean,
-        timeoutSeconds: Long = 75L, progress: (Int) -> Unit,
+        timeoutSeconds: Long = 75L, exact: Boolean = false, progress: (Int) -> Unit,
     ): Pair<SongUrl, ByteArray>? {
-        val session = cookie().split(';').firstOrNull { it.trimStart().startsWith("MUSIC_U=") }?.trim().orEmpty()
         val cacheGeneration = NeteaseDiskCache.generation
-        val cacheKey = if (track.cloud || track.id <= 0) null else NeteaseDiskCache.key(track.id, quality, session)
+        val cacheKey = audioCacheKey(track, quality)
         if (!active()) throw CancellationException()
         if (cacheKey != null) {
             val cached = runCatching { NeteaseDiskCache.read(cacheKey) }.getOrNull()
@@ -684,7 +702,8 @@ object NeteaseApi {
         var refreshed = false
         var failure: AudioHttpFailure? = null
         while (active()) {
-            val url = songUrl(track, tier, active) ?: break
+            val url = songUrl(track, tier, active, exact) ?: break
+            if (exact && (url.trialOnly || url.replaced)) return null
             try {
                 progress(0)
                 val audio = requestAudio(url.url, active, timeoutSeconds, progress) ?: return null
@@ -719,6 +738,11 @@ object NeteaseApi {
         if (!active()) throw CancellationException()
         failure?.let { throw it }
         return null
+    }
+
+    internal fun cacheRequestedAudio(track: NeteaseTrack, quality: NeteaseQuality, active: () -> Boolean): Boolean {
+        val key = audioCacheKey(track, quality) ?: return false
+        return downloadTrack(track, quality, active, exact = true) {} != null && NeteaseDiskCache.contains(key)
     }
 
     internal fun requestAudio(url: String, active: () -> Boolean, progress: (Int) -> Unit): ByteArray? =
