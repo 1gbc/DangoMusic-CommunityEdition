@@ -1,6 +1,8 @@
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.net.URI;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -14,7 +16,9 @@ import me.sorihiko.dangomusicgtnh.music.NeteaseTrack;
 import me.sorihiko.dangomusicgtnh.music.ResumeStore;
 import me.sorihiko.dangomusicgtnh.music.request.RequestCacheState;
 import me.sorihiko.dangomusicgtnh.music.request.RequestEntry;
+import me.sorihiko.dangomusicgtnh.music.request.RequestNotice;
 import me.sorihiko.dangomusicgtnh.music.request.RequestNoticeKind;
+import me.sorihiko.dangomusicgtnh.shadow.kotlin.jvm.functions.Function1;
 import me.sorihiko.dangomusicgtnh.music.request.SongRequestQuery;
 import me.sorihiko.dangomusicgtnh.music.request.SongRequests;
 
@@ -46,8 +50,117 @@ public final class SongRequestCheck {
         check(SongRequestQuery.parse("/song https://y.music.163.com/m/song?id=202&uct=fixture").getTrackId() == 202L, "mobile song link");
         check(SongRequestQuery.parse("/song https://music.163.com.evil.invalid/song?id=202") == null &&
             SongRequestQuery.parse("/song id:99999999999999999999") == null, "reject unrelated links and invalid IDs");
+        String gemJson = "{\"id\":233931,\"name\":\"泡沫\",\"ar\":[{\"id\":7763,\"name\":\"G.E.M.邓紫棋\",\"alias\":[\"G.E.M.\",\"Gloria Tang\"]}]}";
+        NeteaseTrack gem = NeteaseTrack.Companion.parse(new com.google.gson.JsonParser().parse(gemJson).getAsJsonObject());
+        for (String artist : Arrays.asList("邓紫棋", "gem", "G.E.M.", "id:7763")) {
+            check(SongRequestQuery.parse("/song 泡沫 - " + artist).matches(gem), "match artist spelling " + artist);
+            check(SongRequestQuery.parse("/点歌 泡沫 " + artist).matches(gem), "legacy artist spelling " + artist);
+        }
+        check(!SongRequestQuery.parse("/song 泡沫 - gem").matches(track(6, "泡沫", "宝石Gem")),
+            "partial unrelated artist name cannot match");
+        String japaneseJson = "{\"id\":2056914217,\"name\":\"青のすみか\",\"ar\":[{\"id\":15250026,\"name\":\"キタニタツヤ\",\"tns\":[\"木谷龙也\"]}]}";
+        NeteaseTrack japanese = NeteaseTrack.Companion.parse(new com.google.gson.JsonParser().parse(japaneseJson).getAsJsonObject());
+        check(SongRequestQuery.parse("/点歌 青のすみか　キタニタツヤ").matches(japanese), "Japanese title and artist");
+        check(SongRequestQuery.parse("/song 青のすみか - ｷﾀﾆﾀﾂﾔ").matches(japanese), "Japanese half-width input");
+        check(SongRequestQuery.parse("/song 青のすみか - 木谷龙也").matches(japanese), "localized artist credit");
+        check(SongRequestQuery.parse("/song 3459356843").getTrackId() == 3459356843L, "bare song ID beyond int range");
+        check(SongRequestQuery.parse("/点歌 3459356843").getTrackId() == 3459356843L, "legacy prefix with bare ID");
+        check(SongRequestQuery.parse("/song 分享Lunak的单曲《Stars Get Lonely》: https://y.music.163.com/m/song?id=3459356843 (来自@网易云音乐)").getTrackId() == 3459356843L,
+            "copied share text");
+        verifyMatchFallback(japanese, args);
+        verifyShortLinks(args);
         verifyPlayback();
-        System.out.println("Bilibili request parsing, repeat, timed skip, queue order and resume checks passed.");
+        System.out.println("Bilibili request parsing, disambiguation, repeat, timed skip, queue order and resume checks passed.");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void verifyMatchFallback(NeteaseTrack japanese, String[] args) throws Exception {
+        Method match = SongRequests.class.getDeclaredMethod("searchMatches", SongRequestQuery.class, Function1.class);
+        match.setAccessible(true);
+        NeteaseTrack alternate = track(2061989812L, "青のすみか", "キタニタツヤ");
+        alternate.setAlbumName("Alternate edition");
+        List<String> searches = new ArrayList<>();
+        Function1<String, List<NeteaseTrack>> fixture = query -> {
+            searches.add(query);
+            return query.equals("青のすみか") ? Arrays.asList(japanese, alternate, japanese) :
+                Collections.singletonList(japanese);
+        };
+        SongRequestQuery query = SongRequestQuery.parse("/song 青のすみか - キタニタツヤ");
+        List<NeteaseTrack> candidates = (List<NeteaseTrack>) match.invoke(SongRequests.INSTANCE, query, fixture);
+        check(searches.equals(Arrays.asList("青のすみか キタニタツヤ", "青のすみか")), "search title separately to surface additional editions");
+        check(candidates.equals(Arrays.asList(japanese, alternate)), "keep different IDs, collapse repeated search hits");
+
+        Method show = SongRequests.class.getDeclaredMethod("show", String.class, RequestNoticeKind.class, List.class);
+        show.setAccessible(true);
+        show.invoke(SongRequests.INSTANCE, query.getSearchText(), RequestNoticeKind.AMBIGUOUS, candidates);
+        RequestNotice notice = SongRequests.INSTANCE.snapshot().getNotice();
+        check(notice.getMatchCount() == 2 && notice.getCandidates().get(1).getId() == 2061989812L &&
+            notice.getCandidates().get(1).getAlbum().equals("Alternate edition"),
+            "disambiguation notice retains the ID and album needed to specify a version");
+
+        if (Arrays.asList(args).contains("--live")) {
+            Class<?> api = Class.forName("me.sorihiko.dangomusicgtnh.music.NeteaseApi");
+            Object instance = api.getField("INSTANCE").get(null);
+            field(api, "cachedCookie").set(instance, ""); // Anonymous catalog verification.
+            Method search = api.getMethod("search", String.class, int.class);
+            Method detail = Arrays.stream(api.getDeclaredMethods())
+                .filter(method -> method.getName().startsWith("trackById") && method.getParameterCount() == 1)
+                .findFirst().orElseThrow(AssertionError::new);
+            long idFromCommand = SongRequestQuery.parse("/song 3459356843").getTrackId();
+            NeteaseTrack byId = (NeteaseTrack) detail.invoke(instance, idFromCommand);
+            check(byId != null && byId.getId() == idFromCommand && byId.getName().equals("Stars Get Lonely") &&
+                byId.getArtists().contains("Lunak"), "song ID resolves to the track shown in the reference");
+            Function1<String, List<NeteaseTrack>> live = queryText -> {
+                try {
+                    return (List<NeteaseTrack>) search.invoke(instance, queryText, 25);
+                } catch (ReflectiveOperationException e) {
+                    throw new AssertionError(e);
+                }
+            };
+            for (String command : Arrays.asList("/song 泡沫 - 邓紫棋", "/song 泡沫 - gem", "/点歌 泡沫 G.E.M.",
+                    "/song 青のすみか - キタニタツヤ", "/点歌 青のすみか キタニタツヤ")) {
+                List<NeteaseTrack> hits = (List<NeteaseTrack>) match.invoke(SongRequests.INSTANCE, SongRequestQuery.parse(command), live);
+                long id = command.contains("泡沫") ? 233931L : 2056914217L;
+                check(hits.stream().anyMatch(track -> track.getId() == id), "live NetEase catalog: " + command);
+                System.out.println(command + " -> " + hits.size() + " matching editions, includes " + id);
+            }
+        }
+    }
+
+    private static void verifyShortLinks(String[] args) throws Exception {
+        SongRequestQuery shortQuery = SongRequestQuery.parse("/song https://163cn.tv/example?tracking=1");
+        check(shortQuery.getShortLink() != null && shortQuery.getTrackId() == null, "accept official short links");
+        check(SongRequestQuery.parse("/song https://163cn.tv:8443/example") == null &&
+            SongRequestQuery.parse("/song https://163cn.tv@example.org/example") == null &&
+            SongRequestQuery.parse("/song https://music.163.com/song?id=201&id=202") == null,
+            "reject unexpected ports, credentials and conflicting song IDs");
+
+        Class<?> link = Class.forName("me.sorihiko.dangomusicgtnh.music.request.NeteaseSongLink");
+        Object instance = link.getField("INSTANCE").get(null);
+        Method resolve = link.getMethod("resolve", URI.class, Function1.class);
+        List<String> hops = new ArrayList<>();
+        Function1<URI, String> redirect = uri -> {
+            hops.add(uri.toString());
+            return uri.getPath().equals("/example") ? "/second" : "https://y.music.163.com/m/song?id=3459356843";
+        };
+        check(resolve.invoke(instance, shortQuery.getShortLink(), redirect).equals(3459356843L) &&
+            hops.equals(Arrays.asList("https://163cn.tv/example", "https://163cn.tv/second")),
+            "resolve only official shortener hops, ignoring tracking fields");
+        hops.clear();
+        Function1<URI, String> unrelated = uri -> {
+            hops.add(uri.toString());
+            return "https://example.com/m/song?id=3459356843";
+        };
+        check(resolve.invoke(instance, shortQuery.getShortLink(), unrelated) == null && hops.size() == 1,
+            "reject redirects outside NetEase");
+        Function1<URI, String> loop = uri -> uri.toString();
+        check(resolve.invoke(instance, shortQuery.getShortLink(), loop) == null, "limit redirect loops");
+
+        if (Arrays.asList(args).contains("--live")) {
+            Method defaultResolve = link.getMethod("resolve$default", link, URI.class, Function1.class, int.class, Object.class);
+            check(defaultResolve.invoke(null, instance, new URI("https://163cn.tv/rSfsXhr"), null, 2, null)
+                .equals(29758212L), "resolve a public short link against the actual NetEase redirect service");
+        }
     }
 
     private static NeteaseTrack track(long id, String title, String artist) {

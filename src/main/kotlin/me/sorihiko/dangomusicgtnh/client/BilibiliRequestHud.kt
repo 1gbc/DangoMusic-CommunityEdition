@@ -11,6 +11,7 @@ import me.sorihiko.dangomusicgtnh.music.NeteaseTrack
 import me.sorihiko.dangomusicgtnh.music.PlaybackView
 import me.sorihiko.dangomusicgtnh.music.request.RequestCacheState
 import me.sorihiko.dangomusicgtnh.music.request.RequestEntry
+import me.sorihiko.dangomusicgtnh.music.request.RequestNotice
 import me.sorihiko.dangomusicgtnh.music.request.RequestNoticeKind
 import me.sorihiko.dangomusicgtnh.music.request.SongRequests
 import me.sorihiko.dangomusicgtnh.musicui.PlayerIcons
@@ -40,6 +41,8 @@ internal object BilibiliRequestHud {
     private const val MAX_VISIBLE_ROWS = 4
     private const val NOTICE_HEIGHT = 25f
     private const val NOTICE_GAP = 5f
+    private const val CHOICE_ROW_HEIGHT = 19f
+    private const val CHOICE_HOLD_NANOS = 15_000_000_000L
 
     private val READY = Color.fromHex("#A4EBC9")
     private val FAILED = Color.fromHex("#F87794")
@@ -72,8 +75,12 @@ internal object BilibiliRequestHud {
         line(8.25, 6.0)
         line(10.25, 4.0)
         line(13.75, 4.0)
-        line(15.75, 6.0)
-        line(15.75, if (locked) 10.0 else 7.0)
+        if (locked) {
+            line(15.75, 6.0)
+            line(15.75, 10.0)
+        } else {
+            line(16.5, 5.7)
+        }
         move(12.0, 13.5)
         line(12.0, 16.5)
     }
@@ -82,8 +89,12 @@ internal object BilibiliRequestHud {
         roundRect(5.5, 10.0, 13.0, 10.0, 2.3)
         move(8.25, 10.0)
         line(8.25, 7.0)
-        curve(8.25, 2.3, 16.0, 2.3, 16.0, 7.0)
-        if (locked) line(16.0, 10.0)
+        if (locked) {
+            curve(8.25, 2.3, 16.0, 2.3, 16.0, 7.0)
+            line(16.0, 10.0)
+        } else {
+            curve(8.25, 2.2, 14.8, 2.2, 16.8, 5.7)
+        }
         move(12.0, 14.25)
         line(12.0, 15.75)
     }
@@ -218,16 +229,7 @@ internal object BilibiliRequestHud {
             header(ctx, layout, look, mc.session.username, layout.lock.containsPoint(mouseX, mouseY))
             nowPlaying(ctx, layout, PlaybackView.snapshot())
             queue(ctx, layout, look, entries, hover)
-            snapshot.notice?.let { notice ->
-                val message = when (notice.kind) {
-                    RequestNoticeKind.SKIPPED -> I18n.format("Unable to play “%s”. Skipped.", notice.title)
-                    RequestNoticeKind.NOT_FOUND -> I18n.format("No matching song for “%s”.", notice.title)
-                    RequestNoticeKind.AMBIGUOUS -> I18n.format("Multiple songs match “%s”.", notice.title)
-                    RequestNoticeKind.QUEUE_FULL -> I18n.text("The request queue is full.")
-                    RequestNoticeKind.SEARCH_ERROR -> I18n.format("Could not search for “%s”.", notice.title)
-                }
-                notice(ctx, layout, look, TimedNotice(message, notice.createdAtNanos), now)
-            }
+            snapshot.notice?.let { drawNotice(ctx, layout, look, it, now) }
             val floating = lifted
             val entry = entries.firstOrNull { it.id == floating?.id }
             if (floating != null && entry != null) {
@@ -273,7 +275,7 @@ internal object BilibiliRequestHud {
             ctx.drawShape(layout.lock, ShapeStyle(look.accent.copy(a = 0.17f), look.panel.radius / 2f))
         }
         PlayerIcons.draw(ctx, if (locked) look.locked else look.unlocked, layout.lock.x + layout.lock.width / 2f, y,
-            16f, if (locked || lockHovered) look.accent else DIM_TEXT)
+            16f, if (locked) look.accent else DIM_TEXT)
     }
 
     private fun nowPlaying(ctx: GuiCanvas, layout: Layout, playback: PlaybackView.Snapshot) {
@@ -427,21 +429,47 @@ internal object BilibiliRequestHud {
         PlayerIcons.draw(ctx, trash, remove.x + remove.width / 2f, centerY, 13f, removeColor)
     }
 
-    private fun notice(ctx: GuiCanvas, layout: Layout, look: Look, notice: TimedNotice, now: Long) {
-        val opacity = notice.opacity(now)
-        if (opacity <= 0f) return
-        val below = layout.panel.bottom + NOTICE_GAP
-        val above = layout.panel.top - NOTICE_GAP - NOTICE_HEIGHT
-        val top = when {
-            below + NOTICE_HEIGHT <= layout.height -> below
-            above >= 0f -> above
-            else -> layout.height - NOTICE_HEIGHT
+    private fun drawNotice(ctx: GuiCanvas, layout: Layout, look: Look, notice: RequestNotice, now: Long) {
+        val hasChoices = notice.kind == RequestNoticeKind.AMBIGUOUS
+        val message = when (notice.kind) {
+            RequestNoticeKind.SKIPPED -> I18n.format("Unable to play “%s”. Skipped.", notice.title)
+            RequestNoticeKind.NOT_FOUND -> I18n.format("No matching song for “%s”.", notice.title)
+            RequestNoticeKind.AMBIGUOUS -> I18n.format("“%s” matched %s songs.", notice.title, notice.matchCount)
+            RequestNoticeKind.QUEUE_FULL -> I18n.text("The request queue is full.")
+            RequestNoticeKind.SEARCH_ERROR -> I18n.format("Could not search for “%s”.", notice.title)
+            RequestNoticeKind.INVALID_LINK -> I18n.text("Could not read the link. Try /song with the song ID.")
         }
-        val bounds = LayoutBounds(layout.panel.x, top, WIDTH, NOTICE_HEIGHT)
+        val timed = if (hasChoices) TimedNotice(message, notice.createdAtNanos, CHOICE_HOLD_NANOS)
+            else TimedNotice(message, notice.createdAtNanos)
+        val opacity = timed.opacity(now)
+        if (opacity <= 0f) return
+
+        val candidates = notice.candidates
+        val height = if (hasChoices) 41f + candidates.size * CHOICE_ROW_HEIGHT else NOTICE_HEIGHT
+        val below = layout.panel.bottom + NOTICE_GAP
+        val above = layout.panel.top - NOTICE_GAP - height
+        val top = when {
+            below + height <= layout.height -> below
+            above >= 0f -> above
+            else -> (layout.height - height).coerceAtLeast(0f)
+        }
+        val bounds = LayoutBounds(layout.panel.x, top, WIDTH, height)
+        val x = bounds.left + PADDING
+        val right = bounds.right - PADDING
         ctx.pushOpacity(opacity)
         drawPanel(ctx, bounds, look.panel.copy(radius = 7f, shadow = ShadowStyle()))
-        text.text(ctx, text.trim(notice.text, WIDTH - PADDING * 2f, 11f),
-            bounds.x + PADDING, bounds.y + 8f, 11f, Theme.TEXT_PRIMARY)
+        text.text(ctx, text.trim(message, right - x, 11f), x, bounds.y + 8f, 11f, Theme.TEXT_PRIMARY)
+        if (hasChoices) {
+            text.text(ctx, I18n.text("Send one of these in Bilibili live chat:"), x, bounds.y + 23f, 10f, DIM_TEXT)
+            candidates.forEachIndexed { index, candidate ->
+                val command = "/song ${candidate.id}"
+                val label = listOf(candidate.artist, candidate.album).filter(String::isNotBlank).joinToString(" · ")
+                val y = bounds.y + 39f + index * CHOICE_ROW_HEIGHT
+                val commandLeft = right - text.width(command, 11f, Theme.FONT_SEMIBOLD)
+                text.text(ctx, text.trim(label, commandLeft - x - 8f, 10f), x, y, 10f, Theme.TEXT_PRIMARY)
+                text.text(ctx, command, commandLeft, y, 11f, look.accent, Theme.FONT_SEMIBOLD)
+            }
+        }
         ctx.popOpacity()
     }
 

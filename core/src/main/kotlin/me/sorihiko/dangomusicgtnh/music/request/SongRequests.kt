@@ -13,9 +13,16 @@ import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 
 enum class RequestCacheState { LOADING, READY, FAILED }
-enum class RequestNoticeKind { SKIPPED, NOT_FOUND, AMBIGUOUS, QUEUE_FULL, SEARCH_ERROR }
+enum class RequestNoticeKind { SKIPPED, NOT_FOUND, AMBIGUOUS, QUEUE_FULL, SEARCH_ERROR, INVALID_LINK }
 data class RequestEntry(val id: Long, val track: NeteaseTrack, val user: String, val cache: RequestCacheState)
-data class RequestNotice(val title: String, val createdAtNanos: Long, val kind: RequestNoticeKind)
+data class RequestCandidate(val id: Long, val artist: String, val album: String)
+data class RequestNotice(
+    val title: String,
+    val createdAtNanos: Long,
+    val kind: RequestNoticeKind,
+    val candidates: List<RequestCandidate> = emptyList(),
+    val matchCount: Int = candidates.size,
+)
 data class RequestSnapshot(val entries: List<RequestEntry>, val notice: RequestNotice?)
 
 /** Listener searches and audio downloads are kept off both the game and decoder threads. */
@@ -70,20 +77,23 @@ object SongRequests {
     }
 
     private fun resolve(acceptedGeneration: Long, user: String, query: SongRequestQuery) {
+        val shortLink = query.shortLink
+        val exactId = query.trackId ?: shortLink?.let { runCatching { NeteaseSongLink.resolve(it) }.getOrNull() }
         val matches = runCatching {
-            val candidates = query.trackId?.let { listOfNotNull(NeteaseApi.trackById(it)) }
-                ?: NeteaseApi.search(query.searchText, 25)
-            candidates
-                .filter { it.source == MusicSource.NETEASE && it.id > 0L && !it.cloud && query.matches(it) }
-                .distinctBy { it.id }
+            when {
+                exactId != null -> listOfNotNull(NeteaseApi.trackById(exactId)).filter(::requestable)
+                shortLink != null -> emptyList()
+                else -> searchMatches(query) { NeteaseApi.search(it, 25) }
+            }
         }
         synchronized(lock) {
             if (!enabled || generation != acceptedGeneration) return
             val result = matches.getOrNull()
             when {
-                result == null -> show(query.searchText, RequestNoticeKind.SEARCH_ERROR)
-                result.isEmpty() -> show(query.searchText, RequestNoticeKind.NOT_FOUND)
-                result.size > 1 -> show(query.searchText, RequestNoticeKind.AMBIGUOUS)
+                shortLink != null && exactId == null -> show("", RequestNoticeKind.INVALID_LINK)
+                result == null -> show(exactId?.toString() ?: query.searchText, RequestNoticeKind.SEARCH_ERROR)
+                result.isEmpty() -> show(exactId?.toString() ?: query.searchText, RequestNoticeKind.NOT_FOUND)
+                result.size > 1 -> show(query.searchText, RequestNoticeKind.AMBIGUOUS, result)
                 entries.size >= QUEUE_LIMIT -> show(query.searchText, RequestNoticeKind.QUEUE_FULL)
                 else -> {
                     entries.add(RequestEntry(++nextId, result.single(), user, RequestCacheState.LOADING))
@@ -91,6 +101,18 @@ object SongRequests {
                 }
             }
         }
+    }
+
+    private fun requestable(track: NeteaseTrack): Boolean =
+        track.source == MusicSource.NETEASE && track.id > 0L && !track.cloud
+
+    private fun searchMatches(query: SongRequestQuery, search: (String) -> List<NeteaseTrack>): List<NeteaseTrack> {
+        val first = search(query.searchText)
+        val matches = first.filter { requestable(it) && query.matches(it) }.distinctBy { it.id }
+        if (matches.size > 1) return matches
+        val title = query.titleSearch(first)?.takeUnless { it.equals(query.searchText, ignoreCase = true) } ?: return matches
+        val titleResults = search(title).filter { requestable(it) && query.matches(it) }
+        return (matches + titleResults).distinctBy { it.id }
     }
 
     fun snapshot(): RequestSnapshot = synchronized(lock) {
@@ -138,8 +160,9 @@ object SongRequests {
 
     internal fun skipped(title: String) = synchronized(lock) { show(title, RequestNoticeKind.SKIPPED) }
 
-    private fun show(title: String, kind: RequestNoticeKind) {
-        notice = RequestNotice(title.take(100), System.nanoTime(), kind)
+    private fun show(title: String, kind: RequestNoticeKind, matches: List<NeteaseTrack> = emptyList()) {
+        val candidates = matches.take(3).map { RequestCandidate(it.id, it.artists.joinToString(" / "), it.albumName) }
+        notice = RequestNotice(title.take(100), System.nanoTime(), kind, candidates, matches.size)
     }
 
     private fun head(): RequestEntry? =

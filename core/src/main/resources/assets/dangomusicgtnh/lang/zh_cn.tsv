@@ -879,7 +879,9 @@ No song requests	暂无点歌
 Requested by %s	%s 点歌
 Unable to play “%s”. Skipped.	《%s》无法播放，已跳过
 No matching song for “%s”.	找不到匹配的歌曲「%s」
-Multiple songs match “%s”.	「%s」匹配到多个版本，请指定版本
+“%s” matched %s songs.	「%s」找到 %s 首匹配歌曲
+Send one of these in Bilibili live chat:	请在 B 站直播间弹幕发送下面任一指令
+Could not read the link. Try /song with the song ID.	无法识别单曲链接，请发送 /song 歌曲ID
 The request queue is full.	点歌队列已满
 Could not search for “%s”.	搜索「%s」失败
 Cache usage	缓存占用
