@@ -1731,7 +1731,6 @@ class LyricsModule : Module() {
     private fun pushLeftStack(left: LeftStack, motion: StackMotion) {
         val world = DangoClient.gfx.world
         val pose = left.pose
-        val position = pose.point(0f, -motion.lift, left.reach)
         if (motion.lyric === active) {
             val shared = pose.point(0f, -motion.lift, 1f)
             sharedPose = LyricsAnchor(
@@ -1739,8 +1738,7 @@ class LyricsModule : Module() {
                 pose.yaw, pose.pitch, pose.scale, motion.lyric.lastWiggleFrame ?: -1L,
             )
         }
-        world.push(position.x.toDouble(), position.y.toDouble(), position.z.toDouble(),
-            pose.yaw, pose.pitch, pose.scale * left.reach)
+        world.push(pose.transform(0f, -motion.lift, left.reach))
     }
 
     private fun pushFloatingStack(

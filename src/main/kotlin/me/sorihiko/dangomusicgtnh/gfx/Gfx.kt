@@ -3,6 +3,7 @@ package me.sorihiko.dangomusicgtnh.gfx
 import me.sorihiko.dangomusicgtnh.ui.LayoutBounds
 import me.sorihiko.dangomusicgtnh.ui.RenderContext
 
+import org.lwjgl.util.vector.Matrix4f
 import java.awt.image.BufferedImage
 
 /**
@@ -194,6 +195,7 @@ interface WorldView {
      * 然后缩放成文字坐标（x 向右、y 向下）。之后用 [TextCanvas] 画，最后 [pop]。
      */
     fun push(rx: Double, ry: Double, rz: Double, yaw: Float, pitch: Float, scale: Float)
+    fun push(transform: Matrix4f)
     fun pop()
 
     /** 发光层画完之后，把文字需要的渲染状态重新设好 */

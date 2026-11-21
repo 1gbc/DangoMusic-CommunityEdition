@@ -245,6 +245,7 @@ object LegacyWorld : WorldView {
 
     private val viewMatrix = org.lwjgl.BufferUtils.createFloatBuffer(16)
     private val projectionMatrix = org.lwjgl.BufferUtils.createFloatBuffer(16)
+    private val lyricTransform = org.lwjgl.BufferUtils.createFloatBuffer(16)
 
     override fun lyricCamera(): WorldLyricCamera {
         viewMatrix.clear()
@@ -276,6 +277,14 @@ object LegacyWorld : WorldView {
         GL11.glRotatef(-yaw, 0f, 1f, 0f)
         GL11.glRotatef(pitch, 1f, 0f, 0f)
         GL11.glScalef(-scale, -scale, scale)
+    }
+
+    override fun push(transform: Matrix4f) {
+        lyricTransform.clear()
+        transform.store(lyricTransform)
+        lyricTransform.flip()
+        GL11.glPushMatrix()
+        GL11.glMultMatrix(lyricTransform)
     }
 
     override fun pop() = GL11.glPopMatrix()

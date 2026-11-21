@@ -14,16 +14,10 @@ import kotlin.math.sqrt
 class WorldLyricCamera internal constructor(view: Matrix4f, private val projection: Matrix4f) {
     private val cameraToWorld = Matrix4f.invert(view, null)
     private val viewProjection = Matrix4f.mul(projection, view, null)
-    private val angles = ViewAngles.fromViewBack(
-        view.m02.toDouble(), view.m12.toDouble(), view.m22.toDouble(),
-        view.m00.toDouble(), view.m20.toDouble(),
-    )
-
     internal fun place(
         depth: Float, scale: Float, halfWidth: Float, top: Float, bottom: Float, floor: Float, facePlayer: Boolean,
     ): WorldLyricPose? {
         val inverse = cameraToWorld ?: return null
-        val view = angles ?: return null
         val w = projection.m33 - projection.m23 * depth
         if (!w.isFinite() || w <= 0f || projection.m00 <= 0f || projection.m11 <= 0f) return null
         val screenX = -0.5f
@@ -33,22 +27,15 @@ class WorldLyricCamera internal constructor(view: Matrix4f, private val projecti
         val center = toWorld(inverse, x, y, -depth)
         if (!center.x.isFinite() || !center.y.isFinite() || !center.z.isFinite()) return null
 
-        // Turn the plane toward the lens. Near the poles, use the view angles so that
-        // looking straight up or down cannot turn the entire stack on its side.
-        val follow = if (facePlayer) ((80f - abs(view.pitch)) / 20f).coerceIn(0f, 1f) else 0f
-        val dx = (center.x - eye.x).toDouble()
-        val dy = (center.y - eye.y).toDouble()
-        val dz = (center.z - eye.z).toDouble()
-        val yawDelta = Math.toDegrees(atan2(-dx, dz)).toFloat() - view.yaw
-        val yaw = view.yaw + (((yawDelta + 540f) % 360f) - 180f) * follow
-        val facePitch = Math.toDegrees(atan2(-dy, sqrt(dx * dx + dz * dz))).toFloat()
-        val pitch = view.pitch + (facePitch - view.pitch) * follow
-        val yr = Math.toRadians(yaw.toDouble())
-        val pr = Math.toRadians(pitch.toDouble())
-        val right = Vector3f(-cos(yr).toFloat(), 0f, -sin(yr).toFloat())
-        val down = Vector3f(
-            (sin(yr) * sin(pr)).toFloat(), -cos(pr).toFloat(), (-cos(yr) * sin(pr)).toFloat(),
-        )
+        // Preserve the resting perspective on the left, in camera coordinates. Looking
+        // toward the poles or rolling the view must not alter that tilt on screen.
+        val yaw = if (facePlayer) TILT_YAW else 0.0
+        val pitch = if (facePlayer) TILT_PITCH else 0.0
+        val yawSin = sin(yaw)
+        val yawCos = cos(yaw)
+        val pitchSin = sin(pitch)
+        val right = directionInWorld(inverse, yawCos, 0.0, -yawSin)
+        val down = directionInWorld(inverse, -yawSin * pitchSin, -cos(pitch), -yawCos * pitchSin)
         val corners = arrayOf(
             clipOffset(right, down, -halfWidth, top), clipOffset(right, down, halfWidth, top),
             clipOffset(right, down, -halfWidth, bottom), clipOffset(right, down, halfWidth, bottom),
@@ -69,7 +56,7 @@ class WorldLyricCamera internal constructor(view: Matrix4f, private val projecti
                 high = minOf(high, 0.90f * cornerW - cornerY)
             }
             if (low > high) return null
-            val lowestY = center.y + min(top * down.y, bottom * down.y) * s
+            val lowestY = center.y + (min(top * down.y, bottom * down.y) - halfWidth * abs(right.y)) * s
             val cameraUpY = inverse.m11 / projection.m11
             val shift = if (floor.isFinite() && abs(cameraUpY) > 0.001f) {
                 val groundShift = (floor - lowestY) / cameraUpY
@@ -91,16 +78,26 @@ class WorldLyricCamera internal constructor(view: Matrix4f, private val projecti
             shift = verticalShift(size) ?: return null
         }
         val position = toWorld(inverse, x, y + shift / projection.m11, -depth)
-        return WorldLyricPose(position, eye, right, down, yaw, pitch, size)
+        return WorldLyricPose(position, eye, right, down, size)
     }
 
     private fun clipOffset(right: Vector3f, down: Vector3f, x: Float, y: Float): Vector4f =
         Matrix4f.transform(viewProjection, Vector4f(right.x * x + down.x * y, right.y * x + down.y * y,
             right.z * x + down.z * y, 0f), null)
 
+    private fun directionInWorld(inverse: Matrix4f, x: Double, y: Double, z: Double): Vector3f {
+        val d = Matrix4f.transform(inverse, Vector4f(x.toFloat(), y.toFloat(), z.toFloat(), 0f), null)
+        return Vector3f(d.x, d.y, d.z)
+    }
+
     private fun toWorld(inverse: Matrix4f, x: Float, y: Float, z: Float): Vector3f {
         val p = Matrix4f.transform(inverse, Vector4f(x, y, z, 1f), null)
         return Vector3f(p.x, p.y, p.z)
+    }
+
+    private companion object {
+        val TILT_YAW = Math.toRadians(32.0)
+        val TILT_PITCH = Math.toRadians(4.0)
     }
 }
 
@@ -109,10 +106,24 @@ internal class WorldLyricPose(
     val eye: Vector3f,
     private val right: Vector3f,
     private val down: Vector3f,
-    val yaw: Float,
-    val pitch: Float,
     val scale: Float,
 ) {
+    private val normal = Vector3f.cross(right, down, null)
+    val yaw get() = Math.toDegrees(atan2(-normal.x.toDouble(), normal.z.toDouble())).toFloat()
+    val pitch get() = Math.toDegrees(atan2(-normal.y.toDouble(),
+        sqrt((normal.x * normal.x + normal.z * normal.z).toDouble()))).toFloat()
+
+    fun transform(x: Float, y: Float, reach: Float): Matrix4f {
+        val origin = point(x, y, reach)
+        val size = reach * scale
+        return Matrix4f().apply {
+            m00 = right.x * size; m01 = right.y * size; m02 = right.z * size
+            m10 = down.x * size; m11 = down.y * size; m12 = down.z * size
+            m20 = normal.x * size; m21 = normal.y * size; m22 = normal.z * size
+            m30 = origin.x; m31 = origin.y; m32 = origin.z
+        }
+    }
+
     /** Move and shrink the whole plane along the camera rays to keep its projection fixed. */
     fun point(x: Float, y: Float, reach: Float): Vector3f = Vector3f(
         eye.x + (position.x + (right.x * x + down.x * y) * scale - eye.x) * reach,

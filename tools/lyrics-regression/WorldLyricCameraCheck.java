@@ -45,12 +45,8 @@ public class WorldLyricCameraCheck {
         if (Math.abs(center.x / center.w + 0.5f) > 0.001f) {
             throw new AssertionError("The same scene location in the view should stay a quarter across the screen");
         }
-        float textYaw = (Float)pose.getClass().getMethod("getYaw").invoke(pose);
-        float textPitch = (Float)pose.getClass().getMethod("getPitch").invoke(pose);
-        Matrix4f worldPush = new Matrix4f().translate(origin);
-        worldPush.rotate((float)Math.toRadians(-textYaw), new Vector3f(0, 1, 0));
-        worldPush.rotate((float)Math.toRadians(textPitch), new Vector3f(1, 0, 0));
-        worldPush.scale(new Vector3f(-scale, -scale, scale));
+        Matrix4f worldPush = (Matrix4f)pose.getClass().getMethod("transform", float.class, float.class, float.class)
+                .invoke(pose, 0f, 0f, 1f);
         for (float x : new float[]{-width, width}) {
             for (float y : new float[]{top, bottom}) {
                 Vector3f p = (Vector3f)point.invoke(pose, x, y, 1f);
@@ -81,7 +77,49 @@ public class WorldLyricCameraCheck {
         return Matrix4f.transform(projection, cameraPoint, null);
     }
 
+    private static float[] cameraRelativeAxes(float yaw, float pitch, float roll, boolean tilted) throws Exception {
+        Matrix4f view = new Matrix4f().rotate((float)Math.toRadians(roll), new Vector3f(0, 0, 1))
+            .rotate((float)Math.toRadians(pitch), new Vector3f(1, 0, 0))
+            .rotate((float)Math.toRadians(yaw + 180), new Vector3f(0, 1, 0));
+        Matrix4f projection = new Matrix4f();
+        projection.m00 = 0.85f;
+        projection.m11 = 1.45f;
+        projection.m23 = -1f;
+        projection.m33 = 0f;
+
+        Class<?> camera = Class.forName("me.sorihiko.dangomusicgtnh.gfx.WorldLyricCamera");
+        Object instance = camera.getConstructor(Matrix4f.class, Matrix4f.class).newInstance(view, projection);
+        var place = Arrays.stream(camera.getMethods()).filter(m -> m.getName().startsWith("place$")).findFirst().orElseThrow();
+        Object pose = place.invoke(instance, 10f, 0.1f, 25f, -18f, 24f, Float.NaN, tilted);
+        var point = pose.getClass().getMethod("point", float.class, float.class, float.class);
+        Vector3f center = (Vector3f) point.invoke(pose, 0f, 0f, 1f);
+        Vector3f right = (Vector3f) point.invoke(pose, 1f, 0f, 1f);
+        Vector3f down = (Vector3f) point.invoke(pose, 0f, 1f, 1f);
+        Vector4f r = Matrix4f.transform(view, new Vector4f(right.x - center.x, right.y - center.y, right.z - center.z, 0f), null);
+        Vector4f d = Matrix4f.transform(view, new Vector4f(down.x - center.x, down.y - center.y, down.z - center.z, 0f), null);
+        return new float[]{r.x / r.length(), r.y / r.length(), r.z / r.length(),
+            d.x / d.length(), d.y / d.length(), d.z / d.length()};
+    }
+
+    private static void checkFixedTilt() throws Exception {
+        float[] rest = cameraRelativeAxes(0f, 0f, 0f, true);
+        if (rest[2] > -0.2f) throw new AssertionError("The left stack should keep its perspective tilt");
+        for (float pitch : new float[]{-90f, -72f, -30f, 44f, 81f, 90f}) {
+            float[] moved = cameraRelativeAxes(173f, pitch, 12f, true);
+            for (int i = 0; i < rest.length; i++) {
+                if (Math.abs(rest[i] - moved[i]) > 0.001f) {
+                    throw new AssertionError("Multiline tilt shifted with the camera at pitch " + pitch);
+                }
+            }
+        }
+        float[] frontal = cameraRelativeAxes(-143f, 57f, -10f, false);
+        if (Math.abs(frontal[2]) > 0.001f || Math.abs(frontal[5]) > 0.001f) {
+            throw new AssertionError("Turning off the face-player option keeps the screen-facing layout");
+        }
+    }
+
     public static void main(String[] args) throws Exception {
+        checkFixedTilt();
         check(0, 0, 0, 16f / 9, 70, 25, -18, 24, Float.NaN, true, false);
         check(0, 0, 0, 16f / 9, 70, 25, -18, 24, 2.2f, true, false);
         check(47, 178, -8, 21f / 9, 91, 25, -18, 24, Float.NaN, false, false);
