@@ -131,7 +131,7 @@ class NeteaseMusicModule : Module() {
     @ModuleValue("Lyric preview", "Hold it and scroll the mouse wheel to browse the cockpit lyrics; left-click jumps to the line in the middle")
     private val keyLyricPreview = IntValue(-100, 255, PlayerAction.LYRIC_PREVIEW.defaultKey)
 
-    @ModuleValue("Song request controls", "Hold to operate the song request queue with the mouse")
+    @ModuleValue("HUD mouse interaction", "Hold to release the mouse and interact with HUD elements")
     private val keyBilibiliRequests = IntValue(-100, 255, PlayerAction.BILIBILI_REQUESTS.defaultKey)
 
     @ModuleValue("Enable Bilibili song requests", "Enable for this game session and connect to the saved room", persistent = false)

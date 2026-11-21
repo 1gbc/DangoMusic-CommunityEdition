@@ -847,8 +847,8 @@ Could not check playlist contents	无法检查歌单内容，请重试
 Could not add to playlist. Please retry.	收藏到歌单失败，请重试
 Daily recommendations	每日推荐
 Personal FM	私人 FM
-Song request controls	点歌台交互
-Hold to operate the song request queue with the mouse	按住后使用鼠标操作点歌队列
+HUD mouse interaction	HUD 鼠标交互
+Hold to release the mouse and interact with HUD elements	按住调出鼠标，操作灵动岛与点歌台
 Enable Bilibili song requests	启用 B 站点歌台
 Enable for this game session and connect to the saved room	仅在本次游戏中开启，并自动连接已保存的直播间
 Simulate Bilibili messages	模拟弹幕
@@ -889,7 +889,7 @@ Requested by %s	%s 点歌
 Unable to play “%s”. Skipped.	《%s》无法播放，已跳过
 No matching song for “%s”.	找不到匹配的歌曲「%s」
 “%s” matched %s songs.	「%s」找到 %s 首匹配歌曲
-Hold the HUD key and click to copy. Send in Bilibili chat.	按住交互键点击复制，粘贴到 B 站弹幕。
+Hold the HUD key. Left adds to the queue. Right copies the chat command.	按住交互键，点左侧加入队尾，点右侧复制弹幕指令。
 Command copied	已复制指令
 Copy failed	复制失败
 Could not read the link. Try /song with the song ID.	无法识别单曲链接，请发送 /song 歌曲ID

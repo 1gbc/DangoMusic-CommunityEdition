@@ -15,7 +15,11 @@ import java.util.concurrent.TimeUnit
 enum class RequestCacheState { LOADING, READY, FAILED }
 enum class RequestNoticeKind { SKIPPED, NOT_FOUND, AMBIGUOUS, QUEUE_FULL, SEARCH_ERROR, INVALID_LINK }
 data class RequestEntry(val id: Long, val track: NeteaseTrack, val user: String, val cache: RequestCacheState)
-data class RequestCandidate(val id: Long, val artist: String, val album: String)
+data class RequestCandidate(val track: NeteaseTrack, val queued: Boolean = false) {
+    val id get() = track.id
+    val artist get() = track.artists.joinToString(" / ")
+    val album get() = track.albumName
+}
 data class RequestSnapshot(val entries: List<RequestEntry>, val notices: List<RequestNotice>)
 
 /** Listener searches and audio downloads are kept off both the game and decoder threads. */
@@ -90,14 +94,30 @@ object SongRequests {
                 shortLink != null && exactId == null -> show("", RequestNoticeKind.INVALID_LINK)
                 result == null -> show(exactId?.toString() ?: query.searchText, RequestNoticeKind.SEARCH_ERROR)
                 result.isEmpty() -> show(exactId?.toString() ?: query.searchText, RequestNoticeKind.NOT_FOUND)
-                result.size > 1 -> show(query.searchText, RequestNoticeKind.AMBIGUOUS, result)
+                result.size > 1 -> show(query.searchText, RequestNoticeKind.AMBIGUOUS, result, user)
                 entries.size >= QUEUE_LIMIT -> show(query.searchText, RequestNoticeKind.QUEUE_FULL)
-                else -> {
-                    entries.add(RequestEntry(++nextId, result.single(), user, RequestCacheState.LOADING))
-                    wakeCache()
-                }
+                else -> append(result.single(), user)
             }
         }
+    }
+
+    fun enqueueCandidate(openedAt: Long, trackId: Long): Boolean = synchronized(lock) {
+        if (!enabled) return@synchronized false
+        val now = System.nanoTime()
+        val notice = notices.visible(now).firstOrNull { it.opensAt == openedAt } ?: return@synchronized false
+        if (notice.candidates.none { it.id == trackId && !it.queued }) return@synchronized false
+        if (entries.size >= QUEUE_LIMIT) {
+            show(notice.title, RequestNoticeKind.QUEUE_FULL)
+            return@synchronized false
+        }
+        val track = notices.markQueued(notice, trackId) ?: return@synchronized false
+        append(track, notice.user)
+        true
+    }
+
+    private fun append(track: NeteaseTrack, user: String) {
+        entries.add(RequestEntry(++nextId, track, user, RequestCacheState.LOADING))
+        wakeCache()
     }
 
     private fun requestable(track: NeteaseTrack): Boolean =
@@ -160,9 +180,9 @@ object SongRequests {
 
     internal fun skipped(title: String) = synchronized(lock) { show(title, RequestNoticeKind.SKIPPED) }
 
-    private fun show(title: String, kind: RequestNoticeKind, matches: List<NeteaseTrack> = emptyList()) {
-        val candidates = matches.map { RequestCandidate(it.id, it.artists.joinToString(" / "), it.albumName) }
-        notices.add(System.nanoTime(), noticeSeconds, title.take(100), kind, candidates)
+    private fun show(title: String, kind: RequestNoticeKind, matches: List<NeteaseTrack> = emptyList(), user: String = "") {
+        val candidates = matches.map { RequestCandidate(it) }
+        notices.add(System.nanoTime(), noticeSeconds, title.take(100), kind, candidates, user)
     }
 
     private fun head(): RequestEntry? =

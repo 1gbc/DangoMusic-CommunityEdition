@@ -10,11 +10,10 @@ import org.lwjgl.input.Keyboard
 import org.lwjgl.input.Mouse
 import org.lwjgl.opengl.Display
 
-internal object BilibiliRequestInput {
+internal object HudPointerInput {
     private var wasHeld = false
 
     private val island get() = DangoMusic.instance.moduleManager.get(DynamicIslandModule::class.java)
-    private val hasPointerTarget get() = BilibiliRequests.enabled || island.canMoveWithPointer
 
     private fun held() = LegacyKeyBindings.isHeld(PlayerAction.BILIBILI_REQUESTS)
 
@@ -22,26 +21,26 @@ internal object BilibiliRequestInput {
         val held = held()
         val newlyHeld = held && !wasHeld
         wasHeld = held
-        if (newlyHeld && hasPointerTarget && Display.isActive() && mc.inGameHasFocus &&
+        if (newlyHeld && Display.isActive() && mc.inGameHasFocus &&
             mc.currentScreen == null && mc.theWorld != null &&
             mc.thePlayer?.let { it.isEntityAlive && !it.isPlayerSleeping } == true
         ) {
-            mc.displayGuiScreen(RequestScreen())
+            mc.displayGuiScreen(PointerScreen())
         }
     }
 
     fun endTick(mc: Minecraft) {
-        val screen = mc.currentScreen as? RequestScreen ?: return
+        val screen = mc.currentScreen as? PointerScreen ?: return
         // Forge's END phase runs after GuiScreen drains the LWJGL event queues.
         // Re-grabbing at START could deliver a queued click or wheel event to the world.
         if (!screen.interacting()) mc.displayGuiScreen(null)
     }
 
-    fun owns(screen: GuiScreen?) = screen is RequestScreen
+    fun owns(screen: GuiScreen?) = screen is PointerScreen
 
-    fun interacting(screen: GuiScreen?) = (screen as? RequestScreen)?.interacting() == true
+    fun interacting(screen: GuiScreen?) = (screen as? PointerScreen)?.interacting() == true
 
-    private class RequestScreen : GuiScreen() {
+    private class PointerScreen : GuiScreen() {
         private var cancelled = false
         private var waitForLeftRelease = false
         private var draggingIsland = false
@@ -55,7 +54,7 @@ internal object BilibiliRequestInput {
         }
 
         fun interacting() = mc.currentScreen === this && !cancelled && Display.isActive() &&
-            hasPointerTarget && held() && mc.theWorld != null &&
+            held() && mc.theWorld != null &&
             mc.thePlayer?.let { it.isEntityAlive && !it.isPlayerSleeping } == true
 
         override fun doesGuiPauseGame() = false

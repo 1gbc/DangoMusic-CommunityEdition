@@ -27,7 +27,7 @@ internal object ClientRenderBridge {
     @SubscribeEvent
     fun clientTick(event: ForgeTickEvent.ClientTickEvent) {
         if (event.phase == ForgeTickEvent.Phase.END) {
-            if (graphicsReady) BilibiliRequestInput.endTick(Minecraft.getMinecraft())
+            if (graphicsReady) HudPointerInput.endTick(Minecraft.getMinecraft())
             return
         }
         if (!graphicsAttempted) {
@@ -44,7 +44,7 @@ internal object ClientRenderBridge {
         }
         DangoMusic.callEvent(TickEvent)
         NearbyClient.tick()
-        if (graphicsReady) BilibiliRequestInput.startTick(Minecraft.getMinecraft())
+        if (graphicsReady) HudPointerInput.startTick(Minecraft.getMinecraft())
     }
 
     @SubscribeEvent
@@ -70,7 +70,7 @@ internal object ClientRenderBridge {
     @SubscribeEvent
     fun crosshair(event: RenderGameOverlayEvent.Pre) {
         if (event.type == RenderGameOverlayEvent.ElementType.CROSSHAIRS &&
-            BilibiliRequestInput.owns(Minecraft.getMinecraft().currentScreen)
+            HudPointerInput.owns(Minecraft.getMinecraft().currentScreen)
         ) event.isCanceled = true
     }
 

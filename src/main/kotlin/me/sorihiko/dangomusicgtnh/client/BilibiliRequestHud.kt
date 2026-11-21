@@ -42,6 +42,7 @@ internal object BilibiliRequestHud {
     private const val NOTICE_PADDING = 8f
     private const val NOTICE_LINE_HEIGHT = 19f
     private const val NOTICE_MAX_LINES = 6
+    private const val ADD_SEGMENT_WIDTH = 26f
     private const val SONG_TITLE_SIZE = 12f
 
     private val READY = Color.fromHex("#A4EBC9")
@@ -67,6 +68,14 @@ internal object BilibiliRequestHud {
         move(6.0, 6.5); line(7.0, 21.0); line(17.0, 21.0); line(18.0, 6.5)
         move(10.0, 9.5); line(10.3, 17.5)
         move(14.0, 9.5); line(13.7, 17.5)
+    }
+
+    private val enqueueIcon = VectorIcon.path(strokeWidth = 1.7f) {
+        move(3.5, 5.5); line(19.0, 5.5)
+        move(3.5, 11.5); line(13.0, 11.5)
+        move(3.5, 17.5); line(11.5, 17.5)
+        move(18.0, 12.5); line(18.0, 22.5)
+        move(13.0, 17.5); line(23.0, 17.5)
     }
 
     private val copyIcon = VectorIcon.path(strokeWidth = 1.7f) {
@@ -134,7 +143,7 @@ internal object BilibiliRequestHud {
     private val rowPositions = mutableMapOf<Long, Float>()
     private var lifted: LiftedRow? = null
     private var panelPress: PanelPress? = null
-    private val commandTargets = mutableMapOf<CommandKey, LayoutBounds>()
+    private val commandTargets = mutableMapOf<CommandKey, CommandControls>()
     private var copyFeedback: CopyFeedback? = null
     private var canvas: GuiCanvas? = null
     private val backdrop = HudBackdrop { checkNotNull(canvas) }
@@ -150,12 +159,29 @@ internal object BilibiliRequestHud {
     private data class CommandKey(val openedAt: Long, val trackId: Long) {
         val command get() = "/song $trackId"
     }
+    private enum class CommandAction { ENQUEUE, COPY }
+
+    private class CommandControls(private val bounds: LayoutBounds, queued: Boolean) {
+        private val left = bounds.copy(width = ADD_SEGMENT_WIDTH)
+        private val right = bounds.copy(x = left.right, width = bounds.width - ADD_SEGMENT_WIDTH)
+        val enqueue = left.takeUnless { queued }
+        val copy = right
+
+        fun contains(x: Float, y: Float) = bounds.containsPoint(x, y)
+
+        fun actionAt(x: Float, y: Float): CommandAction? = when {
+            enqueue?.containsPoint(x, y) == true -> CommandAction.ENQUEUE
+            copy.containsPoint(x, y) -> CommandAction.COPY
+            else -> null
+        }
+    }
+
     private data class CopyFeedback(val key: CommandKey, val success: Boolean, val until: Long)
 
     private sealed interface PanelPress {
         data object Lock : PanelPress
 
-        class Copy(val key: CommandKey, val x: Float, val y: Float) : PanelPress {
+        class Command(val key: CommandKey, val action: CommandAction?, val x: Float, val y: Float) : PanelPress {
             var dragged = false
 
             fun move(x: Float, y: Float) {
@@ -246,8 +272,8 @@ internal object BilibiliRequestHud {
             mc.displayWidth <= 0 || mc.displayHeight <= 0
         ) return
         val screen = mc.currentScreen
-        if (screen != null && !BilibiliRequestInput.owns(screen)) return
-        val interactive = BilibiliRequestInput.interacting(screen)
+        if (screen != null && !HudPointerInput.owns(screen)) return
+        val interactive = HudPointerInput.interacting(screen)
         val snapshot = SongRequests.snapshot()
         val entries = snapshot.entries
         val now = System.nanoTime()
@@ -523,7 +549,7 @@ internal object BilibiliRequestHud {
                 RequestNoticeKind.INVALID_LINK -> I18n.text("Could not read the link. Try /song with the song ID.")
             }
             val guide = if (notice.kind == RequestNoticeKind.AMBIGUOUS)
-                text.wrap2(I18n.text("Hold the HUD key and click to copy. Send in Bilibili chat."), width, size)
+                text.wrap2(I18n.text("Hold the HUD key. Left adds to the queue. Right copies the chat command."), width, size)
             else emptyList()
             val lines = 1 + guide.size + notice.candidates.size
             NoticeView(notice, text.trim(message, width, size, Theme.FONT_SEMIBOLD), guide,
@@ -561,26 +587,50 @@ internal object BilibiliRequestHud {
                     val key = CommandKey(view.notice.opensAt, candidate.id)
                     val label = listOf(candidate.artist, candidate.album).filter(String::isNotBlank).joinToString(" · ")
                     val commandWidth = text.width(key.command, size, Theme.FONT_SEMIBOLD)
-                    val chip = LayoutBounds(right - commandWidth - 28f, top - 2f, commandWidth + 28f, lineHeight)
+                    val chipWidth = minOf(commandWidth + 28f + ADD_SEGMENT_WIDTH, bounds.width)
+                    val chip = LayoutBounds(right - chipWidth, top - 2f, chipWidth, lineHeight)
+                    val controls = CommandControls(chip, candidate.queued)
                     val shown = chip.intersect(bounds).height >= chip.height - 0.01f
-                    if (interactive && shown) commandTargets[key] = chip
-                    val hover = interactive && shown && chip.containsPoint(mouseX, mouseY)
+                    if (interactive && shown) commandTargets[key] = controls
+                    val hover = if (interactive && shown) controls.actionAt(mouseX, mouseY) else null
                     val feedback = copyFeedback?.takeIf { it.key == key && now < it.until }
-                    val color = when {
+                    val copyColor = when {
                         feedback != null -> if (feedback.success) READY else FAILED
-                        hover -> look.accent
+                        hover == CommandAction.COPY -> look.accent
                         else -> primaryText
                     }
-                    ctx.drawShape(chip, ShapeStyle(color.copy(a = if (hover) 0.21f else 0.10f), 5f))
-                    PlayerIcons.draw(ctx, copyIcon, chip.x + 11f, chip.y + chip.height / 2f, 13f, color)
+                    val addColor = when {
+                        candidate.queued -> READY
+                        hover == CommandAction.ENQUEUE -> look.accent
+                        else -> primaryText
+                    }
+                    ctx.drawShape(chip, ShapeStyle(primaryText.copy(a = 0.10f), 5f))
+                    val highlight = when (hover) {
+                        CommandAction.ENQUEUE -> controls.enqueue
+                        CommandAction.COPY -> controls.copy
+                        null -> null
+                    }
+                    if (highlight != null) {
+                        ctx.pushClip(highlight)
+                        try {
+                            ctx.drawShape(chip, ShapeStyle(look.accent.copy(a = 0.12f), 5f))
+                        } finally {
+                            ctx.popClip()
+                        }
+                    }
+                    ctx.drawShape(LayoutBounds(controls.copy.left, chip.y + 3f, 1f, chip.height - 6f),
+                        ShapeStyle(Theme.HAIRLINE))
+                    val centerY = chip.y + chip.height / 2f
+                    PlayerIcons.draw(ctx, enqueueIcon, chip.x + ADD_SEGMENT_WIDTH / 2f, centerY, 13f, addColor)
+                    PlayerIcons.draw(ctx, copyIcon, controls.copy.x + 11f, centerY, 13f, copyColor)
                     val displayed = when (feedback?.success) {
                         true -> I18n.text("Command copied")
                         false -> I18n.text("Copy failed")
                         null -> key.command
                     }
                     text.text(ctx, text.trim(label, chip.x - x - 6f, size), x, top, size, primaryText)
-                    text.text(ctx, text.trim(displayed, commandWidth + 1f, size, Theme.FONT_SEMIBOLD),
-                        chip.x + 21f, top, size, color, Theme.FONT_SEMIBOLD)
+                    text.text(ctx, text.trim(displayed, controls.copy.width - 24f, size, Theme.FONT_SEMIBOLD),
+                        controls.copy.x + 21f, top, size, copyColor, Theme.FONT_SEMIBOLD)
                     top += lineHeight
                 }
             } finally {
@@ -640,9 +690,9 @@ internal object BilibiliRequestHud {
         val y = pixelY / layout.scale
         gesture.cancel()
         val queueHit = hit(layout, entries, x, y)
-        val command = commandTargets.entries.firstOrNull { it.value.containsPoint(x, y) }?.key
+        val command = commandTargets.entries.firstOrNull { it.value.contains(x, y) }
         panelPress = when {
-            command != null -> PanelPress.Copy(command, x, y)
+            command != null -> PanelPress.Command(command.key, command.value.actionAt(x, y), x, y)
             layout.lock.containsPoint(x, y) -> PanelPress.Lock
             queueHit != null -> {
                 gesture.down(queueHit.control, x, y, queueHit.row.x, queueHit.row.y)
@@ -662,7 +712,7 @@ internal object BilibiliRequestHud {
             return
         }
         val scale = scale(mc)
-        if (press is PanelPress.Copy) press.move(pixelX / scale, pixelY / scale)
+        if (press is PanelPress.Command) press.move(pixelX / scale, pixelY / scale)
         else gesture.move(pixelX / scale, pixelY / scale)
     }
 
@@ -683,11 +733,16 @@ internal object BilibiliRequestHud {
         val x = pixelX / layout.scale
         val y = pixelY / layout.scale
         when (val press = panelPress) {
-            is PanelPress.Copy -> {
+            is PanelPress.Command -> {
                 panelPress = null
                 press.move(x, y)
-                if (!press.dragged && commandTargets[press.key]?.containsPoint(x, y) == true &&
-                    snapshot.notices.any { it.opensAt == press.key.openedAt && it.candidates.any { candidate -> candidate.id == press.key.trackId } }) {
+                val action = press.action ?: return
+                if (press.dragged || commandTargets[press.key]?.actionAt(x, y) != action) return
+                if (action == CommandAction.ENQUEUE) {
+                    SongRequests.enqueueCandidate(press.key.openedAt, press.key.trackId)
+                } else if (snapshot.notices.any {
+                    it.opensAt == press.key.openedAt && it.candidates.any { candidate -> candidate.id == press.key.trackId }
+                }) {
                     val command = press.key.command
                     val platform = DangoClient.platform
                     val copied = runCatching {

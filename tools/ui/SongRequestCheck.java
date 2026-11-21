@@ -21,6 +21,7 @@ import me.sorihiko.dangomusicgtnh.music.request.RequestNoticeKind;
 import me.sorihiko.dangomusicgtnh.shadow.kotlin.jvm.functions.Function1;
 import me.sorihiko.dangomusicgtnh.music.request.SongRequestQuery;
 import me.sorihiko.dangomusicgtnh.music.request.SongRequests;
+import me.sorihiko.dangomusicgtnh.ui.LayoutBounds;
 
 public final class SongRequestCheck {
     public static void main(String[] args) throws Exception {
@@ -86,6 +87,7 @@ public final class SongRequestCheck {
         verifyShortLinks(args);
         verifyNoticeSchedule();
         verifyCommandCopy();
+        verifyEnqueueCandidate();
         verifyPlayback();
         System.out.println("Bilibili request parsing, disambiguation, repeat, timed skip, queue order and resume checks passed.");
     }
@@ -107,9 +109,9 @@ public final class SongRequestCheck {
         check(searches.equals(Arrays.asList("青のすみか キタニタツヤ", "青のすみか")), "search title separately to surface additional editions");
         check(candidates.equals(Arrays.asList(japanese, alternate)), "keep different IDs, collapse repeated search hits");
 
-        Method show = SongRequests.class.getDeclaredMethod("show", String.class, RequestNoticeKind.class, List.class);
+        Method show = SongRequests.class.getDeclaredMethod("show", String.class, RequestNoticeKind.class, List.class, String.class);
         show.setAccessible(true);
-        show.invoke(SongRequests.INSTANCE, query.getSearchText(), RequestNoticeKind.AMBIGUOUS, candidates);
+        show.invoke(SongRequests.INSTANCE, query.getSearchText(), RequestNoticeKind.AMBIGUOUS, candidates, "Viewer");
         RequestNotice notice = SongRequests.INSTANCE.snapshot().getNotices().get(0);
         check(notice.getMatchCount() == 2 && notice.getCandidates().get(1).getId() == 2061989812L &&
             notice.getCandidates().get(1).getAlbum().equals("Alternate edition"),
@@ -224,10 +226,24 @@ public final class SongRequestCheck {
         Method command = target.getMethod("getCommand");
         command.setAccessible(true);
         check(command.invoke(commandKey).equals("/song 3459356843"), "copy a complete valid command");
-        Class<?> press = Class.forName(hud + "$PanelPress$Copy");
-        java.lang.reflect.Constructor<?> constructor = press.getDeclaredConstructor(target, float.class, float.class);
+        Class<?> controls = Class.forName(hud + "$CommandControls");
+        var controlsConstructor = controls.getDeclaredConstructor(LayoutBounds.class, boolean.class);
+        controlsConstructor.setAccessible(true);
+        LayoutBounds chip = new LayoutBounds(100f, 50f, 150f, 19f);
+        Object available = controlsConstructor.newInstance(chip, false);
+        Object queued = controlsConstructor.newInstance(chip, true);
+        Method actionAt = controls.getMethod("actionAt", float.class, float.class);
+        actionAt.setAccessible(true);
+        Object copy = actionAt.invoke(available, 126f, 59f);
+        check(copy.toString().equals("COPY") && actionAt.invoke(available, 125f, 59f).toString().equals("ENQUEUE"),
+            "left enqueues, right copies, and the two hit boxes are exclusive");
+        check(actionAt.invoke(queued, 125f, 59f) == null && actionAt.invoke(queued, 126f, 59f) == copy,
+            "already enqueued candidates still allow copying");
+
+        Class<?> press = Class.forName(hud + "$PanelPress$Command");
+        java.lang.reflect.Constructor<?> constructor = press.getDeclaredConstructor(target, copy.getClass(), float.class, float.class);
         constructor.setAccessible(true);
-        Object click = constructor.newInstance(commandKey, 10f, 10f);
+        Object click = constructor.newInstance(commandKey, copy, 10f, 10f);
         Method move = press.getMethod("move", float.class, float.class);
         move.setAccessible(true);
         move.invoke(click, 11f, 10f);
@@ -235,6 +251,44 @@ public final class SongRequestCheck {
         move.invoke(click, 100f, 10f);
         move.invoke(click, 10f, 10f);
         check(field(press, "dragged").getBoolean(click), "leaving and returning cannot copy during a drag");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void verifyEnqueueCandidate() throws Exception {
+        SongRequests requests = SongRequests.INSTANCE;
+        Method enqueue = SongRequests.class.getMethod("enqueueCandidate", long.class, long.class);
+        Method show = SongRequests.class.getDeclaredMethod("show", String.class, RequestNoticeKind.class, List.class, String.class);
+        show.setAccessible(true);
+        requests.enable(true);
+        Field worker = field(SongRequests.class, "workerActive");
+        worker.setBoolean(requests, true);
+        List<RequestEntry> entries = (List<RequestEntry>) field(SongRequests.class, "entries").get(requests);
+        NeteaseTrack existing = track(300, "Already queued", "Artist");
+        NeteaseTrack candidate = track(301, "Requested song", "Artist");
+        NeteaseTrack alternate = track(302, "Requested song (alternate)", "Artist");
+        try {
+            entries.add(new RequestEntry(1000, existing, "Earlier viewer", RequestCacheState.READY));
+            show.invoke(requests, "Requested song", RequestNoticeKind.AMBIGUOUS, Arrays.asList(candidate, alternate), "Viewer");
+            long notice = requests.snapshot().getNotices().get(0).getOpensAt();
+            check(!(Boolean) enqueue.invoke(requests, notice, 999L), "unlisted songs cannot be enqueued");
+            check((Boolean) enqueue.invoke(requests, notice, 301L), "enqueue the exact candidate");
+            check(entries.size() == 2 && entries.get(0).getTrack() == existing && entries.get(1).getTrack() == candidate &&
+                entries.get(1).getUser().equals("Viewer") && entries.get(1).getCache() == RequestCacheState.LOADING,
+                "append at the tail, preserving requester and kicking off normal caching");
+            check(!(Boolean) enqueue.invoke(requests, notice, 301L), "repeated clicks on one candidate cannot add it twice");
+            while (entries.size() < 24) {
+                entries.add(new RequestEntry(1001 + entries.size(), existing, "Earlier viewer", RequestCacheState.READY));
+            }
+            check(!(Boolean) enqueue.invoke(requests, notice, 302L) && entries.size() == 24, "respect queue capacity");
+            entries.remove(entries.size() - 1);
+            check((Boolean) enqueue.invoke(requests, notice, 302L), "full queue does not consume the candidate action");
+            requests.enable(false);
+            check(!(Boolean) enqueue.invoke(requests, notice, 302L), "disabled HUD does not enqueue candidates");
+        } finally {
+            requests.enable(false);
+            entries.clear();
+            worker.setBoolean(requests, false);
+        }
     }
 
     private static NeteaseTrack track(long id, String title, String artist) {
