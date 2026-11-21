@@ -48,7 +48,7 @@ class ConfigManager(
 
     private fun valueFields(module: Module): List<Field> =
         module.javaClass.declaredFields.filter {
-            it.isAnnotationPresent(ModuleValue::class.java)
+            it.getAnnotation(ModuleValue::class.java)?.persistent == true
         }.onEach { it.isAccessible = true }
 
     // ---------------------------------------------------------------- 读取

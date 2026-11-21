@@ -9,6 +9,8 @@ import me.sorihiko.dangomusicgtnh.i18n.I18n
 import me.sorihiko.dangomusicgtnh.music.request.SongRequests
 import java.awt.EventQueue
 import java.io.BufferedWriter
+import java.io.IOException
+import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
@@ -48,10 +50,20 @@ internal object BilibiliRequests {
         private set
     @Volatile private var reason = ""
     @Volatile private var roomId = ""
+    private lateinit var roomFile: Path
     @Volatile private var desired: Config? = null
     @Volatile private var child: Child? = null
     @Volatile private var useMock = false
     private var closing = false
+
+    @Synchronized fun loadRoom(file: Path) {
+        roomFile = file
+        roomId = try {
+            parseRoom(String(Files.readAllBytes(roomFile), Charsets.UTF_8).trim()).orEmpty()
+        } catch (_: IOException) {
+            ""
+        }
+    }
 
     @Synchronized fun update(active: Boolean, mock: Boolean, noticeSeconds: Int) {
         SongRequests.noticeSeconds = noticeSeconds
@@ -95,9 +107,15 @@ internal object BilibiliRequests {
                 } finally {
                     dialog.dispose()
                 }
-                if (option.value == JOptionPane.OK_OPTION && !saveRoom(input.text.trim())) {
-                    JOptionPane.showMessageDialog(null, I18n.text("Invalid Bilibili room number"),
-                        title, JOptionPane.WARNING_MESSAGE)
+                if (option.value == JOptionPane.OK_OPTION) {
+                    val warning = try {
+                        if (saveRoom(input.text.trim())) null else "Invalid Bilibili room number"
+                    } catch (_: IOException) {
+                        "Could not save the Bilibili room number"
+                    }
+                    if (warning != null) {
+                        JOptionPane.showMessageDialog(null, I18n.text(warning), title, JOptionPane.WARNING_MESSAGE)
+                    }
                 }
             } finally {
                 enteringRoom.set(false)
@@ -107,12 +125,26 @@ internal object BilibiliRequests {
 
     @Synchronized private fun saveRoom(value: String): Boolean {
         if (closing) return true
-        val number = value.toLongOrNull()
-        if (number == null || number <= 0 || value.any { it !in '0'..'9' }) return false
-        roomId = number.toString()
-        updateDesired(force = true)
+        val number = parseRoom(value) ?: return false
+        Files.createDirectories(roomFile.parent)
+        val temporary = Files.createTempFile(roomFile.parent, "bilibili-room-", ".tmp")
+        try {
+            Files.write(temporary, number.toByteArray(Charsets.UTF_8))
+            try {
+                Files.move(temporary, roomFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+            } catch (_: AtomicMoveNotSupportedException) {
+                Files.move(temporary, roomFile, StandardCopyOption.REPLACE_EXISTING)
+            }
+        } finally {
+            Files.deleteIfExists(temporary)
+        }
+        roomId = number
+        updateDesired()
         return true
     }
+
+    private fun parseRoom(value: String): String? =
+        value.toLongOrNull()?.takeIf { it > 0 && value.all { char -> char in '0'..'9' } }?.toString()
 
     @Synchronized fun restart() {
         if (!closing && desired != null) updateDesired(force = true)

@@ -850,14 +850,14 @@ Personal FM	私人 FM
 Song request controls	点歌台交互
 Hold to operate the song request queue with the mouse	按住后使用鼠标操作点歌队列
 Enable Bilibili song requests	启用 B 站点歌台
-Show the request HUD and listen for live song requests	显示点歌台并接收直播弹幕点歌
+Enable for this game session and connect to the saved room	仅在本次游戏中开启，并自动连接已保存的直播间
 Simulate Bilibili messages	模拟弹幕
 Try the request queue without connecting a livestream	在连接真实直播间前试用点歌队列
 Bilibili song requests	B 站直播点歌台
 Live danmaku and request queue	直播弹幕与点歌队列
 Bilibili connection	连接状态
 Bilibili room number	B 站直播间号
-Enter the number shown in the livestream link	填写直播间链接里的数字
+Enter the number shown in the livestream link	填写直播间链接里的数字，房间号会保存在本机
 Reconnect to Bilibili	重新连接 B 站
 Send mock requests	发送模拟点歌
 Test with sample danmaku and NetEase search	用示例弹幕测试网易云搜歌
@@ -871,6 +871,7 @@ Mock messages connected	模拟弹幕已连接
 Bilibili connected	B 站已连接
 Bilibili disconnected	B 站未连接
 Invalid Bilibili room number	直播间号无效，请填写正整数
+Could not save the Bilibili room number	无法保存 B 站直播间号，请检查配置目录是否可写
 Bilibili could not find that livestream room	B 站找不到该直播间
 Bilibili limited the connection. Try again later.	B 站限制了连接，请稍后重试
 Bilibili did not allow an anonymous danmaku connection	B 站拒绝了匿名弹幕连接

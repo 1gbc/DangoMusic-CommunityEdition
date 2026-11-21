@@ -134,10 +134,10 @@ class NeteaseMusicModule : Module() {
     @ModuleValue("Song request controls", "Hold to operate the song request queue with the mouse")
     private val keyBilibiliRequests = IntValue(-100, 255, PlayerAction.BILIBILI_REQUESTS.defaultKey)
 
-    @ModuleValue("Enable Bilibili song requests", "Show the request HUD and listen for live song requests")
+    @ModuleValue("Enable Bilibili song requests", "Enable for this game session and connect to the saved room", persistent = false)
     internal val bilibiliRequests = BooleanValue(false)
 
-    @ModuleValue("Simulate Bilibili messages", "Try the request queue without connecting a livestream")
+    @ModuleValue("Simulate Bilibili messages", "Try the request queue without connecting a livestream", persistent = false)
     internal val bilibiliMock = BooleanValue(false)
 
     @ModuleValue("Request HUD X", "Horizontal position of the song request HUD")

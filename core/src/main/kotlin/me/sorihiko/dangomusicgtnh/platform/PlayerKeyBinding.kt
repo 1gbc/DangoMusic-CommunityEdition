@@ -9,7 +9,7 @@ enum class PlayerAction(val id: String, val defaultKey: Int = Keys.NONE) {
     OPEN("open_player"), PAUSE("play_pause"), PREVIOUS("previous"), NEXT("next"),
     VOLUME_UP("volume_up"), VOLUME_DOWN("volume_down"), LYRICS("toggle_lyrics"), STOP("stop_playback"),
     /** 按住时滚轮翻看驾驶舱歌词 */
-    LYRIC_PREVIEW("lyric_preview"), BILIBILI_REQUESTS("bilibili_requests");
+    LYRIC_PREVIEW("lyric_preview"), BILIBILI_REQUESTS("bilibili_requests", Keys.LMENU);
 
     val translationKey: String get() = "key.dangomusicgtnh.$id"
 }
