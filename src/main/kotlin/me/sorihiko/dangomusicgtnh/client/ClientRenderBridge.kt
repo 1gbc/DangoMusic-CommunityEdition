@@ -74,7 +74,7 @@ internal object ClientRenderBridge {
         ) event.isCanceled = true
     }
 
-    /** 游戏里（没开界面）的鼠标输入：模组用掉的（比如按住预览键滚动歌词）就不再交给游戏 */
+    /** 游戏里（没开界面）的鼠标输入：模组用掉的就不再交给游戏 */
     @SubscribeEvent
     fun mouse(event: MouseEvent) {
         if (!graphicsReady || Minecraft.getMinecraft().currentScreen != null) return

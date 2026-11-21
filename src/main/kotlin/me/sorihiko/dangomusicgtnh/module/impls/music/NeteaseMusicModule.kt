@@ -128,10 +128,7 @@ class NeteaseMusicModule : Module() {
     @ModuleValue("Toggle lyrics", "Hotkey to turn lyrics on or off")
     private val keyLyrics = IntValue(-100, 255, 0)
 
-    @ModuleValue("Lyric preview", "Hold it and scroll the mouse wheel to browse the cockpit lyrics; left-click jumps to the line in the middle")
-    private val keyLyricPreview = IntValue(-100, 255, PlayerAction.LYRIC_PREVIEW.defaultKey)
-
-    @ModuleValue("HUD mouse interaction", "Hold to release the mouse and interact with HUD elements")
+    @ModuleValue("HUD mouse interaction", "Hold to release the mouse and interact with HUD elements; over the cockpit lyrics, scroll to browse and click a line to play from it")
     private val keyBilibiliRequests = IntValue(-100, 255, PlayerAction.BILIBILI_REQUESTS.defaultKey)
 
     @ModuleValue("Enable Bilibili song requests", "Enable for this game session and connect to the saved room", persistent = false)
@@ -250,7 +247,6 @@ class NeteaseMusicModule : Module() {
             PlayerKeyBinding(PlayerAction.PREVIOUS, keyPrev), PlayerKeyBinding(PlayerAction.NEXT, keyNext),
             PlayerKeyBinding(PlayerAction.VOLUME_UP, keyVolUp), PlayerKeyBinding(PlayerAction.VOLUME_DOWN, keyVolDown),
             PlayerKeyBinding(PlayerAction.LYRICS, keyLyrics), PlayerKeyBinding(PlayerAction.STOP, keyStop),
-            PlayerKeyBinding(PlayerAction.LYRIC_PREVIEW, keyLyricPreview),
             PlayerKeyBinding(PlayerAction.BILIBILI_REQUESTS, keyBilibiliRequests),
         ).associateBy { it.action }
     }
@@ -267,14 +263,6 @@ class NeteaseMusicModule : Module() {
     fun keyDisplayName(value: IntValue): String? {
         val binding = keyBindings.values.firstOrNull { it.value === value } ?: return null
         return DangoMusic.instance.platform.playerKeyDisplayName(binding.action)
-    }
-
-    /** 驾驶舱歌词预览键现在是否按着（只在游戏里、没开界面时算） */
-    fun lyricPreviewHeld(): Boolean {
-        val platform = DangoMusic.instance.platform
-        val code = keyLyricPreview.value
-        return code != Keys.NONE && platform.inGame && try { platform.isKeyDown(code) } catch (_: Exception) { false } &&
-            platform.playerKeyModifierActive(PlayerAction.LYRIC_PREVIEW)
     }
 
     private var wasDown = false

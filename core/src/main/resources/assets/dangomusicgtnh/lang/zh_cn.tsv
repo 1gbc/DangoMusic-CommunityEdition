@@ -769,10 +769,8 @@ Color in letters	文字染色
 Cover color follows each song; or use your own color, a cover gradient, a rainbow, or a flowing aurora of the cover colors	封面主色会跟着每首歌变；也可以用自己选的颜色、封面渐变、彩虹，或者封面颜色流动的极光
 Default bold	默认粗体
 Fonts folder	字体文件夹
-Hold it and scroll the mouse wheel to browse the cockpit lyrics; left-click jumps to the line in the middle	按住它滚动鼠标滚轮翻看驾驶舱歌词，点左键跳到中间那一句
 How much of the color goes into the letters themselves; 0 keeps white letters with a colored glow	字本身染上多少颜色；0 是白字配彩色光晕
 How visible the lines before and after the current one are	当前行前后的那些行有多明显
-Lyric preview	翻看歌词
 Makes the lyrics brighter or darker	让歌词更亮或者更暗
 Other lines	其它行深浅
 Other mods	其它模组
@@ -848,7 +846,7 @@ Could not add to playlist. Please retry.	收藏到歌单失败，请重试
 Daily recommendations	每日推荐
 Personal FM	私人 FM
 HUD mouse interaction	HUD 鼠标交互
-Hold to release the mouse and interact with HUD elements	按住调出鼠标，操作灵动岛与点歌台
+Hold to release the mouse and interact with HUD elements; over the cockpit lyrics, scroll to browse and click a line to play from it	按住调出鼠标，操作灵动岛与点歌台；鼠标移到驾驶舱歌词上可以滚轮翻看，单击从那一句开始播放
 Enable Bilibili song requests	启用 B 站点歌台
 Enable for this game session and connect to the saved room	仅在本次游戏中开启，并自动连接已保存的直播间
 Simulate Bilibili messages	模拟弹幕

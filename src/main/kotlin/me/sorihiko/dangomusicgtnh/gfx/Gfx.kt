@@ -236,7 +236,33 @@ interface GlassTextPass {
  * 透视：先绕 (pivotX, pivotY) 前后倾斜 [pitch] 度，再左右转 [yaw] 度（窗口像素）。
  * yaw > 0 时左边靠近、右边退远；pitch > 0 时下边靠近、上边退远。
  */
-class GlassTextView(val pivotX: Float, val pivotY: Float, val yaw: Float, val pitch: Float)
+class GlassTextView(val pivotX: Float, val pivotY: Float, val yaw: Float, val pitch: Float) {
+    /**
+     * 文字平面上的一点（窗口像素，y 向下，倾斜前的位置）倾斜后落在屏幕的哪里，写进 [out]（x, y）。
+     * 和 [GlassTextPass.begin] 用同一套透视：镜头离屏幕 [FOCAL] × 窗口高度，z = 0 的平面正好铺满窗口，
+     * 先绕支点前后倾斜（[pitch]），再左右转（[yaw]）。HUD 鼠标靠它判断指着哪一行
+     */
+    fun project(x: Float, y: Float, width: Float, height: Float, out: FloatArray) {
+        val qx = x - pivotX
+        val qy = y - pivotY
+        val p = Math.toRadians(pitch.toDouble())
+        val t = Math.toRadians(yaw.toDouble())
+        val y1 = qy * Math.cos(p).toFloat()
+        val z1 = qy * Math.sin(p).toFloat()
+        val x2 = qx * Math.cos(t).toFloat() + z1 * Math.sin(t).toFloat()
+        val z2 = -qx * Math.sin(t).toFloat() + z1 * Math.cos(t).toFloat()
+        val d = height * FOCAL
+        // 转到镜头后面去的点（倾斜角远小于 90 度时不会出现）按很远处理，免得除以 0
+        val f = d / (d - z2).coerceAtLeast(d * 0.05f)
+        out[0] = width / 2f + (x2 + pivotX - width / 2f) * f
+        out[1] = height / 2f + (y1 + pivotY - height / 2f) * f
+    }
+
+    companion object {
+        /** 镜头到屏幕的距离 = 窗口高度 × 这个数；越大透视越弱（1.6 ≈ 35° 视角） */
+        const val FOCAL = 1.6f
+    }
+}
 
 class GlassTextStyle(
     /** 0..1：字有多“浓”（实心字的不透明度 / 玻璃有多明显）；越低越通透 */

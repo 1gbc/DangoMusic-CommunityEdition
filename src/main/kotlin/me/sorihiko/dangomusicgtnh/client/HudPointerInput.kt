@@ -3,6 +3,7 @@ package me.sorihiko.dangomusicgtnh.client
 import me.sorihiko.dangomusicgtnh.DangoMusic
 import me.sorihiko.dangomusicgtnh.legacy.LegacyKeyBindings
 import me.sorihiko.dangomusicgtnh.module.impls.music.DynamicIslandModule
+import me.sorihiko.dangomusicgtnh.module.impls.music.LyricsModule
 import me.sorihiko.dangomusicgtnh.platform.PlayerAction
 import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.GuiScreen
@@ -14,6 +15,7 @@ internal object HudPointerInput {
     private var wasHeld = false
 
     private val island get() = DangoMusic.instance.moduleManager.get(DynamicIslandModule::class.java)
+    private val lyrics get() = DangoMusic.instance.moduleManager.get(LyricsModule::class.java)
 
     private fun held() = LegacyKeyBindings.isHeld(PlayerAction.BILIBILI_REQUESTS)
 
@@ -44,6 +46,8 @@ internal object HudPointerInput {
         private var cancelled = false
         private var waitForLeftRelease = false
         private var draggingIsland = false
+        /** 这次按下点在了驾驶舱歌词上：松开时不再交给点歌台 */
+        private var pressedLyrics = false
 
         override fun initGui() {
             // A button already held when the cursor is released cannot start a queue action.
@@ -51,6 +55,9 @@ internal object HudPointerInput {
             BilibiliRequestHud.cancelGesture()
             island.endPointerDrag()
             draggingIsland = false
+            pressedLyrics = false
+            // 鼠标刚放出来时还没有移动事件：先用当前位置，指着的歌词行马上就能亮
+            if (Mouse.isCreated()) lyrics.cockpitPointerMove(Mouse.getX(), mc.displayHeight - Mouse.getY() - 1)
         }
 
         fun interacting() = mc.currentScreen === this && !cancelled && Display.isActive() &&
@@ -65,11 +72,21 @@ internal object HudPointerInput {
 
         override fun handleMouseInput() {
             // Never delegate to a screen or key binding behind this transparent screen.
-            if (!interacting()) return
+            if (!interacting()) {
+                lyrics.cockpitPointerMove(-1, -1)
+                return
+            }
             val x = Mouse.getEventX()
             val y = mc.displayHeight - Mouse.getEventY() - 1
+            // 点歌卡片画在最上面，和驾驶舱歌词重叠时先归点歌卡片；指在卡片上时歌词行也不亮
+            val onCard = BilibiliRequestHud.blocksPointer(x, y)
+            if (onCard) lyrics.cockpitPointerMove(-1, -1) else lyrics.cockpitPointerMove(x, y)
             val wheel = Mouse.getEventDWheel()
-            if (wheel != 0 && !draggingIsland && BilibiliRequests.enabled) BilibiliRequestHud.scroll(mc, x, y, wheel)
+            if (wheel != 0 && !draggingIsland) {
+                if (onCard || !lyrics.cockpitPointerScroll(x, y, wheel)) {
+                    if (BilibiliRequests.enabled) BilibiliRequestHud.scroll(mc, x, y, wheel)
+                }
+            }
             if (Mouse.getEventButton() != 0) {
                 if (draggingIsland) island.movePointerDrag(x, y)
                 else if (BilibiliRequests.enabled) BilibiliRequestHud.movePointer(mc, x, y)
@@ -81,12 +98,16 @@ internal object HudPointerInput {
             }
             if (Mouse.getEventButtonState()) {
                 // The request card is rendered above the island where their bounds overlap.
-                draggingIsland = !BilibiliRequestHud.blocksPointer(x, y) && island.beginPointerDrag(x, y)
-                if (!draggingIsland && BilibiliRequests.enabled) BilibiliRequestHud.press(mc, x, y)
+                draggingIsland = !onCard && island.beginPointerDrag(x, y)
+                // 驾驶舱歌词在灵动岛之后：单击从指着的那一行开始播放
+                pressedLyrics = !onCard && !draggingIsland && lyrics.cockpitPointerPress(x, y)
+                if (!draggingIsland && !pressedLyrics && BilibiliRequests.enabled) BilibiliRequestHud.press(mc, x, y)
             } else if (draggingIsland) {
                 island.movePointerDrag(x, y)
                 island.endPointerDrag()
                 draggingIsland = false
+            } else if (pressedLyrics) {
+                pressedLyrics = false
             } else if (BilibiliRequests.enabled) BilibiliRequestHud.release(mc, x, y)
         }
 
@@ -94,6 +115,8 @@ internal object HudPointerInput {
             BilibiliRequestHud.cancelGesture()
             island.endPointerDrag()
             draggingIsland = false
+            pressedLyrics = false
+            lyrics.cockpitPointerMove(-1, -1)
         }
     }
 }
