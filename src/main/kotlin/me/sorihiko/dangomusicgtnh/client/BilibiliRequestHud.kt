@@ -37,7 +37,7 @@ import kotlin.math.floor
 
 internal object BilibiliRequestHud {
     private const val PADDING = 12f
-    private const val HEADER_HEIGHT = 128f
+    private const val HEADER_HEIGHT = 144f
     private const val ROW_HEIGHT = 38f
     private const val NOTICE_PADDING = 8f
     private const val NOTICE_LINE_HEIGHT = 19f
@@ -67,6 +67,13 @@ internal object BilibiliRequestHud {
         move(6.0, 6.5); line(7.0, 21.0); line(17.0, 21.0); line(18.0, 6.5)
         move(10.0, 9.5); line(10.3, 17.5)
         move(14.0, 9.5); line(13.7, 17.5)
+    }
+
+    private val copyIcon = VectorIcon.path(strokeWidth = 1.7f) {
+        roundRect(8.0, 7.0, 11.5, 13.0, 2.0)
+        move(15.5, 4.0)
+        line(5.5, 4.0)
+        line(5.5, 16.0)
     }
 
     private fun classicLock(locked: Boolean) = VectorIcon.path(strokeWidth = 1.9f) {
@@ -127,6 +134,9 @@ internal object BilibiliRequestHud {
     private val rowPositions = mutableMapOf<Long, Float>()
     private var lifted: LiftedRow? = null
     private var panelPress: PanelPress? = null
+    private val commandTargets = mutableMapOf<CommandKey, LayoutBounds>()
+    private var copyFeedback: CopyFeedback? = null
+    private val creditScrollStartedAt = System.nanoTime()
     private var canvas: GuiCanvas? = null
     private val backdrop = HudBackdrop { checkNotNull(canvas) }
     private val hudFontStyles = CjkStyle.REQUEST_HUD to CjkStyle.REQUEST_HUD_BOLD
@@ -137,8 +147,22 @@ internal object BilibiliRequestHud {
     private var selected: Long? = null
     private var lastFrameTime = 0L
 
+    private data class CommandKey(val openedAt: Long, val trackId: Long) {
+        val command get() = "/song $trackId"
+    }
+    private data class CopyFeedback(val key: CommandKey, val success: Boolean, val until: Long)
+
     private sealed interface PanelPress {
         data object Lock : PanelPress
+
+        class Copy(val key: CommandKey, val x: Float, val y: Float) : PanelPress {
+            var dragged = false
+
+            fun move(x: Float, y: Float) {
+                if (abs(x - this.x) > RequestQueueGesture.DRAG_THRESHOLD ||
+                    abs(y - this.y) > RequestQueueGesture.DRAG_THRESHOLD) dragged = true
+            }
+        }
 
         class Move(val x: Float, val y: Float, val offset: Vec2) : PanelPress {
             var moved = false
@@ -213,6 +237,7 @@ internal object BilibiliRequestHud {
     }
 
     fun render(mc: Minecraft) {
+        commandTargets.clear()
         if (!BilibiliRequests.enabled || mc.theWorld == null || mc.thePlayer == null ||
             mc.displayWidth <= 0 || mc.displayHeight <= 0
         ) return
@@ -269,7 +294,7 @@ internal object BilibiliRequestHud {
             header(ctx, layout, look, mc.session.username, layout.lock.containsPoint(mouseX, mouseY))
             nowPlaying(ctx, layout, playback)
             queue(ctx, layout, look, entries, hover)
-            drawNotices(ctx, layout, notices)
+            drawNotices(ctx, layout, look, notices, now, interactive, mouseX, mouseY)
             val floating = lifted
             val entry = entries.firstOrNull { it.id == floating?.id }
             if (floating != null && entry != null) {
@@ -321,9 +346,9 @@ internal object BilibiliRequestHud {
         val line = layout.lineScale
         val titleSize = 14f * layout.textScale
         val detailSize = 11f * layout.textScale
-        val p = LayoutBounds(left, layout.panel.y + 53f * line, layout.rows.width, 47f * line)
+        val p = LayoutBounds(left, layout.panel.y + 53f * line, layout.rows.width, 62f * line)
         text.text(ctx, I18n.text("Current track"), left + 2f, p.y - 17f * line, detailSize, secondaryText)
-        val art = LayoutBounds(p.x + 2f, p.y + (p.height - 43f) / 2f, 34f, 34f)
+        val art = LayoutBounds(p.x + 2f, p.y + (p.height - 58f) / 2f, 50f, 50f)
         drawCover(ctx, art, playback.track)
         val x = art.right + 10f
         val right = p.right - 2f
@@ -338,17 +363,22 @@ internal object BilibiliRequestHud {
             x, p.y + 15f * line, detailSize, secondaryText)
         val duration = playback.durationMs.coerceAtLeast(0L)
         val position = playback.positionMs.coerceAtLeast(0L)
-        val stamp = "${fmtTime(position)} / ${if (duration > 0L) fmtTime(duration) else "–:––"}"
+        val elapsed = fmtTime(position)
+        val total = if (duration > 0L) fmtTime(duration) else "–:––"
         val timeSize = 10f * layout.textScale
-        val stampX = right - text.width(stamp, timeSize)
-        val bar = LayoutBounds(x, p.bottom - 13f * line, (stampX - x - 7f).coerceAtLeast(0f), 2f)
+        val totalX = right - text.width(total, timeSize)
+        val barLeft = x + text.width(elapsed, timeSize) + 7f
+        val barY = p.bottom - 13f * line
+        val bar = LayoutBounds(barLeft, barY, (totalX - barLeft - 7f).coerceAtLeast(0f), 2f)
         ctx.drawShape(bar, ShapeStyle(Theme.TRACK, 1f))
         val progress = if (duration > 0L) (position.toDouble() / duration).coerceIn(0.0, 1.0).toFloat() else 0f
         if (progress > 0f) {
             val width = bar.width * progress
             ctx.drawShape(bar.copy(width = width), ShapeStyle(Theme.TEXT_PRIMARY, minOf(width / 2f, 1f)))
         }
-        text.text(ctx, stamp, stampX, p.bottom - 18f * line, timeSize, secondaryText)
+        val timeY = barY + 1f - timeSize / 2f
+        text.text(ctx, elapsed, x, timeY, timeSize, secondaryText)
+        text.text(ctx, total, totalX, timeY, timeSize, secondaryText)
     }
 
     private fun lift(layout: Layout, drag: RequestQueueGesture.Drag) {
@@ -455,15 +485,20 @@ internal object BilibiliRequestHud {
         val detailSize = 11f * layout.textScale
         text.text(ctx, text.trim(entry.track.name, available, titleSize, Theme.FONT_SEMIBOLD),
             textX, row.y + 5f * layout.lineScale, titleSize, primaryText, Theme.FONT_SEMIBOLD)
-        // Reserve part of the line for the requester even when the artist credit is long.
-        val requester = text.trim(I18n.format("Requested by %s", entry.user), available * 0.64f, detailSize)
-        val artist = entry.track.artists.joinToString(" / ")
-        val details = if (artist.isEmpty()) requester else {
-            val separator = " · "
-            val artistWidth = available - text.width("$separator$requester", detailSize)
-            text.trim(artist, artistWidth, detailSize).takeIf { it.isNotEmpty() }?.let { "$it$separator$requester" } ?: requester
+        val showFullName = module.requestShowFullName.get()
+        val credited = I18n.format("Requested by %s", entry.displayName(showFullName))
+        val requester = if (showFullName) credited else text.trim(credited, available * 0.64f, detailSize)
+        val separator = " · "
+        val artistWidth = available - text.width("$separator$requester", detailSize)
+        val artist = text.trim(entry.track.artists.joinToString(" / "), artistWidth, detailSize)
+        val details = if (artist.isNotEmpty()) "$artist$separator$requester" else requester
+        val top = row.y + 20f * layout.lineScale
+        val overflow = text.width(details, detailSize) - available
+        if (showFullName && overflow > 0f) {
+            drawScrollingCredit(ctx, row, details, textX, top, detailSize, available, overflow)
+        } else {
+            text.text(ctx, details, textX, top, detailSize, secondaryText)
         }
-        text.text(ctx, details, textX, row.y + 20f * layout.lineScale, detailSize, secondaryText)
         when (entry.cache) {
             RequestCacheState.READY -> dot(ctx, statusX, centerY, READY)
             RequestCacheState.LOADING -> PlayerIcons.loadingRing(ctx, statusX, centerY, null, 14f)
@@ -472,6 +507,25 @@ internal object BilibiliRequestHud {
         val remove = layout.remove(row)
         val removeColor = if (hover == RequestQueueGesture.Target.REMOVE) FAILED else Theme.TEXT_PRIMARY
         PlayerIcons.draw(ctx, trash, remove.x + remove.width / 2f, centerY, 13f, removeColor)
+    }
+
+    private fun drawScrollingCredit(
+        ctx: GuiCanvas, row: LayoutBounds, value: String, x: Float, y: Float, size: Float, width: Float, overflow: Float,
+    ) {
+        val previous = text.clip
+        val region = LayoutBounds(x, row.y, width, row.height)
+        val clip = previous?.intersect(region) ?: region
+        val speed = 24.0
+        val phase = ((System.nanoTime() - creditScrollStartedAt) / 1e9) % (2.0 + overflow / speed)
+        val offset = ((phase - 1.0) * speed).toFloat().coerceIn(0f, overflow)
+        ctx.pushClip(clip)
+        text.clip = clip
+        try {
+            text.text(ctx, value, x - offset, y, size, secondaryText)
+        } finally {
+            text.clip = previous
+            ctx.popClip()
+        }
     }
 
     private fun noticeViews(notices: List<RequestNotice>, now: Long): List<NoticeView> {
@@ -489,7 +543,7 @@ internal object BilibiliRequestHud {
                 RequestNoticeKind.INVALID_LINK -> I18n.text("Could not read the link. Try /song with the song ID.")
             }
             val guide = if (notice.kind == RequestNoticeKind.AMBIGUOUS)
-                text.wrap2(I18n.text("In Bilibili live chat, send a command below."), width, size)
+                text.wrap2(I18n.text("Hold the HUD key and click to copy. Send in Bilibili chat."), width, size)
             else emptyList()
             val lines = 1 + guide.size + notice.candidates.size
             NoticeView(notice, text.trim(message, width, size, Theme.FONT_SEMIBOLD), guide,
@@ -497,7 +551,10 @@ internal object BilibiliRequestHud {
         }
     }
 
-    private fun drawNotices(ctx: GuiCanvas, layout: Layout, notices: List<NoticeView>) {
+    private fun drawNotices(
+        ctx: GuiCanvas, layout: Layout, look: Look, notices: List<NoticeView>, now: Long,
+        interactive: Boolean, mouseX: Float, mouseY: Float,
+    ) {
         var y = layout.noticeTop
         val x = layout.rows.x
         val right = layout.rows.right
@@ -521,11 +578,29 @@ internal object BilibiliRequestHud {
                     top += lineHeight
                 }
                 for (candidate in view.notice.candidates) {
-                    val command = "/song ${candidate.id}"
+                    val key = CommandKey(view.notice.opensAt, candidate.id)
                     val label = listOf(candidate.artist, candidate.album).filter(String::isNotBlank).joinToString(" · ")
-                    val commandLeft = right - text.width(command, size, Theme.FONT_SEMIBOLD)
-                    text.text(ctx, text.trim(label, commandLeft - x - 8f, size), x, top, size, primaryText)
-                    text.text(ctx, command, commandLeft, top, size, primaryText, Theme.FONT_SEMIBOLD)
+                    val commandWidth = text.width(key.command, size, Theme.FONT_SEMIBOLD)
+                    val chip = LayoutBounds(right - commandWidth - 28f, top - 2f, commandWidth + 28f, lineHeight)
+                    val shown = chip.intersect(bounds).height >= chip.height - 0.01f
+                    if (interactive && shown) commandTargets[key] = chip
+                    val hover = interactive && shown && chip.containsPoint(mouseX, mouseY)
+                    val feedback = copyFeedback?.takeIf { it.key == key && now < it.until }
+                    val color = when {
+                        feedback != null -> if (feedback.success) READY else FAILED
+                        hover -> look.accent
+                        else -> primaryText
+                    }
+                    ctx.drawShape(chip, ShapeStyle(color.copy(a = if (hover) 0.21f else 0.10f), 5f))
+                    PlayerIcons.draw(ctx, copyIcon, chip.x + 11f, chip.y + chip.height / 2f, 13f, color)
+                    val displayed = when (feedback?.success) {
+                        true -> I18n.text("Command copied")
+                        false -> I18n.text("Copy failed")
+                        null -> key.command
+                    }
+                    text.text(ctx, text.trim(label, chip.x - x - 6f, size), x, top, size, primaryText)
+                    text.text(ctx, text.trim(displayed, commandWidth + 1f, size, Theme.FONT_SEMIBOLD),
+                        chip.x + 21f, top, size, color, Theme.FONT_SEMIBOLD)
                     top += lineHeight
                 }
             } finally {
@@ -585,7 +660,9 @@ internal object BilibiliRequestHud {
         val y = pixelY / layout.scale
         gesture.cancel()
         val queueHit = hit(layout, entries, x, y)
+        val command = commandTargets.entries.firstOrNull { it.value.containsPoint(x, y) }?.key
         panelPress = when {
+            command != null -> PanelPress.Copy(command, x, y)
             layout.lock.containsPoint(x, y) -> PanelPress.Lock
             queueHit != null -> {
                 gesture.down(queueHit.control, x, y, queueHit.row.x, queueHit.row.y)
@@ -605,7 +682,8 @@ internal object BilibiliRequestHud {
             return
         }
         val scale = scale(mc)
-        gesture.move(pixelX / scale, pixelY / scale)
+        if (press is PanelPress.Copy) press.move(pixelX / scale, pixelY / scale)
+        else gesture.move(pixelX / scale, pixelY / scale)
     }
 
     private fun movePanel(press: PanelPress.Move, layout: Layout, x: Float, y: Float): Boolean {
@@ -619,11 +697,27 @@ internal object BilibiliRequestHud {
     }
 
     fun release(mc: Minecraft, pixelX: Int, pixelY: Int) {
-        val entries = SongRequests.snapshot().entries
+        val snapshot = SongRequests.snapshot()
+        val entries = snapshot.entries
         val layout = layout(mc, entries.size)
         val x = pixelX / layout.scale
         val y = pixelY / layout.scale
         when (val press = panelPress) {
+            is PanelPress.Copy -> {
+                panelPress = null
+                press.move(x, y)
+                if (!press.dragged && commandTargets[press.key]?.containsPoint(x, y) == true &&
+                    snapshot.notices.any { it.opensAt == press.key.openedAt && it.candidates.any { candidate -> candidate.id == press.key.trackId } }) {
+                    val command = press.key.command
+                    val platform = DangoClient.platform
+                    val copied = runCatching {
+                        platform.clipboard = command
+                        platform.clipboard == command
+                    }.getOrDefault(false)
+                    copyFeedback = CopyFeedback(press.key, copied, System.nanoTime() + 1_500_000_000L)
+                }
+                return
+            }
             is PanelPress.Move -> {
                 movePanel(press, layout, x, y)
                 finishPanelPress()

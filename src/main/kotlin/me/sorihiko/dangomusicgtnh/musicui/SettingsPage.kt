@@ -494,7 +494,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         ) + player.take(listOf("requestNoticeSeconds"))
         val requestAppearance = player.take(listOf(
             "requestHudBackground", "requestHudSmallCorners", "requestHudWidth", "requestHudHeight",
-            "requestHudAutoHeight", "requestHudFont", "requestHudTextSize", "requestHudTextColor",
+            "requestHudAutoHeight", "requestHudFont", "requestHudTextSize", "requestHudTextColor", "requestShowFullName",
             "requestPosX", "requestPosY", "requestHudLocked",
         ))
         val interfaceGroups = listOf(

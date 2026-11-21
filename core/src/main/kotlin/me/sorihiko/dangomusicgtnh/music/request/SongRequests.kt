@@ -14,7 +14,13 @@ import java.util.concurrent.TimeUnit
 
 enum class RequestCacheState { LOADING, READY, FAILED }
 enum class RequestNoticeKind { SKIPPED, NOT_FOUND, AMBIGUOUS, QUEUE_FULL, SEARCH_ERROR, INVALID_LINK }
-data class RequestEntry(val id: Long, val track: NeteaseTrack, val user: String, val cache: RequestCacheState)
+data class RequestEntry(val id: Long, val track: NeteaseTrack, val user: String, val cache: RequestCacheState) {
+    fun displayName(showFull: Boolean): String {
+        if (showFull || user.isBlank()) return user
+        val first = user.offsetByCodePoints(0, 1)
+        return if (first == user.length) "***" else user.substring(0, first) + "***"
+    }
+}
 data class RequestCandidate(val id: Long, val artist: String, val album: String)
 data class RequestSnapshot(val entries: List<RequestEntry>, val notices: List<RequestNotice>)
 
@@ -64,7 +70,7 @@ object SongRequests {
                 return
             }
             val acceptedGeneration = generation
-            val displayName = user.filterNot(Char::isISOControl).trim().take(36)
+            val displayName = user.take(256).filterNot(Char::isISOControl).trim()
             try {
                 searches.execute { resolve(acceptedGeneration, displayName, query) }
             } catch (_: RejectedExecutionException) {
@@ -107,9 +113,12 @@ object SongRequests {
         val first = search(query.searchText)
         val matches = first.filter { requestable(it) && query.matches(it) }.distinctBy { it.id }
         if (matches.size > 1) return matches
-        val title = query.titleSearch(first)?.takeUnless { it.equals(query.searchText, ignoreCase = true) } ?: return matches
-        val titleResults = search(title).filter { requestable(it) && query.matches(it) }
-        return (matches + titleResults).distinctBy { it.id }
+        val title = query.titleSearch(first)?.takeUnless { it.equals(query.searchText, ignoreCase = true) }
+        val titleResults = title?.let(search).orEmpty().filter { requestable(it) && query.matches(it) }
+        val combined = (matches + titleResults).distinctBy { it.id }
+        val original = query.compactPhrase?.takeUnless { it.equals(query.searchText, ignoreCase = true) || it == title }
+        if (combined.isNotEmpty() || original == null) return combined
+        return search(original).filter { requestable(it) && query.matches(it) }.distinctBy { it.id }
     }
 
     fun snapshot(): RequestSnapshot = synchronized(lock) {

@@ -152,6 +152,9 @@ class NeteaseMusicModule : Module() {
     @ModuleValue("Request notice duration", "Seconds that each request message stays visible")
     internal val requestNoticeSeconds = IntValue(3, 60, 15)
 
+    @ModuleValue("Show full Bilibili nickname", "Show the nickname received from Bilibili on each request")
+    internal val requestShowFullName = BooleanValue(false)
+
     @ModuleValue("Request HUD background", "Choose the request card material")
     internal val requestHudBackground = IntValue(0, 2, 0)
 
@@ -162,7 +165,7 @@ class NeteaseMusicModule : Module() {
     internal val requestHudWidth = IntValue(250, 480, 318)
 
     @ModuleValue("Request HUD height", "Set the card height; request messages can expand it")
-    internal val requestHudHeight = IntValue(178, 406, 292)
+    internal val requestHudHeight = IntValue(194, 406, 308)
 
     @ModuleValue("Automatic height", "Fit the queue to its contents within the selected height")
     internal val requestHudAutoHeight = BooleanValue(true)

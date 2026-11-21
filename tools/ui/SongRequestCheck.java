@@ -45,6 +45,20 @@ public final class SongRequestCheck {
         check(titleOnly.matches(studio) && titleOnly.matches(cover) && !titleOnly.matches(live), "short command matches exact multiword title and keeps cover candidates");
         SongRequestQuery titleAndArtist = SongRequestQuery.parse("/song Always Remember Us This Way - Lady Gaga");
         check(titleAndArtist.matches(studio) && !titleAndArtist.matches(cover), "optional artist disambiguates multiword title");
+        for (String command : Arrays.asList("/song Always Remember Us This Way-Lady Gaga",
+                "/song Always Remember Us This Way－Lady Gaga", "/song Always Remember Us This Way- Lady Gaga")) {
+            SongRequestQuery request = SongRequestQuery.parse(command);
+            check(request.matches(studio) && !request.matches(cover), "compact delimiter preserves spaces in names");
+        }
+        NeteaseTrack hyphenatedTitle = track(7, "A-Punk", "Vampire Weekend");
+        check(SongRequestQuery.parse("/song A-Punk-Vampire Weekend").matches(hyphenatedTitle),
+            "support titles that contain hyphens");
+        check(SongRequestQuery.parse("/song A-Punk").matches(hyphenatedTitle), "keep standalone hyphenated song titles");
+        check(SongRequestQuery.parse("/点歌 A-Punk Vampire Weekend").matches(hyphenatedTitle) &&
+            SongRequestQuery.parse("/点歌 \"A-Punk\" \"Vampire Weekend\"").matches(hyphenatedTitle),
+            "keep the old space-separated forms for hyphenated song titles");
+        check(SongRequestQuery.parse("/song Mamma Mia-A-Teens").matches(track(8, "Mamma Mia", "A-Teens")),
+            "support artist names that contain hyphens");
         check(SongRequestQuery.parse("/song id:202").getTrackId() == 202L, "explicit ID");
         check(SongRequestQuery.parse("/song https://music.163.com/#/song?id=202").getTrackId() == 202L, "web song link");
         check(SongRequestQuery.parse("/song https://y.music.163.com/m/song?id=202&uct=fixture").getTrackId() == 202L, "mobile song link");
@@ -53,6 +67,7 @@ public final class SongRequestCheck {
         String gemJson = "{\"id\":233931,\"name\":\"泡沫\",\"ar\":[{\"id\":7763,\"name\":\"G.E.M.邓紫棋\",\"alias\":[\"G.E.M.\",\"Gloria Tang\"]}]}";
         NeteaseTrack gem = NeteaseTrack.Companion.parse(new com.google.gson.JsonParser().parse(gemJson).getAsJsonObject());
         for (String artist : Arrays.asList("邓紫棋", "gem", "G.E.M.", "id:7763")) {
+            check(SongRequestQuery.parse("/song 泡沫-" + artist).matches(gem), "compact artist query " + artist);
             check(SongRequestQuery.parse("/song 泡沫 - " + artist).matches(gem), "match artist spelling " + artist);
             check(SongRequestQuery.parse("/点歌 泡沫 " + artist).matches(gem), "legacy artist spelling " + artist);
         }
@@ -70,6 +85,7 @@ public final class SongRequestCheck {
         verifyMatchFallback(japanese, args);
         verifyShortLinks(args);
         verifyNoticeSchedule();
+        verifyRequesterAndCopy(studio);
         verifyPlayback();
         System.out.println("Bilibili request parsing, disambiguation, repeat, timed skip, queue order and resume checks passed.");
     }
@@ -121,7 +137,7 @@ public final class SongRequestCheck {
                 }
             };
             for (String command : Arrays.asList("/song 泡沫 - 邓紫棋", "/song 泡沫 - gem", "/点歌 泡沫 G.E.M.",
-                    "/song 青のすみか - キタニタツヤ", "/点歌 青のすみか キタニタツヤ")) {
+                    "/song 青のすみか-キタニタツヤ", "/点歌 青のすみか キタニタツヤ")) {
                 List<NeteaseTrack> hits = (List<NeteaseTrack>) match.invoke(SongRequests.INSTANCE, SongRequestQuery.parse(command), live);
                 long id = command.contains("泡沫") ? 233931L : 2056914217L;
                 check(hits.stream().anyMatch(track -> track.getId() == id), "live NetEase catalog: " + command);
@@ -197,6 +213,37 @@ public final class SongRequestCheck {
         check(((List<?>) visible.invoke(queue, now + 11_000_000_000L)).isEmpty(), "each remaining notice expires");
         add.invoke(queue, now + 12_000_000_000L, 9, "longer", RequestNoticeKind.NOT_FOUND, noCandidates);
         check(((List<?>) visible.invoke(queue, now + 20_000_000_000L)).size() == 1, "configured hold controls lifetime");
+    }
+
+    private static void verifyRequesterAndCopy(NeteaseTrack song) throws Exception {
+        Method displayName = RequestEntry.class.getMethod("displayName", boolean.class);
+        RequestEntry request = new RequestEntry(1, song, "1个白菜", RequestCacheState.READY);
+        check(displayName.invoke(request, true).equals("1个白菜"), "show the received nickname when enabled");
+        check(displayName.invoke(request, false).equals("1***"), "mask the nickname by default");
+        RequestEntry oneCharacter = new RequestEntry(2, song, "白", RequestCacheState.READY);
+        check(displayName.invoke(oneCharacter, false).equals("***"), "mask single-character nicknames");
+        RequestEntry alreadyMasked = new RequestEntry(3, song, "1***", RequestCacheState.READY);
+        check(displayName.invoke(alreadyMasked, true).equals("1***"), "keep the nickname as received from Bilibili");
+
+        String hud = "me.sorihiko.dangomusicgtnh.client.BilibiliRequestHud";
+        Class<?> target = Class.forName(hud + "$CommandKey");
+        java.lang.reflect.Constructor<?> key = target.getDeclaredConstructor(long.class, long.class);
+        key.setAccessible(true);
+        Object commandKey = key.newInstance(123L, 3459356843L);
+        Method command = target.getMethod("getCommand");
+        command.setAccessible(true);
+        check(command.invoke(commandKey).equals("/song 3459356843"), "copy a complete valid command");
+        Class<?> press = Class.forName(hud + "$PanelPress$Copy");
+        java.lang.reflect.Constructor<?> constructor = press.getDeclaredConstructor(target, float.class, float.class);
+        constructor.setAccessible(true);
+        Object click = constructor.newInstance(commandKey, 10f, 10f);
+        Method move = press.getMethod("move", float.class, float.class);
+        move.setAccessible(true);
+        move.invoke(click, 11f, 10f);
+        check(!field(press, "dragged").getBoolean(click), "pointer jitter still allows the click");
+        move.invoke(click, 100f, 10f);
+        move.invoke(click, 10f, 10f);
+        check(field(press, "dragged").getBoolean(click), "leaving and returning cannot copy during a drag");
     }
 
     private static NeteaseTrack track(long id, String title, String artist) {

@@ -32,7 +32,7 @@ internal object BilibiliRequests {
     )
     private val examples = listOf(
         "/song 233931", "/点歌 归去来兮 叶炫清",
-        "/song 青のすみか - キタニタツヤ", "/song id:99999999999999", "/song 群青 - YOASOBI",
+        "/song 青のすみか-キタニタツヤ", "/song id:99999999999999", "/song 群青-YOASOBI",
     )
     private val gson = Gson()
     private val supervisor = Executors.newSingleThreadExecutor { task ->

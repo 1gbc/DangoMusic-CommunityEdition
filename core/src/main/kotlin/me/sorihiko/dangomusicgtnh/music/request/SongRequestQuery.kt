@@ -11,11 +11,19 @@ class SongRequestQuery private constructor(
     val shortLink: URI? = null,
     private val title: String? = null,
     private val artist: String? = null,
+    internal val compactPhrase: String? = null,
 ) {
     fun matches(track: NeteaseTrack): Boolean {
         trackId?.let { return it == track.id }
         val trackTitle = normalize(track.name)
         if (trackTitle.isEmpty()) return false
+        compactPhrase?.let { phrase ->
+            val input = dashKey(phrase)
+            val candidate = dashKey(track.name)
+            if (candidate == input) return true
+            val split = "$candidate-"
+            return input.startsWith(split) && matchesArtist(track, input.removePrefix(split))
+        }
         if (title != null) return trackTitle == normalize(title) && (artist == null || matchesArtist(track, artist))
         val prefix = "$trackTitle "
         val input = normalize(searchText)
@@ -23,6 +31,14 @@ class SongRequestQuery private constructor(
     }
 
     internal fun titleSearch(results: List<NeteaseTrack>): String? {
+        compactPhrase?.let { phrase ->
+            val input = dashKey(phrase)
+            val known = results.asSequence().filter(::matches).map { it.name }
+                .filter { input.startsWith(dashKey(it) + "-") }.maxByOrNull(String::length)
+            if (known != null) return known
+            val lastDash = dash.findAll(phrase).lastOrNull() ?: return null
+            return phrase.substring(0, lastDash.range.first).trim().takeIf(String::isNotBlank)
+        }
         if (artist != null) return title
         if (title != null) return null
         val input = normalize(searchText)
@@ -59,10 +75,14 @@ class SongRequestQuery private constructor(
         private val bareId = Regex("^[0-9]+$")
         private val quoted = Regex("^\"([^\"]+)\"\\s+(?:\"([^\"]+)\"|([^\"]+))$")
         private val sharedSong = Regex("^分享.*?单曲.*?[:：]\\s*(https?://\\S+)(?:\\s.*)?$", RegexOption.IGNORE_CASE)
-        private val artistSeparator = Regex(" (?:-|–|—) ")
+        private val artistSeparator = Regex(" (?:-|–|—|−) ")
+        private val dash = Regex(" *[-–—−] *")
+        private val dashedArtistId = Regex("^(.+?) *[-–—−] *(id:[0-9]+)$", RegexOption.IGNORE_CASE)
 
         private fun normalize(text: String): String =
             spaces.replace(Normalizer.normalize(text, Normalizer.Form.NFKC).trim(), " ").lowercase(Locale.ROOT)
+
+        private fun dashKey(text: String): String = dash.replace(normalize(text), "-")
 
         private fun artistKey(text: String): String = artistSeparators.replace(normalize(text), "").map { char ->
             if (char in '\u30a1'..'\u30f6') char - 0x60 else char
@@ -89,7 +109,12 @@ class SongRequestQuery private constructor(
             val words = spaces.replace(phrase, " ")
             val parts = artistSeparator.split(words, limit = 2)
             if (parts.size == 2) return namedQuery(parts[0], parts[1])
-            if (match.groupValues[1].equals("song", true)) return SongRequestQuery(words, title = words)
+            dashedArtistId.matchEntire(words)?.let { return namedQuery(it.groupValues[1], it.groupValues[2]) }
+            if (match.groupValues[1].equals("song", true)) {
+                if (!dash.containsMatchIn(words)) return SongRequestQuery(words, title = words)
+                val search = dash.replace(words, " ").trim().takeIf(String::isNotBlank) ?: return null
+                return SongRequestQuery(search, compactPhrase = words)
+            }
             legacyArtistId.matchEntire(words)?.let { return namedQuery(it.groupValues[1], it.groupValues[2]) }
             if ('"' in words) {
                 val fields = quoted.matchEntire(words)?.groupValues ?: return null
