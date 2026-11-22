@@ -10,7 +10,7 @@
 
 ## GTNH 移植与后续贡献
 
-本仓库由 [1gbc](https://github.com/1gbc) 维护。2026-11-08 GitHub 贡献者列表包含 [XiaoDaiLuo](https://github.com/XiaoDaiLuo)、[1gbc](https://github.com/1gbc)、[Alivn-chao](https://github.com/Alivn-chao)；这不是完整版权人清单，具体贡献以[提交历史](https://github.com/1gbc/DangoMusic-GTNH/commits/port/gtnh-1.7.10/)和 [PR](https://github.com/1gbc/DangoMusic-GTNH/pulls?q=is%3Apr) 为准。
+本仓库由 [1gbc](https://github.com/1gbc) 维护。2026-11-08 GitHub 贡献者列表包含 [XiaoDaiLuo](https://github.com/XiaoDaiLuo)、[1gbc](https://github.com/1gbc)、[Alivn-chao](https://github.com/Alivn-chao)；这不是完整版权人清单，具体贡献以[提交历史](https://github.com/1gbc/DangoMusic-CommunityEdition/commits/port/gtnh-1.7.10/)和 [PR](https://github.com/1gbc/DangoMusic-CommunityEdition/pulls?q=is%3Apr) 为准。
 
 移植与后续工作包括 Forge 1.7.10 对接、输入/渲染适配、独立配置、GTNH 同服共享与听歌房、歌词和播放器改进、Apple Music 实验组件。不将这些改动归为上游已支持或已背书的功能。
 

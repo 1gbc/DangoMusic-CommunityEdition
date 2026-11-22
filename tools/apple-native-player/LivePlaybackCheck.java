@@ -1,4 +1,4 @@
-import me.sorihiko.dangomusicgtnh.music.AppleWebServer;
+import dangomusicce.music.AppleWebServer;
 import com.google.gson.*;
 import java.lang.management.ManagementFactory;
 import java.nio.charset.StandardCharsets;

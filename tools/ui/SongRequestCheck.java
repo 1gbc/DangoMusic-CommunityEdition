@@ -8,20 +8,20 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
-import me.sorihiko.dangomusicgtnh.music.AudioOutput;
-import me.sorihiko.dangomusicgtnh.music.FadingAudioOutput;
-import me.sorihiko.dangomusicgtnh.music.MusicPlayer;
-import me.sorihiko.dangomusicgtnh.music.NeteaseDiskCache;
-import me.sorihiko.dangomusicgtnh.music.NeteaseTrack;
-import me.sorihiko.dangomusicgtnh.music.ResumeStore;
-import me.sorihiko.dangomusicgtnh.music.request.RequestCacheState;
-import me.sorihiko.dangomusicgtnh.music.request.RequestEntry;
-import me.sorihiko.dangomusicgtnh.music.request.RequestNotice;
-import me.sorihiko.dangomusicgtnh.music.request.RequestNoticeKind;
-import me.sorihiko.dangomusicgtnh.shadow.kotlin.jvm.functions.Function1;
-import me.sorihiko.dangomusicgtnh.music.request.SongRequestQuery;
-import me.sorihiko.dangomusicgtnh.music.request.SongRequests;
-import me.sorihiko.dangomusicgtnh.ui.LayoutBounds;
+import dangomusicce.music.AudioOutput;
+import dangomusicce.music.FadingAudioOutput;
+import dangomusicce.music.MusicPlayer;
+import dangomusicce.music.NeteaseDiskCache;
+import dangomusicce.music.NeteaseTrack;
+import dangomusicce.music.ResumeStore;
+import dangomusicce.music.request.RequestCacheState;
+import dangomusicce.music.request.RequestEntry;
+import dangomusicce.music.request.RequestNotice;
+import dangomusicce.music.request.RequestNoticeKind;
+import dangomusicce.shadow.kotlin.jvm.functions.Function1;
+import dangomusicce.music.request.SongRequestQuery;
+import dangomusicce.music.request.SongRequests;
+import dangomusicce.ui.LayoutBounds;
 
 public final class SongRequestCheck {
     public static void main(String[] args) throws Exception {
@@ -120,7 +120,7 @@ public final class SongRequestCheck {
         notices.getClass().getMethod("clear").invoke(notices);
 
         if (Arrays.asList(args).contains("--live")) {
-            Class<?> api = Class.forName("me.sorihiko.dangomusicgtnh.music.NeteaseApi");
+            Class<?> api = Class.forName("dangomusicce.music.NeteaseApi");
             Object instance = api.getField("INSTANCE").get(null);
             field(api, "cachedCookie").set(instance, ""); // Anonymous catalog verification.
             Method search = api.getMethod("search", String.class, int.class);
@@ -156,7 +156,7 @@ public final class SongRequestCheck {
             SongRequestQuery.parse("/song https://music.163.com/song?id=201&id=202") == null,
             "reject unexpected ports, credentials and conflicting song IDs");
 
-        Class<?> link = Class.forName("me.sorihiko.dangomusicgtnh.music.request.NeteaseSongLink");
+        Class<?> link = Class.forName("dangomusicce.music.request.NeteaseSongLink");
         Object instance = link.getField("INSTANCE").get(null);
         Method resolve = link.getMethod("resolve", URI.class, Function1.class);
         List<String> hops = new ArrayList<>();
@@ -188,7 +188,7 @@ public final class SongRequestCheck {
     private static void verifyNoticeSchedule() throws Exception {
         Class<?> type;
         try {
-            type = Class.forName("me.sorihiko.dangomusicgtnh.music.request.RequestNoticeQueue");
+            type = Class.forName("dangomusicce.music.request.RequestNoticeQueue");
         } catch (ClassNotFoundException missing) {
             throw new AssertionError("The HUD needs a notice queue instead of a single replaceable message", missing);
         }
@@ -218,7 +218,7 @@ public final class SongRequestCheck {
     }
 
     private static void verifyCommandCopy() throws Exception {
-        String hud = "me.sorihiko.dangomusicgtnh.client.BilibiliRequestHud";
+        String hud = "dangomusicce.client.BilibiliRequestHud";
         Class<?> target = Class.forName(hud + "$CommandKey");
         java.lang.reflect.Constructor<?> key = target.getDeclaredConstructor(long.class, long.class);
         key.setAccessible(true);

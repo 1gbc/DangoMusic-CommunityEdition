@@ -3,10 +3,10 @@ import java.nio.file.*;
 import java.util.*;
 import kotlin.Unit;
 import kotlin.jvm.functions.Function0;
-import me.sorihiko.dangomusicgtnh.DangoMusic;
-import me.sorihiko.dangomusicgtnh.music.*;
-import me.sorihiko.dangomusicgtnh.musicui.*;
-import me.sorihiko.dangomusicgtnh.platform.Platform;
+import dangomusicce.DangoMusic;
+import dangomusicce.music.*;
+import dangomusicce.musicui.*;
+import dangomusicce.platform.Platform;
 
 public class PlaylistCacheCheck {
     static Field field(Class<?> type,String name)throws Exception{var f=type.getDeclaredField(name);f.setAccessible(true);return f;}

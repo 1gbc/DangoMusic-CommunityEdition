@@ -1,13 +1,13 @@
 import java.lang.reflect.*;
 import java.nio.file.*;
 import java.util.*;
-import me.sorihiko.dangomusicgtnh.*;
-import me.sorihiko.dangomusicgtnh.gfx.*;
-import me.sorihiko.dangomusicgtnh.module.impls.music.DynamicIslandModule;
-import me.sorihiko.dangomusicgtnh.module.values.*;
-import me.sorihiko.dangomusicgtnh.music.*;
-import me.sorihiko.dangomusicgtnh.platform.Platform;
-import me.sorihiko.dangomusicgtnh.ui.*;
+import dangomusicce.*;
+import dangomusicce.gfx.*;
+import dangomusicce.module.impls.music.DynamicIslandModule;
+import dangomusicce.module.values.*;
+import dangomusicce.music.*;
+import dangomusicce.platform.Platform;
+import dangomusicce.ui.*;
 
 public class DynamicIslandCompactCheck {
     static Field field(Class<?> type, String name) throws Exception {

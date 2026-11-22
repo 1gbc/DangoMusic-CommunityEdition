@@ -1,0 +1,49 @@
+package dangomusicce.i18n
+
+import java.util.Locale
+
+/** 播放器的界面语言独立于 Minecraft。 */
+object I18n {
+    const val ENGLISH = 0
+    const val CHINESE = 1
+
+    @Volatile var language = CHINESE
+        set(value) { field = value.coerceIn(ENGLISH, CHINESE) }
+
+    private val chinese: Map<String, String> by lazy {
+        I18n::class.java.getResourceAsStream("/assets/dangomusicce/lang/zh_cn.tsv")!!
+            .bufferedReader(Charsets.UTF_8).useLines { lines ->
+                lines.filter { it.isNotBlank() && !it.startsWith("#") }.associate { line ->
+                    val parts = line.split('\t', limit = 2)
+                    require(parts.size == 2) { "Invalid translation: $line" }
+                    parts[0] to parts[1]
+                }
+            }
+    }
+    private val english: Map<String, String> by lazy {
+        chinese.entries.associate { it.value to it.key.substringAfter('|') }
+    }
+
+    /** 仅传入界面文案，不传入歌名、歌手、歌词或用户输入。 */
+    fun text(source: String): String =
+        if (language == CHINESE) chinese[source] ?: source else english[source] ?: source
+
+    fun text(source: String, context: String): String =
+        if (language == CHINESE) chinese["$context|$source"] ?: text(source) else text(source)
+
+    fun format(source: String, vararg args: Any): String = String.format(Locale.ROOT, text(source), *args)
+
+    /** 后台状态可能在语言切换前产生，因此绘制时再翻译，保留错误详情。 */
+    fun message(source: String): String {
+        val stopped = " · Auto-skip stopped after repeated playback failures."
+        if (source.endsWith(stopped)) return message(source.removeSuffix(stopped)) + " · " + text(stopped.removePrefix(" · "))
+        val exact = text(source)
+        if (exact != source) return exact
+        for (prefix in messagePrefixes) {
+            if (source.startsWith(prefix)) return text(prefix) + source.substring(prefix.length)
+        }
+        return source
+    }
+
+    private val messagePrefixes = listOf("加载失败：", "播放失败：", "Load failed: ", "Playback failed: ")
+}

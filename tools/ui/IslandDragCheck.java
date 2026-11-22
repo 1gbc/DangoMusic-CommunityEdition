@@ -1,10 +1,10 @@
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import me.sorihiko.dangomusicgtnh.module.impls.music.DynamicIslandModule;
-import me.sorihiko.dangomusicgtnh.module.values.BooleanValue;
-import me.sorihiko.dangomusicgtnh.module.values.FloatValue;
-import me.sorihiko.dangomusicgtnh.ui.LayoutBounds;
+import dangomusicce.module.impls.music.DynamicIslandModule;
+import dangomusicce.module.values.BooleanValue;
+import dangomusicce.module.values.FloatValue;
+import dangomusicce.ui.LayoutBounds;
 
 public final class IslandDragCheck {
     public static void main(String[] args) throws Exception {

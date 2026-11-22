@@ -17,8 +17,8 @@
 
 ## 安装
 
-- 客户端：把 `build/libs/dangomusicgtnh-<version>.jar` 放入 `mods/`。
-- 服务端：同一个 JAR 放入服务端 `mods/`，启动后在 `config/dangomusicgtnh/server.cfg` 生成配置。
+- 客户端：把 `build/libs/dangomusicce-<version>.jar` 放入 `mods/`。
+- 服务端：同一个 JAR 放入服务端 `mods/`，启动后在 `config/dangomusicce/server.cfg` 生成配置。
 - 无模组客户端：可以正常进服和游玩；服务端只向完成 Hello 握手的客户端发数据。
 
 ## 客户端设置
@@ -51,7 +51,7 @@
 - 收到邀请：显示邀请人和房间名，可以接受或拒绝；接受后自动选中该房间。新邀请还会弹一条临时提示。
 - 自由抢麦：任何成员开始放新歌都会成为 DJ；刚进房的人用的是加入前就在放的歌，不会抢走 DJ，换一首新歌后才会成为 DJ。
 
-听歌房数据保存在服务端 `config/dangomusicgtnh/groups.json`，内容包括成员、房主、最后已知名字和**每人当前所在的房间**。服务器重启、房主离线都不会解散房间；房主主动离开时，房主转给下一位成员。**重进服务器会自动回到上次收听的房间**；如果上次是自己按停止退出收听的，就不自动回。
+听歌房数据保存在服务端 `config/dangomusicce/groups.json`，内容包括成员、房主、最后已知名字和**每人当前所在的房间**。服务器重启、房主离线都不会解散房间；房主主动离开时，房主转给下一位成员。**重进服务器会自动回到上次收听的房间**；如果上次是自己按停止退出收听的，就不自动回。
 
 ## 服务端命令
 
@@ -64,11 +64,11 @@
 /dangomusic reload          # OP
 ```
 
-群组持久化到 `config/dangomusicgtnh/groups.json`。房主离线不会解散；房主主动离开会转让给下一位成员。当前共享者（speaker）由正在播放的成员自动产生，不要求是创建人。
+群组持久化到 `config/dangomusicce/groups.json`。房主离线不会解散；房主主动离开会转让给下一位成员。当前共享者（speaker）由正在播放的成员自动产生，不要求是创建人。
 
 ## 服务端配置
 
-`config/dangomusicgtnh/server.cfg`：
+`config/dangomusicce/server.cfg`：
 
 | 键 | 默认 | 说明 |
 |---|---|---|

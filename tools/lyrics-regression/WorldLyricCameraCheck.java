@@ -25,7 +25,7 @@ public class WorldLyricCameraCheck {
 
         Class<?> cameraType;
         try {
-            cameraType = Class.forName("me.sorihiko.dangomusicgtnh.gfx.WorldLyricCamera");
+            cameraType = Class.forName("dangomusicce.gfx.WorldLyricCamera");
         } catch (ClassNotFoundException missingCamera) {
             throw new AssertionError("Multiple 3D lyrics need placement from the actual perspective camera", missingCamera);
         }
@@ -87,7 +87,7 @@ public class WorldLyricCameraCheck {
         projection.m23 = -1f;
         projection.m33 = 0f;
 
-        Class<?> camera = Class.forName("me.sorihiko.dangomusicgtnh.gfx.WorldLyricCamera");
+        Class<?> camera = Class.forName("dangomusicce.gfx.WorldLyricCamera");
         Object instance = camera.getConstructor(Matrix4f.class, Matrix4f.class).newInstance(view, projection);
         var place = Arrays.stream(camera.getMethods()).filter(m -> m.getName().startsWith("place$")).findFirst().orElseThrow();
         Object pose = place.invoke(instance, 10f, 0.1f, 25f, -18f, 24f, Float.NaN, tilted);

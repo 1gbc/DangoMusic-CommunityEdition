@@ -6,15 +6,15 @@ import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 
-import me.sorihiko.dangomusicgtnh.DangoMusic;
-import me.sorihiko.dangomusicgtnh.module.impls.music.NeteaseMusicModule;
-import me.sorihiko.dangomusicgtnh.module.values.FloatValue;
-import me.sorihiko.dangomusicgtnh.module.values.IntValue;
-import me.sorihiko.dangomusicgtnh.music.MusicScreen;
-import me.sorihiko.dangomusicgtnh.platform.Keys;
-import me.sorihiko.dangomusicgtnh.platform.Platform;
-import me.sorihiko.dangomusicgtnh.shadow.kotlin.Unit;
-import me.sorihiko.dangomusicgtnh.shadow.kotlin.jvm.functions.Function1;
+import dangomusicce.DangoMusic;
+import dangomusicce.module.impls.music.NeteaseMusicModule;
+import dangomusicce.module.values.FloatValue;
+import dangomusicce.module.values.IntValue;
+import dangomusicce.music.MusicScreen;
+import dangomusicce.platform.Keys;
+import dangomusicce.platform.Platform;
+import dangomusicce.shadow.kotlin.Unit;
+import dangomusicce.shadow.kotlin.jvm.functions.Function1;
 
 /** Run against the shaded Mod JAR with Gson and Log4j API on the classpath. */
 public final class SettingsInputCheck {

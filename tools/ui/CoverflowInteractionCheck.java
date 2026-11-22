@@ -1,4 +1,4 @@
-import me.sorihiko.dangomusicgtnh.musicui.CoverflowMotion;
+import dangomusicce.musicui.CoverflowMotion;
 
 public class CoverflowInteractionCheck {
     private static void check(boolean ok, String reason) {
