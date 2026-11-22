@@ -2,7 +2,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.concurrent.TimeUnit;
-import me.sorihiko.dangomusicgtnh.music.BundledApplePlayer;
+import dangomusicce.music.BundledApplePlayer;
 
 /** Run against the final mod JAR with a fresh test directory as the first argument. */
 public class BundledPlayerCheck {

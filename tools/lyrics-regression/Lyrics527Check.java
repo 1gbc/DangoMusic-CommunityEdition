@@ -1,5 +1,5 @@
 import java.util.*;
-import me.sorihiko.dangomusicgtnh.lyrics.*;
+import dangomusicce.lyrics.*;
 
 class Lyrics527Check {
     static void check(boolean value, String message) {

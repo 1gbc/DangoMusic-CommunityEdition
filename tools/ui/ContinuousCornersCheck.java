@@ -1,4 +1,4 @@
-import me.sorihiko.dangomusicgtnh.music.ContinuousCorners;
+import dangomusicce.music.ContinuousCorners;
 
 public class ContinuousCornersCheck {
     static void check(boolean condition, String label) {

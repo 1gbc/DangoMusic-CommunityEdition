@@ -1,14 +1,14 @@
 import java.io.ByteArrayInputStream;
-import me.sorihiko.dangomusicgtnh.shadow.javazoom.jl.decoder.*;
-import me.sorihiko.dangomusicgtnh.shadow.jcraft.jogg.*;
+import dangomusicce.shadow.javazoom.jl.decoder.*;
+import dangomusicce.shadow.jcraft.jogg.*;
 
 /** Synthetic codec smoke check; no copyrighted song, account or audio device. */
 public final class CodecReplacementCheck {
     public static void main(String[] args) throws Exception {
         if (args.length > 0 && args[0].equals("probe")) {
             for (String name : new String[] {
-                "me.sorihiko.dangomusicgtnh.shadow.javazoom.jl.decoder.DangoCodecRebuildProbe",
-                "me.sorihiko.dangomusicgtnh.shadow.jcraft.jorbis.DangoCodecRebuildProbe"
+                "dangomusicce.shadow.javazoom.jl.decoder.DangoCodecRebuildProbe",
+                "dangomusicce.shadow.jcraft.jorbis.DangoCodecRebuildProbe"
             }) {
                 Object result = Class.forName(name).getMethod("value").invoke(null);
                 if (!"rebuilt-from-source".equals(result)) throw new AssertionError(name);

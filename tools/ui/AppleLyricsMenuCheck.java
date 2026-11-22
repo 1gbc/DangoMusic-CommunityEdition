@@ -7,27 +7,27 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 import kotlin.Unit;
-import me.sorihiko.dangomusicgtnh.DangoClient;
-import me.sorihiko.dangomusicgtnh.DangoMusic;
-import me.sorihiko.dangomusicgtnh.font.MixedText;
-import me.sorihiko.dangomusicgtnh.gfx.CjkRun;
-import me.sorihiko.dangomusicgtnh.gfx.Gfx;
-import me.sorihiko.dangomusicgtnh.gfx.GuiCanvas;
-import me.sorihiko.dangomusicgtnh.gfx.Texture;
-import me.sorihiko.dangomusicgtnh.i18n.I18n;
-import me.sorihiko.dangomusicgtnh.lyrics.LyricLine;
-import me.sorihiko.dangomusicgtnh.module.impls.music.NeteaseMusicModule;
-import me.sorihiko.dangomusicgtnh.module.values.BooleanValue;
-import me.sorihiko.dangomusicgtnh.music.*;
-import me.sorihiko.dangomusicgtnh.musicui.*;
-import me.sorihiko.dangomusicgtnh.platform.Platform;
-import me.sorihiko.dangomusicgtnh.ui.LayoutBounds;
-import me.sorihiko.dangomusicgtnh.ui.GlassStyle;
-import me.sorihiko.dangomusicgtnh.ui.ShapeStyle;
-import me.sorihiko.dangomusicgtnh.ui.Theme;
-import me.sorihiko.dangomusicgtnh.ui.UiStyle;
-import me.sorihiko.dangomusicgtnh.ui.VectorIcon;
-import me.sorihiko.dangomusicgtnh.utils.Color;
+import dangomusicce.DangoClient;
+import dangomusicce.DangoMusic;
+import dangomusicce.font.MixedText;
+import dangomusicce.gfx.CjkRun;
+import dangomusicce.gfx.Gfx;
+import dangomusicce.gfx.GuiCanvas;
+import dangomusicce.gfx.Texture;
+import dangomusicce.i18n.I18n;
+import dangomusicce.lyrics.LyricLine;
+import dangomusicce.module.impls.music.NeteaseMusicModule;
+import dangomusicce.module.values.BooleanValue;
+import dangomusicce.music.*;
+import dangomusicce.musicui.*;
+import dangomusicce.platform.Platform;
+import dangomusicce.ui.LayoutBounds;
+import dangomusicce.ui.GlassStyle;
+import dangomusicce.ui.ShapeStyle;
+import dangomusicce.ui.Theme;
+import dangomusicce.ui.UiStyle;
+import dangomusicce.ui.VectorIcon;
+import dangomusicce.utils.Color;
 
 /** Run on the compiled client and core classpath, with core resources. No game or login needed. */
 public class AppleLyricsMenuCheck {
@@ -138,7 +138,7 @@ public class AppleLyricsMenuCheck {
         var appleSize = java.util.Arrays.stream(NeteaseMusicModule.class.getMethods())
             .filter(method -> method.getName().startsWith("getAppleLyricsPageSize"))
             .findFirst().orElseThrow(() -> new AssertionError("Apple Music needs its own default text size"));
-        var textSize = (me.sorihiko.dangomusicgtnh.module.values.IntValue)field(module, "lyricsPageSize").get(module);
+        var textSize = (dangomusicce.module.values.IntValue)field(module, "lyricsPageSize").get(module);
         check(textSize.getValue() == 22 && appleSize.invoke(module).equals(26),
             "Apple Music defaults to 26 while the existing NetEase size remains 22");
         textSize.setValue(26);

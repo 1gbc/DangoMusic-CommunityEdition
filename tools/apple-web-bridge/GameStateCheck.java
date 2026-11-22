@@ -1,4 +1,4 @@
-import me.sorihiko.dangomusicgtnh.music.*;
+import dangomusicce.music.*;
 import java.util.Collections;
 import java.util.concurrent.TimeUnit;
 

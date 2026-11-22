@@ -2,13 +2,14 @@
   {
     "modid": "${modId}",
     "name": "${modName}",
-    "description": "Unofficial DangoMusic port for GT New Horizons / Minecraft 1.7.10, based on Sorihiko/DangoMusic. GPL-3.0; see bundled META-INF license and notice files.",
+    "description": "Community edition of DangoMusic for GT New Horizons / Minecraft 1.7.10 (formerly DangoMusic GTNH Edition), based on Sorihiko/DangoMusic. Unofficial; GPL-3.0, see the bundled META-INF license and notice files.",
     "version": "${modVersion}",
     "mcversion": "${minecraftVersion}",
-    "url": "https://github.com/1gbc/DangoMusic-GTNH",
+    "url": "https://github.com/1gbc/DangoMusic-CommunityEdition",
+    "logoFile": "assets/dangomusicce/icon.png",
     "authorList": [
       "Sorihiko (upstream DangoMusic)",
-      "1gbc and contributors (unofficial GTNH port)"
+      "1gbc and contributors (DangoMusic Community Edition)"
     ]
   }
 ]

@@ -64,6 +64,6 @@ jobs:
         if: steps.version.outputs.release == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: dangomusicgtnh-jars
+          name: dangomusicce-jars
           path: build/libs/*.jar
           if-no-files-found: error

@@ -1,8 +1,8 @@
 import java.lang.reflect.*;
 import java.util.*;
-import me.sorihiko.dangomusicgtnh.music.*;
-import me.sorihiko.dangomusicgtnh.lyrics.*;
-import me.sorihiko.dangomusicgtnh.module.impls.music.LyricsModule;
+import dangomusicce.music.*;
+import dangomusicce.lyrics.*;
+import dangomusicce.module.impls.music.LyricsModule;
 
 /** Exercise the actual renderer clock updater without a Minecraft world or GPU. */
 public class AppleWorldClockCheck {

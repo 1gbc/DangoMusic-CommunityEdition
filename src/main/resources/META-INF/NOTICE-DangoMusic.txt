@@ -1,17 +1,17 @@
-DangoMusic GTNH Edition - unofficial GTNH / Minecraft 1.7.10 port
+DangoMusic Community Edition - unofficial GTNH / Minecraft 1.7.10 port
 Based on DangoMusic by Sorihiko: https://github.com/Sorihiko/DangoMusic
-Port source: https://github.com/1gbc/DangoMusic-GTNH
+Port source: https://github.com/1gbc/DangoMusic-CommunityEdition
 Port baseline: upstream 1e82730e6cbf19301e33cc6901f210bcffe9ea2c (v1.7.3).
 Port maintained by 1gbc and contributors; authorship is recorded in Git history.
 Project license: GNU GPL version 3; see LICENSE-DangoMusic-GPL-3.0.txt.
 No warranty. This port is not an official Sorihiko, GTNH or music-platform product.
 
 Release 0.1.0; publication notices updated 2026-11-08. Modified port and feature history:
-https://github.com/1gbc/DangoMusic-GTNH/blob/port/gtnh-1.7.10/CHANGELOG.md
+https://github.com/1gbc/DangoMusic-CommunityEdition/blob/port/gtnh-1.7.10/CHANGELOG.md
 
 Bundled third-party works retain their own licenses and copyrights:
 - Inter fonts (upstream subsets), Copyright (c) 2016 The Inter Project Authors.
-  SIL OFL 1.1: assets/dangomusicgtnh/fonts/Inter-LICENSE.txt.
+  SIL OFL 1.1: assets/dangomusicce/fonts/Inter-LICENSE.txt.
 - JOrbis/Jogg 0.0.17, Copyright (C) 2000 ymnk, JCraft, Inc. and source authors.
   Source headers: GNU Library GPL v2 or later. LGPL 2.1 copy:
   licenses/JOrbis-LGPL-2.1.txt. Upstream: https://github.com/ymnk/jorbis
@@ -27,7 +27,7 @@ Bundled third-party works retain their own licenses and copyrights:
 - Build template MIT notice: licenses/Build-template-MIT.txt.
 
 JLayer, JOrbis/Jogg, ZXing, Kotlin and annotations bytecode packages are
-relocated under me.sorihiko.dangomusicgtnh.shadow.* by build.gradle.kts.
+relocated under dangomusicce.shadow.* by build.gradle.kts.
 DangoVorbis is a project adaptation subclass; corresponding source and build
 scripts must accompany a compliant binary distribution. See the repository's
 THIRD_PARTY_NOTICES.md and docs/RELEASE_AUDIT.md for exact source locations

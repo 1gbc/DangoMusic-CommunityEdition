@@ -1,15 +1,26 @@
-# DangoMusic GTNH Edition
+<p align="center"><img src="docs/assets/logo.png" width="128" alt="DangoMusic Community Edition"></p>
+
+# DangoMusic Community Edition
 
 在 GT New Horizons 里听网易云音乐和 Apple Music。支持游戏内歌词、灵动岛、听歌房，以及 B 站直播弹幕点歌。
 
-[下载最新正式版](https://github.com/1gbc/DangoMusic-GTNH/releases/latest) · [更新记录](CHANGELOG.md) · [反馈问题](https://github.com/1gbc/DangoMusic-GTNH/issues/new/choose)
+[下载最新正式版](https://github.com/1gbc/DangoMusic-CommunityEdition/releases/latest) · [更新记录](CHANGELOG.md) · [反馈问题](https://github.com/1gbc/DangoMusic-CommunityEdition/issues/new/choose)
 
 ## 安装与打开播放器
 
 1. 使用 **GTNH 2.9.0 / Minecraft 1.7.10 / Forge 10.13.4.1614**，保留整合包原有的 Java 和启动设置。
-2. 退出游戏，从 [正式版下载页](https://github.com/1gbc/DangoMusic-GTNH/releases/latest) 下载 `dangomusicgtnh-<版本号>.jar`（例如 `dangomusicgtnh-0.5.7.jar`），放进对应实例的 `mods/`。升级时移走旧版 JAR，并保留原来的 Mod 配置和登录资料。
-3. 进入 **选项 → 控制 → DangoMusic GTNH Edition**，绑定「打开 / 关闭播放器」。在游戏中按下你绑定的按键，在播放器侧栏左下角选择网易云或 Apple Music。
+2. 退出游戏，从 [正式版下载页](https://github.com/1gbc/DangoMusic-CommunityEdition/releases/latest) 下载 `dangomusicce-<版本号>.jar`，放进对应实例的 `mods/`。升级时移走旧版 JAR，并保留原来的 Mod 配置和登录资料。
+3. 进入 **选项 → 控制 → DangoMusic Community Edition**，绑定「打开 / 关闭播放器」。在游戏中按下你绑定的按键，在播放器侧栏左下角选择网易云或 Apple Music。
 4. 在侧栏搜索歌曲或打开歌单。列表模式单击歌名可以选中歌曲，点击小封面上的播放按钮即可播放。底部控制栏可以暂停、切歌、调整进度、音量或查看播放队列。
+
+## 从 DangoMusic GTNH Edition 升级
+
+本项目原名 **DangoMusic GTNH Edition**，现在改名为 **DangoMusic Community Edition**（mod ID 从 `dangomusicgtnh` 改为 `dangomusicce`）。
+
+1. 退出游戏，删除 `mods/` 里旧的 `dangomusicgtnh-*.jar`，放入新的 `dangomusicce-*.jar`。两个不要同时放。
+2. 第一次启动时，`config/dangomusicgtnh/` 里的设置、字体和歌词会自动复制到 `config/dangomusicce/`；网易云、QQ、Apple 的登录资料和自定义快捷键也会带过来，一般不用重新登录。
+3. 旧目录不会被删除，确认没问题后可以自己删掉。
+4. 服务器和所有玩家要一起升级：新旧版本之间不能使用附近共享和听歌房。服务器上的听歌房记录会跟着设置一起复制。
 
 ## 音源、歌单和播放队列
 
@@ -68,8 +79,8 @@
 
 - **附近共享**。服务端和参与的客户端都装同版本 Mod。进入「设置 → 多人」开启共享或收听。同一服务器、同维度的附近玩家可以听歌或看歌词投影。
 - **听歌房**。从侧栏的「听歌房」创建房间、加入或邀请同服玩家。房间收听覆盖同服不同距离。 [多人使用指南](docs/NEARBY_SHARING.md)
-- **设置搜索与导出**。设置页顶部可模糊搜索选项。「导出设置」保存为 `settings.json`。关闭目标实例后，可用文件覆盖其 `config/dangomusicgtnh/settings.json`。B 站房间号保存在本机单独的文件里。
-- **反馈**。附上 GTNH 和 Mod 版本、音源、复现步骤和脱敏日志。安全问题可按项目的安全指南私下报告。 [安全指南](SECURITY.md) · [提交问题](https://github.com/1gbc/DangoMusic-GTNH/issues/new/choose)
+- **设置搜索与导出**。设置页顶部可模糊搜索选项。「导出设置」保存为 `settings.json`。关闭目标实例后，可用文件覆盖其 `config/dangomusicce/settings.json`。B 站房间号保存在本机单独的文件里。
+- **反馈**。附上 GTNH 和 Mod 版本、音源、复现步骤和脱敏日志。安全问题可按项目的安全指南私下报告。 [安全指南](SECURITY.md) · [提交问题](https://github.com/1gbc/DangoMusic-CommunityEdition/issues/new/choose)
 
 ## 项目来源与开发
 

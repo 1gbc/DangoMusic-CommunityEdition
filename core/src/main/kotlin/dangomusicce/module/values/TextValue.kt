@@ -1,0 +1,10 @@
+package dangomusicce.module.values
+
+/** 一段文字的设置（比如选中的字体文件名） */
+class TextValue(val default: String = "") {
+    var value: String = default
+
+    fun reset() {
+        value = default
+    }
+}

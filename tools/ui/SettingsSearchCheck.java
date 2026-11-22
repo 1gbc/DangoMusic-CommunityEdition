@@ -3,7 +3,7 @@ import java.lang.reflect.Method;
 
 public final class SettingsSearchCheck {
     public static void main(String[] args) throws Exception {
-        Class<?> type = Class.forName("me.sorihiko.dangomusicgtnh.musicui.SettingsSearchRank");
+        Class<?> type = Class.forName("dangomusicce.musicui.SettingsSearchRank");
         Method score = type.getMethod("score", String.class, String.class, String.class, String.class, String.class);
         int title = rank(score, "评论", "开启评论区", "", "网易云界面设置", "界面与 HUD");
         check(title >= 0 && title > rank(score, "评论", "网易云界面设置", "管理评论区", "", "界面与 HUD"),
@@ -19,7 +19,7 @@ public final class SettingsSearchCheck {
     }
 
     private static void verifyWindowEdges() throws Exception {
-        Class<?> type = Class.forName("me.sorihiko.dangomusicgtnh.client.BilibiliRequestHud$Layout");
+        Class<?> type = Class.forName("dangomusicce.client.BilibiliRequestHud$Layout");
         Constructor<?> constructor = type.getDeclaredConstructor(float.class, float.class, float.class, float.class,
             float.class, float.class, float.class, float.class, float.class, float.class);
         constructor.setAccessible(true);

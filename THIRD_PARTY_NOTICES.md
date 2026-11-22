@@ -7,14 +7,14 @@
 | 内容 / 版本 | 来源与许可 | 本仓库材料 / 注意事项 |
 |---|---|---|
 | DangoMusic 与移植代码 | [Sorihiko/DangoMusic](https://github.com/Sorihiko/DangoMusic)，GPL v3 | [LICENSE](LICENSE)、[CREDITS](CREDITS.md)、[CHANGELOG](CHANGELOG.md)；下次构建附 `META-INF/LICENSE-DangoMusic-GPL-3.0.txt` |
-| Inter 四个裁剪字体 | [Inter](https://github.com/rsms/inter)，SIL OFL 1.1；Copyright (c) 2016 The Inter Project Authors | [原始字体许可](src/main/resources/assets/dangomusicgtnh/fonts/Inter-LICENSE.txt)；本地字体与移植上游基线 blob 一致，保留字体内版权。所核对许可头未声明 Reserved Font Name；字体仍用 OFL，不作为独立字体商品出售 |
+| Inter 四个裁剪字体 | [Inter](https://github.com/rsms/inter)，SIL OFL 1.1；Copyright (c) 2016 The Inter Project Authors | [原始字体许可](src/main/resources/assets/dangomusicce/fonts/Inter-LICENSE.txt)；本地字体与移植上游基线 blob 一致，保留字体内版权。所核对许可头未声明 Reserved Font Name；字体仍用 OFL，不作为独立字体商品出售 |
 | JOrbis / Jogg 0.0.17 | [JCraft](https://github.com/ymnk/jorbis)，源文件声明 GNU Library GPL v2 或以后版本 | [LGPL 2.1 副本](core/src/main/resources/META-INF/licenses/JOrbis-LGPL-2.1.txt)；该副本不意味着源文件只有 2.1。Copyright (C) 2000 ymnk, JCraft, Inc.；保留源文件其他版权 |
 | JLayer 1.0.1 | [Maven 源码](https://repo.maven.apache.org/maven2/javazoom/jlayer/1.0.1/jlayer-1.0.1-sources.jar)，源文件含 Library GPL v2 或以后版本声明；上游附 LGPL 2.1 文本 | [LGPL 副本](core/src/main/resources/META-INF/licenses/JLayer-LGPL-2.1.txt)，JavaZOOM 与各源文件作者版权保留，不缩减为单一新版权人 |
 | ZXing core 3.3.3 | [ZXing](https://github.com/zxing/zxing/tree/zxing-3.3.3)，Apache 2.0 | [Apache 副本](core/src/main/resources/META-INF/licenses/ZXing-Apache-2.0.txt)，保留源码版权及适用 NOTICE |
 | Kotlin stdlib 2.2.21 | [JetBrains Kotlin v2.2.21](https://github.com/JetBrains/kotlin/tree/v2.2.21)，Apache 2.0 | [LICENSE](src/main/resources/META-INF/licenses/Kotlin-Apache-2.0.txt)、[原发行版 NOTICE](src/main/resources/META-INF/licenses/Kotlin-NOTICE.txt)；NOTICE 原文提及 compiler 是原发行版措辞，本 Mod 不打包 Kotlin 编译器 |
 | JetBrains annotations 13.0 | [该版本 POM](https://repo.maven.apache.org/maven2/org/jetbrains/annotations/13.0/annotations-13.0.pom)，Apache 2.0 | [Apache 副本](src/main/resources/META-INF/licenses/Annotations-Apache-2.0.txt)及 [JAR 内组件清单](src/main/resources/META-INF/NOTICE-DangoMusic.txt) |
 
-`build.gradle.kts` 将 javazoom、com.jcraft、ZXing、Kotlin 和 annotations 重定位至 `me.sorihiko.dangomusicgtnh.shadow.*`。这是字节码包名修改，不能把分发副本称为完全未修改。项目的 `core/src/main/java/com/jcraft/jorbis/DangoVorbis.java` 是 VorbisFile 子类适配代码，也须连同构建脚本提供。
+`build.gradle.kts` 将 javazoom、com.jcraft、ZXing、Kotlin 和 annotations 重定位至 `dangomusicce.shadow.*`。这是字节码包名修改，不能把分发副本称为完全未修改。项目的 `core/src/main/java/com/jcraft/jorbis/DangoVorbis.java` 是 VorbisFile 子类适配代码，也须连同构建脚本提供。
 
 ### LGPL 对应源码与替换路径
 

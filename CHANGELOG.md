@@ -4,6 +4,13 @@
 
 ## 未发布
 
+### 改名为 DangoMusic Community Edition
+
+- 项目从 DangoMusic GTNH Edition 改名为 **DangoMusic Community Edition**。mod ID 改为 `dangomusicce`，JAR 名改为 `dangomusicce-<版本号>.jar`，配置目录改为 `config/dangomusicce/`，代码包名改为 `dangomusicce`。
+- 从旧版升级时自动迁移：第一次启动把 `config/dangomusicgtnh/` 复制到 `config/dangomusicce/`（设置、字体、歌词，服务端的 `server.cfg` 和听歌房记录）；登录资料从 `%LOCALAPPDATA%\DangoMusicGTNH\accounts` 复制到 `DangoMusicCE\accounts`；原版按键设置和导出的设置里的旧快捷键名也会自动换成新名字。旧目录原样保留，不会删除。
+- 联机通道名同时改为 `dangomusicce`，新旧版本之间不能使用附近共享和听歌房，服务器和玩家需要一起升级。
+- 新的 logo：戴着玫粉耳机的橘子，表情来自 1gbc 的头像，显示在 Mod 列表和 README 里。
+
 ### 驾驶舱歌词改用 HUD 鼠标翻看
 
 - 按住 HUD 鼠标键（默认左 Alt）调出鼠标后，把鼠标移到驾驶舱歌词上：指着的那一行会亮起来，滚动滚轮翻看前后的歌词，单击从那一句开始播放（单击歌名那一行从头播放）。

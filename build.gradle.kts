@@ -97,15 +97,15 @@ val bundleBilibiliHelper = tasks.register<Zip>("bundleBilibiliHelper") {
 }
 
 tasks.processResources {
-    from(bundleApplePlayer) { into("assets/dangomusicgtnh/apple-player") }
-    from(bundleBilibiliHelper) { into("assets/dangomusicgtnh/bilibili-live") }
+    from(bundleApplePlayer) { into("assets/dangomusicce/apple-player") }
+    from(bundleBilibiliHelper) { into("assets/dangomusicce/bilibili-live") }
 }
 
 tasks.named<ShadowJar>("shadowJar") {
-    relocate("kotlin", "me.sorihiko.dangomusicgtnh.shadow.kotlin")
-    relocate("org.jetbrains.annotations", "me.sorihiko.dangomusicgtnh.shadow.annotations")
-    relocate("javazoom", "me.sorihiko.dangomusicgtnh.shadow.javazoom")
-    relocate("com.jcraft", "me.sorihiko.dangomusicgtnh.shadow.jcraft")
-    relocate("com.google.zxing", "me.sorihiko.dangomusicgtnh.shadow.zxing")
+    relocate("kotlin", "dangomusicce.shadow.kotlin")
+    relocate("org.jetbrains.annotations", "dangomusicce.shadow.annotations")
+    relocate("javazoom", "dangomusicce.shadow.javazoom")
+    relocate("com.jcraft", "dangomusicce.shadow.jcraft")
+    relocate("com.google.zxing", "dangomusicce.shadow.zxing")
     exclude("module-info.class", "META-INF/versions/**", "META-INF/*.kotlin_module")
 }

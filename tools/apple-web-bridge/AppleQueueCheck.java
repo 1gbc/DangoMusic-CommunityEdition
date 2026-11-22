@@ -1,4 +1,4 @@
-import me.sorihiko.dangomusicgtnh.music.*;
+import dangomusicce.music.*;
 import com.google.gson.*;
 import java.util.*;
 public class AppleQueueCheck {

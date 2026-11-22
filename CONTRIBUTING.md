@@ -1,6 +1,6 @@
 # 贡献指南
 
-DangoMusic GTNH Edition 是 [DangoMusic](https://github.com/Sorihiko/DangoMusic) 的 Minecraft 1.7.10 / GTNH 移植项目，以 GPL-3.0 发布。提交代码即表示你同意以同一许可证发布你的贡献。
+DangoMusic Community Edition 是 [DangoMusic](https://github.com/Sorihiko/DangoMusic) 的 Minecraft 1.7.10 / GTNH 移植项目，以 GPL-3.0 发布。提交代码即表示你同意以同一许可证发布你的贡献。
 
 - 目标环境：GTNH 2.9.0 / Minecraft 1.7.10 / Forge 10.13.4.1614
 - 主分支：`port/gtnh-1.7.10`（所有 PR 以此为目标）
@@ -43,7 +43,7 @@ gradlew.bat build
 
 产物在 `build/libs/`：
 
-- `dangomusicgtnh-<version>.jar`：安装到 GTNH 实例 `mods/` 的 JAR
+- `dangomusicce-<version>.jar`：安装到 GTNH 实例 `mods/` 的 JAR
 - `-dev.jar`：开发用（未重混淆）
 - `-dev-preshadow.jar`：shadow 之前的开发包
 - `-sources.jar`：源码包
@@ -51,12 +51,12 @@ gradlew.bat build
 ## 运行与隔离测试
 
 1. 准备一个与目标版本一致的 GTNH 2.9.0 实例（Minecraft 1.7.10 / Forge 10.13.4.1614 / lwjgl3ify + LWJGL 3）。
-2. 把 `build/libs/dangomusicgtnh-<version>.jar` 放入实例的 `mods/`，移除旧版本。
+2. 把 `build/libs/dangomusicce-<version>.jar` 放入实例的 `mods/`，移除旧版本。
 3. 启动游戏，进入世界后按 **M** 打开播放器；主菜单内也可按 M。
 4. 账号凭据、设置和缓存目录：
-   - `config/dangomusicgtnh/settings.json`：模块与选项
-   - `config/dangomusicgtnh/settings.cfg`：初始音量
-   - `config/dangomusicgtnh/accounts/`：网易云/QQ/酷狗会话（**不要提交**）
+   - `config/dangomusicce/settings.json`：模块与选项
+   - `config/dangomusicce/settings.cfg`：初始音量
+   - `config/dangomusicce/accounts/`：网易云/QQ/酷狗会话（**不要提交**）
 
 实机验证至少覆盖：启动、M 键、搜索、播放、暂停/继续、切歌、歌词与 HUD。涉及平台登录的改动需要说明测试账号的脱敏状态。
 
@@ -122,12 +122,12 @@ PR 保持在可评审的规模；超过约 1000 行时建议拆分。评审开�
 - **正式大版本**的版本号由项目维护者确定。GitHub Releases 仅用于确认发布的正式小版本和大版本，上传对应源码版本的可安装 JAR 和更新说明。
 - **开发版留在本地**。每轮开发版在本地更新 `build.gradle.kts` 并构建验证。开发迭代无需逐版推送，不创建 GitHub 开发版标签、Release 或预发布，也不上传开发版 JAR。
 
-GitHub Actions 在 PR 和默认分支更新时使用提交中已有的版本号运行检查和构建。正式版本号对应的构建可从 Actions 的 `dangomusicgtnh-jars` 下载。正式发布前核对 Git 标签、Gradle 版本号、JAR 和更新说明对应同一版源码。
+GitHub Actions 在 PR 和默认分支更新时使用提交中已有的版本号运行检查和构建。正式版本号对应的构建可从 Actions 的 `dangomusicce-jars` 下载。正式发布前核对 Git 标签、Gradle 版本号、JAR 和更新说明对应同一版源码。
 
 ## 安全与敏感数据
 
 - **不要提交**：账号 Cookie / token、`.p8` 私钥、开发者令牌、完整会话、带签名的播放地址、音频文件、构建缓存。
-- 账号与会话只保存在本地实例的 `config/dangomusicgtnh/accounts/`。
+- 账号与会话只保存在本地实例的 `config/dangomusicce/accounts/`。
 - 漏洞请按 [SECURITY.md](SECURITY.md) 私密报告，不要公开利用细节。
 
 ## 维护者：分支保护清单

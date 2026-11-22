@@ -1,7 +1,7 @@
 import java.util.*;
 import com.google.gson.JsonParser;
-import me.sorihiko.dangomusicgtnh.music.*;
-import me.sorihiko.dangomusicgtnh.lyrics.*;
+import dangomusicce.music.*;
+import dangomusicce.lyrics.*;
 
 public class AppleLyricsCheck {
     static void check(boolean value, String message) { if(!value)throw new AssertionError(message); }
