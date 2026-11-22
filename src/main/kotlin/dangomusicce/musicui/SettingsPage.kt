@@ -421,7 +421,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             Group("Lyric details", "Style and translation", lm, false,
                 ly.take(listOf("autoContrast", "translationAnimation", "translationWiggle", "splitLines"))),
             Group("Cockpit layout", "Position and tilt", lm, false, ly.take(listOf(
-                "sidePosition", "sideOffsetX", "sideOffsetY", "sideWidth", "sideLines", "sideTextSize", "sideLineSpacing",
+                "sideWhileHudHidden", "sidePosition", "sideOffsetX", "sideOffsetY", "sideWidth", "sideLines", "sideTextSize", "sideLineSpacing",
                 "sideTilt", "sidePitch", "sideItalic", "sideGuide", "sideInertia", "sideInertiaStrength",
             )), show = side),
             Group("Cockpit font and colors", "Font and colors", lm, false, ly.take(listOf(
@@ -431,7 +431,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                 "sideGlow", "sideTextGlow", "sideGlowStrength", "sideGlass", "sideRefraction",
             )), show = side),
             Group("3D lyrics", "Font and colors", lm, false,
-                ly.take(listOf("scale", "maxLyricLines", "lyricFont", "lyricColors", "textColor", "translationColor", "rainbowSpeed")), show = world),
+                ly.take(listOf("worldWhileHudHidden", "scale", "maxLyricLines", "lyricFont", "lyricColors", "textColor", "translationColor", "rainbowSpeed")), show = world),
             Group("3D position", "Where the lyrics float", lm, false,
                 ly.take(listOf("distance", "facePlayer", "keepAway", "stayOnScreen", "aboveGround", "avoidBlocks", "spread")), show = world),
             Group("Glow", "Deep Glow", lm, false, ly.take(listOf("glow", "glowNightOnly", "glowStrength", "glowRadius")), show = world),

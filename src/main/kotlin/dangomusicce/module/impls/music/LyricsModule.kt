@@ -91,6 +91,15 @@ class LyricsModule : Module() {
     @ModuleValue("Lyric style", "Where lyrics appear: floating in the world, cockpit-style on the screen edge, both, or nowhere")
     internal val lyricStyle = IntValue(STYLE_WORLD, STYLE_OFF, STYLE_OFF)
 
+    @ModuleValue("Show lyrics when HUD is hidden", "Keep 3D lyrics visible when F1 hides the game HUD")
+    private val worldWhileHudHidden = BooleanValue(true)
+
+    @ModuleValue("Show lyrics when HUD is hidden", "Keep cockpit lyrics visible when F1 hides the game HUD")
+    private val sideWhileHudHidden = BooleanValue(false)
+
+    internal fun allowsWorldLyrics(hudHidden: Boolean): Boolean = !hudHidden || worldWhileHudHidden.get()
+    internal fun allowsCockpitLyrics(hudHidden: Boolean): Boolean = !hudHidden || sideWhileHudHidden.get()
+
     @ModuleValue("Side position", "Where the side lyric list sits")
     internal val sidePosition = IntValue(0, 2, 2)
 
@@ -739,10 +748,12 @@ class LyricsModule : Module() {
             if (f.scrollOut > 0f) frameNanos - f.fadeStartNanos >= SCROLL_NANOS
             else active != null || frameNanos - f.fadeStartNanos >= 400_000_000L
         }
+        if (!worldVisible() || !allowsWorldLyrics(platform.hudHidden)) return
+
         val useFlash = textFlash.get() && !ktvMode.get() && count == 1
         val gfx = DangoClient.gfx
         val floor = e.playerEyeY?.minus(GROUND_MARGIN)?.takeIf { aboveGround.get() }
-        val motion = if (worldVisible() && !useFlash) stackMotion(stack, frameNanos) else null
+        val motion = if (!useFlash) stackMotion(stack, frameNanos) else null
         val left = if (motion != null && count > 1) {
             gfx.world.lyricCamera()?.let { leftStack(it, stack, motion, floor) }
         } else null
@@ -761,9 +772,7 @@ class LyricsModule : Module() {
         gfx.guarded {
             val songNow = songPos.toLong()
             val beat = if (s != null) playbackBeatPulse(playbackPositionMs()) else 0f
-            if (!worldVisible()) {
-                // 3D lyrics 关掉或只用侧边列表 = 不画 3D 歌词
-            } else if (useFlash) {
+            if (useFlash) {
                 flash.draw(if (s != null && !paused) lyrics else null, songNow, beat, flashSize.value, 1)
             } else {
                 // 先把歌词画到发光画布上做出光晕，再正常画一遍清晰的字
@@ -808,16 +817,20 @@ class LyricsModule : Module() {
     @EventHandler
     fun renderHud(e: HudRenderEvent) {
         if (!enabled) return
-        val s = current
-        DangoClient.gfx.guarded {
-            // 不用驾驶舱样式时也调一下：刚切走时让列表淡出，而不是一下子消失（完全淡出后什么都不画）
-            if (sideVisible() || !side.idle) drawSide(e, s)
-            Dance.tapStatus()?.let { drawTapStatus(it) }
+        renderCockpit(e)
+        Dance.tapStatus()?.let { status -> DangoClient.gfx.guarded { drawTapStatus(status) } }
+    }
+
+    internal fun renderCockpit(e: HudRenderEvent? = null) {
+        if (!enabled || !allowsCockpitLyrics(DangoClient.platform.hudHidden)) return
+        // 切换歌词样式时让旧列表淡出。
+        if (sideVisible() || !side.idle) {
+            DangoClient.gfx.guarded { drawSide(e, current) }
         }
     }
 
     /** 侧边歌词列表：当前歌词、进度和设置交给 [SideLyrics] 画（玻璃字、透视倾斜、发光、逐字点亮） */
-    private fun drawSide(e: HudRenderEvent, s: NowPlaying?) {
+    private fun drawSide(e: HudRenderEvent?, s: NowPlaying?) {
         val platform = DangoClient.platform
         // 驾驶舱字体：每帧对一下版本标记，字体文件被替换了就重新加载（热重载）
         val (sf, sk) = LyricFonts.load(sideFont.value)
@@ -900,7 +913,7 @@ class LyricsModule : Module() {
      * 返回 true = 这次滚轮归歌词；鼠标不在歌词上时返回 false，交给点歌台等别的 HUD
      */
     fun cockpitPointerScroll(x: Int, y: Int, wheel: Int): Boolean {
-        if (wheel == 0 || !side.covers(x, y)) return false
+        if (wheel == 0 || !allowsCockpitLyrics(DangoClient.platform.hudHidden) || !side.covers(x, y)) return false
         if (!enabled || !sideVisible() || current == null) return true
         val lyrics = currentKey?.let { lyricsFor(it) } ?: return true
         val rows = lyrics.lines.size
@@ -918,7 +931,7 @@ class LyricsModule : Module() {
      * 返回 true = 这次点击归歌词（点在行与行的空隙上也算，免得穿透给别的 HUD）
      */
     fun cockpitPointerPress(x: Int, y: Int): Boolean {
-        if (!side.covers(x, y)) return false
+        if (!allowsCockpitLyrics(DangoClient.platform.hudHidden) || !side.covers(x, y)) return false
         val s = current
         if (!enabled || !sideVisible() || s == null) return true
         val lyrics = currentKey?.let { lyricsFor(it) } ?: return true

@@ -108,6 +108,7 @@ private class ClientPlatform(override val configDir: Path) : Platform {
     override val inMainMenu get() = client.currentScreen is GuiMainMenu ||
         client.currentScreen?.javaClass?.name == "lumien.custommainmenu.gui.GuiCustom"
     override val chatOpen get() = client.currentScreen is GuiChat
+    override val hudHidden get() = client.gameSettings.hideGUI
     override val guiScale get() = ScaledResolution(client, windowWidth, windowHeight).scaleFactor
     override val fps get() = client.debug?.substringBefore(' ')?.toIntOrNull() ?: 0
     override val fov get() = client.gameSettings.fovSetting
