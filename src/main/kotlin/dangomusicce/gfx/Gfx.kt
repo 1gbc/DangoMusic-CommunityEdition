@@ -3,7 +3,7 @@ package dangomusicce.gfx
 import dangomusicce.ui.LayoutBounds
 import dangomusicce.ui.RenderContext
 
-import org.lwjgl.util.vector.Matrix4f
+import org.joml.Matrix4f
 import java.awt.image.BufferedImage
 
 /**

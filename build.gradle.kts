@@ -1,111 +1,169 @@
-
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
+import net.fabricmc.loom.api.LoomGradleExtensionAPI
+import net.fabricmc.loom.task.RemapJarTask
+import org.gradle.api.attributes.LibraryElements
+import org.gradle.api.attributes.Usage
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
 
 plugins {
-    kotlin("jvm")
-    id("com.gtnewhorizons.gtnhconvention")
+    id("dev.architectury.loom") version "1.13-SNAPSHOT" apply false
+    kotlin("jvm") version "2.2.21" apply false
+    id("com.gradleup.shadow") version "9.2.2" apply false
 }
 
-version = "0.6.0"
-// Keep the generated Forge version tag in sync with the JAR version.
-extra["modVersion"] = version.toString()
+version = "0.6.0-dev.1"
 
-dependencies {
-    "shadowCompile"(project(":core"))
-}
+val modVersion = version.toString()
 
-configurations.named("shadowCompile") {
-    attributes {
-        attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage.JAVA_RUNTIME))
-        attribute(LibraryElements.LIBRARY_ELEMENTS_ATTRIBUTE, objects.named(LibraryElements.JAR))
+subprojects {
+    if (name == "core") return@subprojects
+
+    apply(plugin = "dev.architectury.loom")
+    apply(plugin = "org.jetbrains.kotlin.jvm")
+    apply(plugin = "com.gradleup.shadow")
+
+    val loader = property("loom.platform") as String
+    val mcVersion = property("minecraft_version") as String
+    val mcRange = property("minecraft_range") as String
+    val compat = property("compat") as String
+    val javaVersion = (property("java_version") as String).toInt()
+    val loaderDeps: List<Pair<String, String>> = when (loader) {
+        "fabric" -> listOf(
+            "modImplementation" to "net.fabricmc:fabric-loader:${property("fabric_loader_version")}",
+            "modImplementation" to "net.fabricmc.fabric-api:fabric-api:${property("fabric_api_version")}",
+        )
+        "forge" -> listOf("forge" to "net.minecraftforge:forge:${property("forge_version")}")
+        "neoforge" -> listOf("neoForge" to "net.neoforged:neoforge:${property("neoforge_version")}")
+        else -> error("Unknown loader: $loader")
     }
-}
 
-val applePlayerPublishDir = layout.buildDirectory.dir("apple-player/publish")
-val applePlayerProject = "tools/apple-native-player/AppleNativePlayer.csproj"
-val applePlayerFiles = listOf(
-    "DangoApplePlayer.exe",
-    "DangoApplePlayer.dll",
-    "DangoApplePlayer.deps.json",
-    "DangoApplePlayer.runtimeconfig.json",
-    "Microsoft.Web.WebView2.Core.dll",
-    "Microsoft.Web.WebView2.WinForms.dll",
-    "WebView2Loader.dll",
-    "runtimes/win-x64/native/WebView2Loader.dll"
-)
+    group = "dangomusicce"
+    version = modVersion
+    extensions.configure<BasePluginExtension> {
+        archivesName.set("dangomusicce")
+    }
 
-val publishApplePlayer by tasks.registering(Exec::class) {
-    inputs.files(fileTree("tools/apple-native-player") { include("*.cs", "*.csproj") })
-    inputs.file("tools/apple-web-bridge/extension/adapter.js")
-    outputs.dir(applePlayerPublishDir)
-    commandLine(
-        providers.gradleProperty("dotnetExecutable").getOrElse("dotnet"),
-        "publish", applePlayerProject, "-c", "Release", "-r", "win-x64",
-        "--self-contained", "false", "-p:EnableWindowsTargeting=true",
-        "-o", applePlayerPublishDir.get().asFile.absolutePath
-    )
-}
+    repositories {
+        mavenCentral()
+        maven("https://maven.neoforged.net/releases/") { name = "NeoForge" }
+    }
 
-val bundleApplePlayer by tasks.registering(Zip::class) {
-    dependsOn(publishApplePlayer)
-    archiveFileName.set("windows-x64.zip")
-    destinationDirectory.set(layout.buildDirectory.dir("apple-player/bundle"))
-    isPreserveFileTimestamps = false
-    isReproducibleFileOrder = true
-    from(applePlayerPublishDir) { include(applePlayerFiles) }
-    into("licenses") {
-        from("LICENSE") { rename { "DangoMusic-GPL-3.0.txt" } }
-        from("third-party/webview2") {
-            include("LICENSE.txt", "NOTICE.txt")
-            rename { "WebView2-SDK-$it" }
+    val tagsOutputDir = layout.buildDirectory.dir("generated/sources/tags/java")
+    val generateTags by tasks.registering {
+        val currentVersion = modVersion
+        inputs.property("version", currentVersion)
+        outputs.dir(tagsOutputDir)
+        doLast {
+            val file = tagsOutputDir.get().file("dangomusicce/Tags.java").asFile
+            file.parentFile.mkdirs()
+            file.writeText(
+                """
+                package dangomusicce;
+
+                public final class Tags {
+                    public static final String VERSION = "$currentVersion";
+
+                    private Tags() {}
+                }
+                """.trimIndent() + "\n",
+                Charsets.UTF_8,
+            )
         }
     }
-    doFirst {
-        for (name in applePlayerFiles) {
-            check(applePlayerPublishDir.get().file(name).asFile.isFile) { "Missing Apple player build output: $name" }
+
+    val sharedKotlin = rootProject.file("src/main/kotlin")
+    val compatKotlin = rootProject.file("platform/mc$compat/kotlin")
+    val sharedResources = rootProject.file("src/main/resources")
+
+    extensions.configure<SourceSetContainer> {
+        val main = getByName("main")
+        main.java.srcDir(tagsOutputDir)
+        main.resources.srcDir(sharedResources)
+    }
+
+    extensions.configure<KotlinJvmProjectExtension> {
+        sourceSets.getByName("main").kotlin.srcDir(sharedKotlin)
+        sourceSets.getByName("main").kotlin.srcDir(compatKotlin)
+        compilerOptions {
+            jvmTarget.set(JvmTarget.fromTarget(javaVersion.toString()))
         }
+    }
+
+    extensions.configure<JavaPluginExtension> {
+        sourceCompatibility = JavaVersion.toVersion(javaVersion)
+        targetCompatibility = JavaVersion.toVersion(javaVersion)
+    }
+
+    tasks.withType<JavaCompile>().configureEach {
+        options.release.set(javaVersion)
+        options.encoding = "UTF-8"
+    }
+
+    tasks.named("compileJava") {
+        dependsOn(generateTags)
+    }
+    tasks.named("compileKotlin") {
+        dependsOn(generateTags)
+    }
+
+    val shade = configurations.create("shade") {
+        isCanBeResolved = true
+        isCanBeConsumed = false
+        attributes {
+            attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage.JAVA_RUNTIME))
+            attribute(LibraryElements.LIBRARY_ELEMENTS_ATTRIBUTE, objects.named(LibraryElements.JAR))
+        }
+    }
+    configurations.getByName("implementation").extendsFrom(shade)
+
+    val loom = extensions.getByType<LoomGradleExtensionAPI>()
+    dependencies {
+        "minecraft"("com.mojang:minecraft:$mcVersion")
+        "mappings"(loom.officialMojangMappings())
+        loaderDeps.forEach { (configuration, notation) -> configuration(notation) }
+
+        "shade"(project(":core"))
+        "shade"(kotlin("stdlib"))
+    }
+
+    tasks.named<ProcessResources>("processResources") {
+        exclude("mcmod.info", "assets/dangomusicce/lang/*.lang")
+        val props = mapOf(
+            "version" to modVersion,
+            "minecraft_range" to mcRange,
+            "java_version" to javaVersion.toString(),
+            "target" to "$mcVersion-$loader",
+            "mod_id" to "dangomusicce",
+            "mod_name" to "DangoMusic Community Edition",
+        )
+        inputs.properties(props)
+        filesMatching(listOf("fabric.mod.json", "META-INF/mods.toml", "META-INF/neoforge.mods.toml", "dangomusic-build.properties")) {
+            expand(props)
+        }
+    }
+
+    val shadowJar = tasks.named<ShadowJar>("shadowJar") {
+        configurations.set(listOf(shade))
+        archiveClassifier.set("dev-shadow")
+        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+        relocate("kotlin", "dangomusicce.shadow.kotlin")
+        relocate("org.intellij.lang.annotations", "dangomusicce.shadow.annotations.intellij")
+        relocate("org.jetbrains.annotations", "dangomusicce.shadow.annotations.jetbrains")
+        relocate("javazoom", "dangomusicce.shadow.javazoom")
+        relocate("com.jcraft", "dangomusicce.shadow.jcraft")
+        relocate("com.google.zxing", "dangomusicce.shadow.zxing")
+        exclude("module-info.class", "META-INF/versions/**", "META-INF/*.kotlin_module", "META-INF/maven/**")
+        addMultiReleaseAttribute.set(false)
+    }
+
+    tasks.named<RemapJarTask>("remapJar") {
+        inputFile.set(shadowJar.flatMap { it.archiveFile })
+        archiveVersion.set("$modVersion+$mcVersion")
+        archiveClassifier.set(loader)
     }
 }
 
-val bilibiliHelperDir = layout.buildDirectory.dir("bilibili-live/publish")
-val bilibiliHelperProject = "tools/bilibili-live-helper/BilibiliLiveHelper.csproj"
-val bilibiliHelperFiles = listOf(
-    "BilibiliLiveHelper.exe", "BilibiliLiveHelper.dll",
-    "BilibiliLiveHelper.deps.json", "BilibiliLiveHelper.runtimeconfig.json",
-)
-val publishBilibiliHelper = tasks.register<Exec>("publishBilibiliHelper") {
-    inputs.files(fileTree("tools/bilibili-live-helper") { include("*.csproj", "*.cs") })
-    outputs.dir(bilibiliHelperDir)
-    commandLine(
-        providers.gradleProperty("dotnetExecutable").getOrElse("dotnet"),
-        "publish", bilibiliHelperProject, "-c", "Release", "-r", "win-x64", "--self-contained", "false",
-        "-o", bilibiliHelperDir.get().asFile.absolutePath,
-    )
-}
-val bundleBilibiliHelper = tasks.register<Zip>("bundleBilibiliHelper") {
-    dependsOn(publishBilibiliHelper)
-    archiveFileName.set("windows-x64.zip")
-    destinationDirectory.set(layout.buildDirectory.dir("bilibili-live/bundle"))
-    isPreserveFileTimestamps = false
-    isReproducibleFileOrder = true
-    from(bilibiliHelperDir) { include(bilibiliHelperFiles) }
-    doFirst {
-        for (name in bilibiliHelperFiles) {
-            check(bilibiliHelperDir.get().file(name).asFile.isFile) { "Missing Bilibili live helper output: $name" }
-        }
-    }
-}
-
-tasks.processResources {
-    from(bundleApplePlayer) { into("assets/dangomusicce/apple-player") }
-    from(bundleBilibiliHelper) { into("assets/dangomusicce/bilibili-live") }
-}
-
-tasks.named<ShadowJar>("shadowJar") {
-    relocate("kotlin", "dangomusicce.shadow.kotlin")
-    relocate("org.jetbrains.annotations", "dangomusicce.shadow.annotations")
-    relocate("javazoom", "dangomusicce.shadow.javazoom")
-    relocate("com.jcraft", "dangomusicce.shadow.jcraft")
-    relocate("com.google.zxing", "dangomusicce.shadow.zxing")
-    exclude("module-info.class", "META-INF/versions/**", "META-INF/*.kotlin_module")
+tasks.register("build") {
+    dependsOn(":core:check", ":1.21.1-neoforge:build")
 }

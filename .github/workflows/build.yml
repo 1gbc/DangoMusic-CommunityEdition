@@ -3,10 +3,10 @@ name: Build
 on:
   push:
     branches:
-      - port/gtnh-1.7.10
+      - port/neoforge-1.21.x
   pull_request:
     branches:
-      - port/gtnh-1.7.10
+      - port/neoforge-1.21.x
 
 permissions:
   contents: read
@@ -27,22 +27,12 @@ jobs:
         id: version
         run: python3 tools/ci/check_build_version.py
 
-      - name: Set up JDK 8 (compile toolchain)
+      - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '8'
-
-      - name: Set up JDK 25 (Gradle runtime)
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '25'
+          java-version: '21'
           cache: gradle
-
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
 
       - name: Build
         shell: bash
@@ -50,8 +40,7 @@ jobs:
           chmod +x gradlew
           log=$(mktemp)
           for attempt in 1 2 3; do
-            if ./gradlew build --no-daemon --stacktrace \
-              -Porg.gradle.java.installations.paths="$JAVA_HOME_8_X64" 2>&1 | tee "$log"; then
+            if ./gradlew :core:check :1.21.1-neoforge:build --no-daemon --stacktrace --max-workers=2 2>&1 | tee "$log"; then
               exit 0
             fi
             if [[ "$attempt" == 3 ]] || ! grep -Eq 'Received status code (429|502|503|504) from server' "$log"; then
@@ -64,6 +53,8 @@ jobs:
         if: steps.version.outputs.release == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: dangomusicce-jars
-          path: build/libs/*.jar
+          name: dangomusicce-neoforge-1.21.x-jars
+          path: |
+            versions/*/build/libs/*+*.jar
+            !versions/*/build/libs/*-dev-shadow.jar
           if-no-files-found: error

@@ -37,6 +37,13 @@ addon.late.local.gradle.kts
 layout.json
 
 /core/build/
+/versions/*/build/
+/versions/*/run/
+/versions/*/logs/
+/versions/*/config/
+/versions/*/saves/
+/versions/*/crash-reports/
+.kotlin/
 /tools/apple-native-player/bin/
 /tools/apple-native-player/obj/
 /tools/release/__pycache__/

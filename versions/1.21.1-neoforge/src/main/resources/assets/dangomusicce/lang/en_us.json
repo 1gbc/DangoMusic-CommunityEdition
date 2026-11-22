@@ -1,0 +1,13 @@
+{
+  "key.categories.dangomusicce": "DangoMusic Community Edition",
+  "dangomusicce.title": "DangoMusic Community Edition",
+  "key.dangomusicce.open_player": "Open / close player",
+  "key.dangomusicce.play_pause": "Play / pause",
+  "key.dangomusicce.previous": "Previous track",
+  "key.dangomusicce.next": "Next track",
+  "key.dangomusicce.volume_up": "Volume up",
+  "key.dangomusicce.volume_down": "Volume down",
+  "key.dangomusicce.toggle_lyrics": "Toggle lyrics",
+  "key.dangomusicce.stop_playback": "Stop playback",
+  "key.dangomusicce.bilibili_requests": "HUD mouse interaction (hold)"
+}

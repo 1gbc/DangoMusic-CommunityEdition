@@ -1,0 +1,13 @@
+{
+  "key.categories.dangomusicce": "DangoMusic Community Edition",
+  "dangomusicce.title": "DangoMusic Community Edition",
+  "key.dangomusicce.open_player": "打开 / 关闭播放器",
+  "key.dangomusicce.play_pause": "播放 / 暂停",
+  "key.dangomusicce.previous": "上一首",
+  "key.dangomusicce.next": "下一首",
+  "key.dangomusicce.volume_up": "增大音量",
+  "key.dangomusicce.volume_down": "减小音量",
+  "key.dangomusicce.toggle_lyrics": "显示 / 隐藏歌词",
+  "key.dangomusicce.stop_playback": "停止播放",
+  "key.dangomusicce.bilibili_requests": "HUD 鼠标交互（按住）"
+}

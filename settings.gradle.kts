@@ -1,23 +1,20 @@
-
 pluginManagement {
     repositories {
-        maven {
-            // RetroFuturaGradle
-            name = "GTNH Maven"
-            url = uri("https://nexus.gtnewhorizons.com/repository/public/")
-            mavenContent {
-                includeGroup("com.gtnewhorizons")
-                includeGroupByRegex("com\\.gtnewhorizons\\..+")
-            }
-        }
+        maven("https://maven.fabricmc.net/") { name = "Fabric" }
+        maven("https://maven.architectury.dev/") { name = "Architectury" }
+        maven("https://maven.minecraftforge.net/") { name = "Forge" }
+        maven("https://maven.neoforged.net/releases/") { name = "NeoForge" }
         gradlePluginPortal()
         mavenCentral()
-        mavenLocal()
     }
 }
 
-plugins {
-    id("com.gtnewhorizons.gtnhsettingsconvention") version("2.0.33")
-}
+rootProject.name = "DangoMusic-CommunityEdition"
 
 include(":core")
+
+val targets = listOf("1.21.1-neoforge")
+targets.forEach { target ->
+    include(":$target")
+    project(":$target").projectDir = file("versions/$target")
+}
