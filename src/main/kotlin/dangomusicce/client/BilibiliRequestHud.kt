@@ -262,13 +262,14 @@ internal object BilibiliRequestHud {
         scrollRows = scrollRows.coerceIn(0f, (count - layout.visibleRows).coerceAtLeast(0f))
     }
 
-    fun blocksPointer(x: Int, y: Int): Boolean =
-        BilibiliRequests.enabled && panelHit?.contains(x, y) == true
+    fun isVisible(hudHidden: Boolean): Boolean = BilibiliRequests.enabled && module.allowsRequestHud(hudHidden)
+
+    fun blocksPointer(x: Int, y: Int): Boolean = panelHit?.contains(x, y) == true
 
     fun render(mc: Minecraft) {
         commandTargets.clear()
         panelHit = null
-        if (!BilibiliRequests.enabled || mc.theWorld == null || mc.thePlayer == null ||
+        if (!isVisible(mc.gameSettings.hideGUI) || mc.theWorld == null || mc.thePlayer == null ||
             mc.displayWidth <= 0 || mc.displayHeight <= 0
         ) return
         val screen = mc.currentScreen

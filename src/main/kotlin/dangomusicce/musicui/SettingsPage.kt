@@ -493,7 +493,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                 Ctl.BILIBILI, null, { "" }, show = { module.bilibiliRequests.get() && module.bilibiliMock.get() }),
         ) + player.take(listOf("requestNoticeSeconds"))
         val requestAppearance = player.take(listOf(
-            "requestHudBackground", "requestHudSmallCorners", "requestHudWidth", "requestHudHeight",
+            "requestHudWhileHidden", "requestHudBackground", "requestHudSmallCorners", "requestHudWidth", "requestHudHeight",
             "requestHudAutoHeight", "requestHudFont", "requestHudTextSize", "requestHudTextColor",
             "requestPosX", "requestPosY", "requestHudLocked",
         ))
@@ -502,7 +502,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             Group("NetEase interface settings", "Player menu appearance", module, false, neteaseLooks, fullWidth = true),
             Group("Apple Music interface settings", "Player menu appearance", module, false, appleLooks, fullWidth = true),
             Group("Dynamic Island", "Overlay", islandModule, true, island.take(listOf(
-                "islandLayout", "islandAnimations", "islandBackground", "scale", "posX", "posY", "islandLocked",
+                "islandWhileHudHidden", "islandLayout", "islandAnimations", "islandBackground", "scale", "posX", "posY", "islandLocked",
             )) + island.take(), fullWidth = true),
             Group("Bilibili song requests", "Live danmaku and request queue", module, false, emptyList(),
                 fullWidth = true, sections = listOf(

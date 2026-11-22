@@ -152,6 +152,11 @@ class NeteaseMusicModule : Module() {
     @ModuleValue("Request HUD background", "Choose the request card material")
     internal val requestHudBackground = IntValue(0, 2, 0)
 
+    @ModuleValue("Show when HUD is hidden", "Keep the song request card visible when F1 hides the game HUD")
+    private val requestHudWhileHidden = BooleanValue(false)
+
+    internal fun allowsRequestHud(hudHidden: Boolean): Boolean = !hudHidden || requestHudWhileHidden.get()
+
     @ModuleValue("Small corners", "Use smaller corners on the request card")
     internal val requestHudSmallCorners = BooleanValue(false)
 
