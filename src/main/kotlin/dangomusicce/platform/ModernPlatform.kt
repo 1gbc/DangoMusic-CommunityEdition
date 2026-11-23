@@ -2,6 +2,7 @@ package dangomusicce.platform
 
 import dangomusicce.DangoMusic
 import dangomusicce.client.ClientMusic
+import dangomusicce.music.AudioOutput
 import dangomusicce.music.MusicPlayer
 import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.screens.ChatScreen
@@ -193,6 +194,11 @@ object ModernPlatform : Platform {
     override fun openMusicScreen() {
         ClientMusic.open(McCompat.currentScreen())
     }
+
+    override fun openAudioOutput(sampleRate: Int, channels: Int): AudioOutput? =
+        GameAudioOutput.open(sampleRate, channels)
+
+    override val hasGameAudio: Boolean get() = true
 }
 
 private fun soundAbsorptionOf(sound: SoundType): Float = when (sound) {

@@ -1,4 +1,6 @@
-#version 120
+#version 150
+
+out vec4 fragColor;
 
 uniform vec4 u_Bounds;// x y width height
 uniform float u_Radius;
@@ -18,7 +20,7 @@ uniform float u_ShadowOutside;
 
 uniform float u_Opacity;
 
-varying vec2 v_Position;
+in vec2 v_Position;
 
 // 1 = 连续曲率圆角（界面风格“连续圆角”），0 = 经典圆角
 uniform float u_Continuous;
@@ -100,5 +102,5 @@ void main() {
         float clipDist = sdRoundBox(v_Position - u_ClipBounds.xy - clipHalf, clipHalf, u_ClipRadius);
         color.a *= 1.0 - smoothstep(-max(fwidth(clipDist), 0.001), 0.0, clipDist);
     }
-    gl_FragColor = vec4(color.rgb, color.a * u_Opacity);
+    fragColor = vec4(color.rgb, color.a * u_Opacity);
 }

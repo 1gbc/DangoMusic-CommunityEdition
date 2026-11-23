@@ -76,6 +76,13 @@ object ModernKeyBindings {
         return McCompat.isKeyModifierActive(mapping, all)
     }
 
+    fun isHeld(action: PlayerAction): Boolean {
+        if (!registered) return false
+        val code = McCompat.commonBindingKey(mappings.getValue(action).key)
+        if (code == Keys.NONE) return false
+        return ModernPlatform.isKeyDown(code) && modifierActive(action)
+    }
+
     fun displayName(action: PlayerAction): String? =
         if (!registered) null else McCompat.modifiedKeyDisplayName(mappings.getValue(action))
 

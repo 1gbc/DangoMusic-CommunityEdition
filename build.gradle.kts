@@ -12,7 +12,7 @@ plugins {
     id("com.gradleup.shadow") version "9.2.2" apply false
 }
 
-version = "0.6.0-dev.1"
+version = "0.6.0-dev.2"
 
 val modVersion = version.toString()
 

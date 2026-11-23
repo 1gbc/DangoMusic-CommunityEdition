@@ -1,0 +1,64 @@
+package dangomusicce.shader.impls.ui
+
+import dangomusicce.shader.GlShader
+import dangomusicce.ui.LayoutBounds
+import dangomusicce.ui.ShapeStyle
+import dangomusicce.ui.Size
+import dangomusicce.ui.UiStyle
+import org.joml.Matrix4f
+import org.lwjgl.BufferUtils
+
+class ShapeShader : GlShader(
+    "ui/shape.vert",
+    "ui/shape.frag",
+) {
+    private val buffer = BufferUtils.createFloatBuffer(16)
+
+    override fun uniformsFields(): Array<String> = arrayOf(
+        "u_Transform",
+        "u_ScreenSize",
+        "u_Bounds",
+        "u_Radius",
+        "u_Continuous",
+        "u_FillColor",
+        "u_FillEndColor",
+        "u_ClipBounds",
+        "u_ClipRadius",
+        "u_BorderWidth",
+        "u_BorderColor",
+        "u_ShadowColor",
+        "u_ShadowSize",
+        "u_ShadowOffset",
+        "u_ShadowOutside",
+        "u_Opacity",
+    )
+
+    fun setup(
+        mat4: Matrix4f,
+        screenSize: Size,
+        bounds: LayoutBounds,
+        style: ShapeStyle,
+        opacity: Float,
+    ) {
+        buffer.clear()
+        mat4.get(buffer)
+        setUniformMat4("u_Transform", buffer)
+
+        setUniform2f("u_ScreenSize", screenSize.width, screenSize.height)
+        setUniform4f("u_Bounds", bounds.x, bounds.y, bounds.width, bounds.height)
+        setUniform1f("u_Radius", style.radius)
+        setUniform1f("u_Continuous", if (UiStyle.continuous) 1f else 0f)
+        setUniformColor("u_FillColor", style.fillColor)
+        setUniformColor("u_FillEndColor", style.fillEndColor ?: style.fillColor)
+        val clip = style.clipBounds
+        setUniform4f("u_ClipBounds", clip?.x ?: 0f, clip?.y ?: 0f, clip?.width ?: 0f, clip?.height ?: 0f)
+        setUniform1f("u_ClipRadius", style.clipRadius)
+        setUniform1f("u_BorderWidth", style.borderWidth)
+        setUniformColor("u_BorderColor", style.borderColor)
+        setUniformColor("u_ShadowColor", style.shadow.color)
+        setUniform1f("u_ShadowSize", style.shadow.size)
+        setUniform2f("u_ShadowOffset", style.shadow.offset.x, style.shadow.offset.y)
+        setUniform1f("u_ShadowOutside", if (style.shadow.outside) 1f else 0f)
+        setUniform1f("u_Opacity", opacity)
+    }
+}

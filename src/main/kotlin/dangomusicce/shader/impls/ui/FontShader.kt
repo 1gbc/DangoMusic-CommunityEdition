@@ -1,0 +1,33 @@
+package dangomusicce.shader.impls.ui
+
+import dangomusicce.shader.GlShader
+import dangomusicce.ui.Size
+import dangomusicce.utils.Color
+import org.joml.Matrix4f
+import org.lwjgl.BufferUtils
+
+class FontShader : GlShader(
+    "ui/font.vert",
+    "ui/font.frag",
+) {
+    private val buffer = BufferUtils.createFloatBuffer(16)
+
+    override fun uniformsFields(): Array<String> = arrayOf(
+        "u_Transform",
+        "u_ScreenSize",
+        "u_Font",
+        "u_Color",
+        "u_Opacity",
+    )
+
+    fun setup(mat4: Matrix4f, screenSize: Size, color: Color, opacity: Float) {
+        buffer.clear()
+        mat4.get(buffer)
+        setUniformMat4("u_Transform", buffer)
+
+        setUniform2f("u_ScreenSize", screenSize.width, screenSize.height)
+        setUniform1i("u_Font", 0)
+        setUniformColor("u_Color", color)
+        setUniform1f("u_Opacity", opacity)
+    }
+}

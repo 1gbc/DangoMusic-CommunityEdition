@@ -743,7 +743,7 @@ class LyricsModule : Module() {
         val gfx = DangoClient.gfx
         val floor = e.playerEyeY?.minus(GROUND_MARGIN)?.takeIf { aboveGround.get() }
         val motion = if (worldVisible() && !useFlash) stackMotion(stack, frameNanos) else null
-        val left = if (motion != null && count > 1) {
+        val left = if (worldMultilinePinnedToCamera && motion != null && count > 1) {
             gfx.world.lyricCamera()?.let { leftStack(it, stack, motion, floor) }
         } else null
         val view = if (motion != null && left == null) {
@@ -1938,6 +1938,8 @@ class LyricsModule : Module() {
 /** 歌词配色：自定义颜色 / 封面主色 / 封面渐变 / 彩虹 */
 // Keep the adaptive layout available without overriding the manual line count.
 internal val adaptiveLyricLineLimit = false
+// Anchor multi-line 3D lyrics in world space instead of pinning them to the camera.
+internal val worldMultilinePinnedToCamera = false
 
 private const val COLORS_CUSTOM = 0
 private const val COLORS_COVER = 1

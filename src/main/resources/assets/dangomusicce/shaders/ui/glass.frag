@@ -1,4 +1,6 @@
-#version 120
+#version 150
+
+out vec4 fragColor;
 
 // Liquid Glass：模糊背景 + 边缘透镜折射 + 色散 + 镜面边缘高光
 uniform mat4 u_Transform;
@@ -22,8 +24,8 @@ uniform float u_Highlight;   // 高光强度
 uniform float u_EdgeWidth;   // 仅叠加在内容边缘时的渐隐宽度
 uniform float u_Opacity;
 
-varying vec2 v_Position;
-varying vec2 v_Screen;
+in vec2 v_Position;
+in vec2 v_Screen;
 
 // 1 = 连续曲率圆角（界面风格“连续圆角”），0 = 经典圆角
 uniform float u_Continuous;
@@ -67,7 +69,7 @@ float luma(vec3 c) {
 vec3 backdrop(vec2 screenPos) {
     vec2 uv = vec2(screenPos.x / u_ScreenSize.x, 1.0 - screenPos.y / u_ScreenSize.y);
     uv = clamp(uv, vec2(0.001), vec2(0.999));
-    return mix(texture2D(u_Soft, uv).rgb, texture2D(u_Frost, uv).rgb, u_FrostMix);
+    return mix(texture(u_Soft, uv).rgb, texture(u_Frost, uv).rgb, u_FrostMix);
 }
 
 void main() {
@@ -123,5 +125,5 @@ void main() {
     float inner = pow(edge, 4.0) * 0.14;
     col += vec3(rim * (0.10 + 0.75 * light) + inner * (0.25 + 0.75 * light)) * u_Highlight;
 
-    gl_FragColor = vec4(clamp(col, 0.0, 1.0), mask * u_Opacity);
+    fragColor = vec4(clamp(col, 0.0, 1.0), mask * u_Opacity);
 }

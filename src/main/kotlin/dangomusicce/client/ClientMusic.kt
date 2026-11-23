@@ -10,10 +10,10 @@ import dangomusicce.music.NearbyAudioPlayer
 import dangomusicce.music.NeteaseLogin
 import dangomusicce.network.NearbyClient
 import dangomusicce.platform.McCompat
+import dangomusicce.platform.ModernGfx
 import dangomusicce.platform.ModernKeyBindings
-import dangomusicce.platform.ModernPlaceholderScreen
+import dangomusicce.platform.ModernMusicScreen
 import dangomusicce.platform.ModernPlatform
-import dangomusicce.platform.StubGfx
 import net.minecraft.client.gui.screens.Screen
 import java.io.File
 import java.util.concurrent.ArrayBlockingQueue
@@ -33,7 +33,7 @@ internal object ClientMusic {
     fun start(directory: File) {
         if (started) return
         BilibiliRequests.loadRoom(directory.toPath().resolve("bilibili-room.txt"))
-        DangoClient.start(ModernPlatform, StubGfx)
+        DangoClient.start(ModernPlatform, ModernGfx)
         NearbyClient.init()
         Runtime.getRuntime().addShutdownHook(Thread({
             controls.shutdownNow()
@@ -66,6 +66,6 @@ internal object ClientMusic {
     }
 
     fun open(parent: Screen?) {
-        McCompat.setScreen(ModernPlaceholderScreen(parent))
+        McCompat.setScreen(ModernMusicScreen(parent))
     }
 }

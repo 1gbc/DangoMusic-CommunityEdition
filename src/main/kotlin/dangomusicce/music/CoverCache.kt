@@ -9,6 +9,7 @@ import java.awt.image.BufferedImage
 import java.io.ByteArrayInputStream
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.Executors
 import java.util.concurrent.LinkedBlockingDeque
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
@@ -55,6 +56,10 @@ object CoverCache {
             override fun offer(e: Runnable): Boolean = offerFirst(e)
         },
     ) { r -> Thread(r, "Dango-CoverCache").apply { isDaemon = true } }
+    /** 本地 CPU 图像处理（圆角裁切、流动背景采样）：与网络下载隔离，避免被批量封面请求饿死 */
+    private val imageWorker = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "Dango-CoverImage").apply { isDaemon = true }
+    }
 
     private val requested = ConcurrentHashMap.newKeySet<String>()
     /** 下载失败的时间：过一会儿再重试（以前失败一次就再也不试了，封面会一直空着） */
@@ -62,6 +67,8 @@ object CoverCache {
     private const val RETRY_MS = 8000L
     private val failLogs = AtomicInteger()
     private val ready = ConcurrentLinkedQueue<Pair<String, BufferedImage>>()
+    private val readyPriority = ConcurrentLinkedQueue<Pair<String, BufferedImage>>()
+    private val readySources = ConcurrentLinkedQueue<Pair<String, BufferedImage>>()
 
     // 只在渲染线程访问
     private val textures = object : LinkedHashMap<String, Texture>(16, 0.75f, true) {}
@@ -72,7 +79,7 @@ object CoverCache {
     private val sources = object : LinkedHashMap<String, BufferedImage>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, BufferedImage>) = size > MAX_SOURCES
     }
-    private val roundQueued = HashSet<String>()
+    private val roundQueued = ConcurrentHashMap.newKeySet<String>()
     /** 下载好的高清原图，供圆角封面和歌词页纹理复用；删掉时允许以后重新下载 */
     private val readyLarge = ConcurrentLinkedQueue<Pair<String, BufferedImage>>()
     private val largeSources = object : LinkedHashMap<String, BufferedImage>(16, 0.75f, true) {
@@ -89,18 +96,23 @@ object CoverCache {
     /** 渲染线程每帧调用：把下载好的图片上传成纹理，超出上限就删掉最久没画的 */
     fun upload() {
         now = System.currentTimeMillis()
-        // 一次最多传几张，一下子滚出很多封面时不会卡一下
+        while (true) {
+            val (key, img) = readySources.poll() ?: break
+            sources[key] = img
+            requested.remove("src:$key")
+        }
+        while (true) {
+            val (key, img) = readyLarge.poll() ?: break
+            largeSources[key] = img
+        }
+        // 一次最多传几张，一下子滚出很多封面时不会卡一下；背景采样等高优图优先上传
         for (i in 0 until UPLOADS_PER_CALL) {
-            val (key, img) = ready.poll() ?: break
+            val (key, img) = readyPriority.poll() ?: ready.poll() ?: break
             val linear = key.endsWith(LYRICS_BACKDROP_SUFFIX) || key.endsWith(LYRICS_ARTWORK_SUFFIX)
             val tex = DangoClient.gfx.textures.upload("dango_cover_c", img, linear = linear)
             textures.put(key, tex)?.let { DangoClient.gfx.textures.delete(it) }
             lastUsed[key] = now
             if (ROUND_SUFFIX !in key) sources[key] = img
-        }
-        while (true) {
-            val (key, img) = readyLarge.poll() ?: break
-            largeSources[key] = img
         }
         // 最久没画的排在最前面；它要是最近还在画，说明全都在用，先不删（下一帧再看）
         while (textures.size > MAX) {
@@ -137,6 +149,7 @@ object CoverCache {
     private fun get(key: String, url: String, width: Int, height: Int): Texture? {
         textures[key]?.let {
             lastUsed[key] = now
+            sources[key]
             return it
         }
         if (url.isEmpty()) return null
@@ -148,6 +161,34 @@ object CoverCache {
             ready.add(key to it)
             return null
         }
+        downloadSource(key, key, url, width, height, ready)
+        return null
+    }
+
+    /** 保证圆角与流动背景所需的 128px 原图可用：即使 textures 仍命中但 sources 已被 LRU 淘汰也能补回 */
+    private fun ensureSource(key: String, url: String): BufferedImage? {
+        sources[key]?.let { return it }
+        if (!textures.containsKey(key)) {
+            get(key, url)
+            return null
+        }
+        if (url.isEmpty()) return null
+        val failed = failedAt[key]
+        if (failed != null && System.currentTimeMillis() - failed < RETRY_MS) return null
+        val reqKey = "src:$key"
+        if (!requested.add(reqKey)) return null
+        downloadSource(key, reqKey, url, 128, 128, readySources)
+        return null
+    }
+
+    private fun downloadSource(
+        key: String,
+        reqKey: String,
+        url: String,
+        width: Int,
+        height: Int,
+        target: ConcurrentLinkedQueue<Pair<String, BufferedImage>>,
+    ) {
         worker.execute {
             var ok = false
             var why = ""
@@ -163,7 +204,7 @@ object CoverCache {
                     if (img == null) {
                         why = "unreadable image (${bytes.size} bytes)"
                     } else {
-                        ready.add(key to crop(img, width, height))
+                        target.add(key to crop(img, width, height))
                         failedAt.remove(key)
                         ok = true
                     }
@@ -172,13 +213,12 @@ object CoverCache {
                 why = e.toString()
             } finally {
                 if (!ok) {
-                    requested.remove(key)
+                    requested.remove(reqKey)
                     failedAt[key] = System.currentTimeMillis()
                     if (failLogs.incrementAndGet() <= 20) DangoLogger.warn("Cover {} failed: {} ({})", key, why, url)
                 }
             }
         }
-        return null
     }
 
     fun track(t: NeteaseTrack) = get("t:${t.key}", t.coverUrl)
@@ -196,13 +236,14 @@ object CoverCache {
             lastUsed[rk] = now
             return it
         }
-        get(key, url)                                  // 确保原图在下载 / 已缓存
-        val src = sources[key] ?: return null
+        val src = ensureSource(key, url) ?: return null
         if (roundQueued.add(rk)) {
-            worker.execute {
+            imageWorker.execute {
                 try {
                     ready.add(rk to roundCorners(src, ratio, continuous))
-                } catch (_: Exception) {
+                } catch (t: Throwable) {
+                    roundQueued.remove(rk)
+                    DangoLogger.warn("Rounded cover {} failed: {}", rk, t.toString())
                 }
             }
         }
@@ -225,11 +266,12 @@ object CoverCache {
         }
         val src = largeSource(lk, url) ?: return null
         if (roundQueued.add(rk)) {
-            worker.execute {
+            imageWorker.execute {
                 try {
                     ready.add(rk to roundCorners(src, ratio, continuous))
-                } catch (_: Exception) {
-                    // 做不出来就继续用小图；下次纹理被删时会再试
+                } catch (t: Throwable) {
+                    roundQueued.remove(rk)
+                    DangoLogger.warn("Large rounded cover {} failed: {}", rk, t.toString())
                 }
             }
         }
@@ -262,10 +304,7 @@ object CoverCache {
                 lastUsed[textureKey] = now
                 return it
             }
-            val img = if (key == largeKey) largeSource(key, url) else {
-                get(key, url)
-                sources[key]
-            }
+            val img = if (key == largeKey) largeSource(key, url) else ensureSource(key, url)
             if (img != null && roundQueued.add(textureKey)) ready.add(textureKey to img)
         }
         return null
@@ -276,20 +315,24 @@ object CoverCache {
         cachedTrackBackdrop(track)?.let { return it }
         val sourceKey = "t:${track.key}"
         val key = LARGE_PREFIX + sourceKey + LYRICS_BACKDROP_SUFFIX
-        get(sourceKey, track.coverUrl)
-        val source = sources[sourceKey] ?: return null
+        val source = ensureSource(sourceKey, track.coverUrl) ?: return null
         if (roundQueued.add(key)) {
-            worker.execute {
-                val colours = sampleBackdropColours(source)
-                val blurred = BufferedImage(512, 512, BufferedImage.TYPE_INT_ARGB)
-                val graphics = blurred.createGraphics()
+            imageWorker.execute {
                 try {
-                    graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC)
-                    graphics.drawImage(colours, 0, 0, blurred.width, blurred.height, null)
-                } finally {
-                    graphics.dispose()
+                    val colours = sampleBackdropColours(source)
+                    val blurred = BufferedImage(512, 512, BufferedImage.TYPE_INT_ARGB)
+                    val graphics = blurred.createGraphics()
+                    try {
+                        graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC)
+                        graphics.drawImage(colours, 0, 0, blurred.width, blurred.height, null)
+                    } finally {
+                        graphics.dispose()
+                    }
+                    readyPriority.add(key to blurred)
+                } catch (t: Throwable) {
+                    roundQueued.remove(key)
+                    DangoLogger.warn("Cover backdrop {} failed: {}", key, t.toString())
                 }
-                ready.add(key to blurred)
             }
         }
         return null
