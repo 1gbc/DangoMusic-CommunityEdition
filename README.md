@@ -2,7 +2,7 @@
 
 # DangoMusic Community Edition
 
-在 GT New Horizons 里听网易云音乐和 Apple Music。支持游戏内歌词、灵动岛、听歌房，以及 B 站直播弹幕点歌。
+在 GT New Horizons 里听网易云音乐和 Apple Music。支持游戏内歌词、灵动岛、听歌房，以及 B 站直播弹幕点歌。服务端仅提供多人听歌功能非强制需求。
 
 [下载最新正式版](https://github.com/1gbc/DangoMusic-CommunityEdition/releases/latest) · [更新记录](CHANGELOG.md) · [反馈问题](https://github.com/1gbc/DangoMusic-CommunityEdition/issues/new/choose)
 
