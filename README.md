@@ -10,7 +10,7 @@
 
 1. 使用 **GTNH 2.9.0 / Minecraft 1.7.10 / Forge 10.13.4.1614**，保留整合包原有的 Java 和启动设置。
 2. 退出游戏，从 [正式版下载页](https://github.com/1gbc/DangoMusic-CommunityEdition/releases/latest) 下载 `dangomusicce-<版本号>.jar`，放进对应实例的 `mods/`。升级时移走旧版 JAR，并保留原来的 Mod 配置和登录资料。
-3. 进入 **选项 → 控制 → DangoMusic Community Edition**，绑定「打开 / 关闭播放器」。在游戏中按下你绑定的按键，在播放器侧栏左下角选择网易云或 Apple Music。
+3. 用快捷键进入菜单（默认M），在播放器侧栏左下角选择网易云或 Apple Music。
 4. 在侧栏搜索歌曲或打开歌单。列表模式单击歌名可以选中歌曲，点击小封面上的播放按钮即可播放。底部控制栏可以暂停、切歌、调整进度、音量或查看播放队列。
 
 ## 从 DangoMusic GTNH Edition 升级
