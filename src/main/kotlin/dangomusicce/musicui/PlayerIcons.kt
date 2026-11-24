@@ -38,6 +38,33 @@ internal object PlayerIcons {
         move(2.0,4.0); line(12.0,12.0); line(2.0,20.0); close()
         move(12.0,4.0); line(22.0,12.0); line(12.0,20.0); close()
     }
+    val cardPlay = VectorIcon.path(filled = true) {
+        move(6.0, 4.8)
+        curve(6.0, 3.5, 7.3, 2.9, 8.4, 3.6)
+        line(20.2, 10.6)
+        curve(21.3, 11.3, 21.3, 12.7, 20.2, 13.4)
+        line(8.4, 20.4)
+        curve(7.3, 21.1, 6.0, 20.5, 6.0, 19.2)
+        close()
+    }
+    val cardPause = VectorIcon.path(filled = true) {
+        roundRect(5.0, 3.5, 5.2, 17.0, 1.7)
+        roundRect(13.8, 3.5, 5.2, 17.0, 1.7)
+    }
+
+    private fun cardSkip(previous: Boolean) = VectorIcon.path(filled = true) {
+        fun mirror(x: Double) = if (previous) 24.0 - x else x
+        move(mirror(4.0), 5.6)
+        curve(mirror(4.0), 4.4, mirror(5.0), 4.0, mirror(6.0), 4.6)
+        line(mirror(16.0), 10.7)
+        curve(mirror(17.0), 11.3, mirror(17.0), 12.7, mirror(16.0), 13.3)
+        line(mirror(6.0), 19.4)
+        curve(mirror(5.0), 20.0, mirror(4.0), 19.6, mirror(4.0), 18.4)
+        close()
+        roundRect(if (previous) 2.5 else 18.0, 4.4, 3.5, 15.2, 1.3)
+    }
+    val cardPrevious = cardSkip(previous = true)
+    val cardNext = cardSkip(previous = false)
     val stop = VectorIcon.path(filled = true) { rect(5.0,5.0,14.0,14.0) }
     val queue = VectorIcon.path {
         circle(3.5,5.0,0.8); move(8.0,5.0); line(21.0,5.0)
@@ -74,10 +101,21 @@ internal object PlayerIcons {
         private val opacity = FloatArray(4)
         private var initialized = false
 
-        fun draw(ui: Ui, x: Float, y: Float, volume: Float, color: Color, scale: Float) {
+        fun draw(ui: Ui, x: Float, y: Float, volume: Float, color: Color, scale: Float) =
+            draw(ui.ctx, x, y, volume, color, scale) { value, target -> ui.approach(value, target, 48f) }
+
+        fun draw(ctx: RenderContext, x: Float, y: Float, volume: Float, color: Color, scale: Float, dt: Float) =
+            draw(ctx, x, y, volume, color, scale) { value, target ->
+                value + (target - value) * (1f - kotlin.math.exp(-dt * 48f))
+            }
+
+        private inline fun draw(
+            ctx: RenderContext, x: Float, y: Float, volume: Float, color: Color, scale: Float,
+            approach: (Float, Float) -> Float,
+        ) {
             val percent = volumePercent(volume)
             val size = 24f * scale
-            draw(ui.ctx, appleSpeakerBody, x, y, size, color)
+            draw(ctx, appleSpeakerBody, x, y, size, color)
             for (i in opacity.indices) {
                 val on = when (i) {
                     0 -> percent > 0
@@ -86,10 +124,10 @@ internal object PlayerIcons {
                     else -> percent == 0
                 }
                 val target = if (on) 1f else 0f
-                opacity[i] = if (initialized) ui.approach(opacity[i], target, 48f) else target
+                opacity[i] = if (initialized) approach(opacity[i], target) else target
                 if (opacity[i] > 0.01f) {
                     val icon = if (i == 3) appleSpeakerMute else appleSpeakerArcs[i]
-                    draw(ui.ctx, icon, x, y, size, color.copy(a = color.a * opacity[i]))
+                    draw(ctx, icon, x, y, size, color.copy(a = color.a * opacity[i]))
                 }
             }
             initialized = true

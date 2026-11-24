@@ -85,7 +85,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         "lyricColors" to listOf("Custom color", "Cover color", "Cover gradient", "Rainbow"),
         "ktvLyricColors" to listOf("Custom color", "Cover color", "Cover gradient", "Rainbow"),
         "audioOutput" to listOf("Auto", "Java Sound", "Game audio (OpenAL)"),
-        "islandLayout" to listOf("Style C", "Style A", "Style B"),
+        "islandLayout" to listOf("Style C", "Style A", "Style B", "Mini player card"),
         "uiStyle" to listOf("Classic", "Continuous corners"),
         "appleSidebarStyle" to listOf("Flowing cover colors", "Dark glass"),
         "requestHudBackground" to HudBackground.entries.map { it.label },
@@ -463,7 +463,10 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         }
         if (!DangoMusic.instance.platform.hasGameAudio) player.left.remove("audioOutput") // 1.8.9 只有 Java Sound
         val islandModule = mm.get(DynamicIslandModule::class.java)
-        val island = Src(islandModule, fmts = mapOf("posX" to ::percent, "posY" to ::percent))
+        val island = Src(islandModule, fmts = mapOf("posX" to ::percent, "posY" to ::percent), shows = mapOf(
+            "cardLyricLines" to { islandModule.hasPlayerCardLayout },
+            "islandAnimations" to { !islandModule.hasPlayerCardLayout },
+        ))
         val playback = player.take(listOf("volume", "originalAudio", "normalize", "playbackFades", "resumeSession"))
         val environment = player.take(listOf("envAudio", "envRain", "envStrength", "envRays"))
         val looks = player.take(listOf("uiStyle", "language", "collapseSettingsOnClose"))
@@ -502,7 +505,8 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             Group("NetEase interface settings", "Player menu appearance", module, false, neteaseLooks, fullWidth = true),
             Group("Apple Music interface settings", "Player menu appearance", module, false, appleLooks, fullWidth = true),
             Group("Dynamic Island", "Overlay", islandModule, true, island.take(listOf(
-                "islandWhileHudHidden", "islandLayout", "islandAnimations", "islandBackground", "scale", "posX", "posY", "islandLocked",
+                "islandWhileHudHidden", "islandLayout", "cardLyricLines", "islandAnimations", "islandBackground",
+                "scale", "posX", "posY", "islandLocked",
             )) + island.take(), fullWidth = true),
             Group("Bilibili song requests", "Live danmaku and request queue", module, false, emptyList(),
                 fullWidth = true, sections = listOf(

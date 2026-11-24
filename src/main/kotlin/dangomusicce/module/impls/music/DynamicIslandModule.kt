@@ -20,6 +20,7 @@ import dangomusicce.music.PlaybackView
 import dangomusicce.musicui.AppleLyricsLayout
 import dangomusicce.musicui.HudBackdrop
 import dangomusicce.musicui.HudBackground
+import dangomusicce.musicui.IslandPlayerCard
 import dangomusicce.musicui.PlayerIcons
 import dangomusicce.musicui.mixColor
 import dangomusicce.ui.LayoutBounds
@@ -46,7 +47,12 @@ class DynamicIslandModule : Module() {
     private val islandBackground = IntValue(0, HudBackground.entries.lastIndex, HudBackground.LIQUID.ordinal)
 
     @ModuleValue("Island layout", "Choose the Dynamic Island layout")
-    private val islandLayout = IntValue(STYLE_C, STYLE_B, STYLE_C)
+    private val islandLayout = IntValue(STYLE_C, STYLE_PLAYER_CARD, STYLE_C)
+
+    @ModuleValue("Card lyric lines", "Number of lyric lines shown on the mini player card")
+    private val cardLyricLines = IntValue(1, 3, 1)
+
+    internal val hasPlayerCardLayout get() = islandLayout.value == STYLE_PLAYER_CARD
 
     @ModuleValue("Show when HUD is hidden", "Keep the Dynamic Island visible when F1 hides the game HUD")
     private val islandWhileHudHidden = BooleanValue(false)
@@ -80,10 +86,12 @@ class DynamicIslandModule : Module() {
         MINI(32f, COMPACT_COVER_SIZE, COMPACT_MAX_WIDTH),
         SLIM(FULL_HEIGHT, 37f, FULL_WIDTH, 5.5f),
         CARD(FULL_HEIGHT, 32f, FULL_WIDTH, 10f),
+        PLAYER_CARD(IslandPlayerCard.HEIGHT, 0f, IslandPlayerCard.WIDTH, 12f),
     }
 
     private var context: GuiCanvas? = null
     private val backdrop = HudBackdrop { checkNotNull(context) }
+    private val playerCard = IslandPlayerCard()
 
     private var shown = Kind.IDLE
     private var contentAlpha = 0f
@@ -104,7 +112,7 @@ class DynamicIslandModule : Module() {
     private var waveColors = emptyList<Int>()
 
     internal fun showVolume(value: Float) {
-        if (!enabled || islandLayout.value == STYLE_A || !islandAnimations.get()) return
+        if (!enabled || islandLayout.value == STYLE_A || hasPlayerCardLayout || !islandAnimations.get()) return
         targetVolume = value.coerceIn(0f, 1f)
         if (volumeReveal < 0.01f) animatedVolume = targetVolume
         volumeUntil = System.nanoTime() + 2_000_000_000L
@@ -144,12 +152,30 @@ class DynamicIslandModule : Module() {
         lastTitle = null
         titleScrollWidth = 0f
         titleScrollStartedAt = 0L
+        playerCard.hide()
     }
 
     override fun onDisable() {
         placement = null
+        playerCard.hide()
         finishDrag()
     }
+
+    internal fun playerCardAt(x: Int, y: Int) = enabled && hasPlayerCardLayout && playerCard.contains(x, y)
+
+    internal fun updatePlayerCardPointer(x: Int, y: Int, available: Boolean) =
+        playerCard.pointerAt(x, y, enabled && hasPlayerCardLayout && available)
+
+    internal fun pressPlayerCard(x: Int, y: Int) = playerCardAt(x, y) && playerCard.mouseDown(x, y)
+
+    internal fun movePlayerCard(x: Int) = playerCard.mouseDrag(x)
+
+    internal fun releasePlayerCard(x: Int, y: Int, available: Boolean) =
+        playerCard.mouseUp(x, y, enabled && hasPlayerCardLayout && available)
+
+    internal fun scrollPlayerCard(x: Int, y: Int, wheel: Int) = playerCard.scroll(x, y, wheel)
+
+    internal fun clearPlayerCardPointer() = playerCard.clearPointer()
 
     internal fun beginPointerDrag(x: Int, y: Int): Boolean = beginDrag(x, y, fromChat = false)
 
@@ -168,6 +194,7 @@ class DynamicIslandModule : Module() {
         val py = y / frame.scale
         val bounds = frame.bounds
         if (px < bounds.left || px >= bounds.right || py < bounds.top || py >= bounds.bottom) return false
+        if (shown == Kind.PLAYER_CARD && !playerCard.canStartDrag(x, y)) return false
         drag = Drag(Vec2(px - bounds.x, py - bounds.y), fromChat)
         return true
     }
@@ -233,6 +260,7 @@ class DynamicIslandModule : Module() {
         if (!enabled) return
         if (!allowsIslandHud(DangoClient.platform.hudHidden)) {
             placement = null
+            playerCard.hide()
             finishDrag()
             return
         }
@@ -255,17 +283,24 @@ class DynamicIslandModule : Module() {
         val layout = when (islandLayout.value) {
             STYLE_A -> Kind.MINI
             STYLE_B -> Kind.SLIM
+            STYLE_PLAYER_CARD -> Kind.PLAYER_CARD
             else -> Kind.CARD
         }
-        val animations = layout != Kind.MINI && islandAnimations.get()
+        val animations = layout != Kind.MINI && layout != Kind.PLAYER_CARD && islandAnimations.get()
         if (!animations) {
             volumeUntil = 0L
             volumeReveal = 0f
             waveActivity = 0f
         }
-        if (e == null && snap.track == null && now >= volumeUntil && volumeReveal < 0.01f) return
+        if (e == null && snap.track == null && now >= volumeUntil && volumeReveal < 0.01f) {
+            playerCard.hide()
+            return
+        }
         val platform = DangoClient.platform
-        if (platform.windowWidth <= 0 || platform.windowHeight <= 0) return
+        if (platform.windowWidth <= 0 || platform.windowHeight <= 0) {
+            playerCard.hide()
+            return
+        }
         val dt = if (lastNanos == 0L) 0.016f else ((now - lastNanos) / 1e9f).coerceIn(0f, 0.05f)
         lastNanos = now
         val volumeTarget = if (now < volumeUntil) 1f else 0f
@@ -283,7 +318,8 @@ class DynamicIslandModule : Module() {
         val requestedScale = uiScale * scale.value
         val titleSizePx = AppleLyricsLayout.titleSizeFor(platform.windowWidth.toFloat(), platform.windowHeight.toFloat()) * scale.value
         // 小窗口先缩放 HUD，长歌名在剩余宽度内滚动。
-        val baseScale = min(requestedScale, platform.windowWidth / 190f)
+        val minimumWidth = if (want == Kind.PLAYER_CARD) IslandPlayerCard.WIDTH + 16f else 190f
+        val baseScale = min(requestedScale, platform.windowWidth / minimumWidth)
         val available = platform.windowWidth / baseScale - 16f
 
         // 内容切换：先淡出旧内容，再换成新内容淡入
@@ -302,7 +338,7 @@ class DynamicIslandModule : Module() {
 
         // 弹簧：略带回弹，接近 iOS 灵动岛的手感
         val tw = widthOf(want, snap, available, titleSizePx / baseScale)
-        val th = want.height + extension
+        val th = (if (want == Kind.PLAYER_CARD) IslandPlayerCard.height(cardLyricLines.value) else want.height) + extension
         val stiff = 230f
         val damp = 24f
         vw += ((tw - w) * stiff - vw * damp) * dt
@@ -311,7 +347,10 @@ class DynamicIslandModule : Module() {
         w = min(nextWidth, widthLimit(want, available))
         if (w < nextWidth) vw = 0f
         h += vh * dt
-        if (w < 1f || h < 1f) return
+        if (w < 1f || h < 1f) {
+            playerCard.hide()
+            return
+        }
 
         val k = minOf(baseScale, platform.windowWidth / w, platform.windowHeight / h)
         val titleSize = titleSizePx / k
@@ -321,6 +360,7 @@ class DynamicIslandModule : Module() {
         val down = e != null && canMoveWithPointer && platform.chatOpen && platform.isMouseDown(0)
         if (drag?.fromChat == true && !down) finishDrag()
         if (e?.overlapsPlayerList(initial, k) == true) {
+            playerCard.hide()
             finishDrag()
             chatWasDown = down
             return
@@ -353,10 +393,13 @@ class DynamicIslandModule : Module() {
 
             mt.clear()
             mt.clip = pill
+            if (shown != Kind.PLAYER_CARD) playerCard.hide()
             ctx.pushOpacity(contentAlpha)
             when {
                 shown == Kind.IDLE -> drawIdle(ctx, cb)
                 shown == Kind.MINI -> drawMini(ctx, cb, snap, titleSize, pill.x + pill.width / 2f)
+                shown == Kind.PLAYER_CARD -> playerCard.draw(ctx, mt, pill, k, cardLyricLines.value, snap,
+                    DangoMusic.instance.moduleManager.get(LyricsModule::class.java), now, dt, e != null && want == shown && contentAlpha > 0.25f)
                 else -> drawFull(ctx, cb, snap, shown, titleSize)
             }
             if (animations && (shown == Kind.SLIM || shown == Kind.CARD)) {
@@ -557,6 +600,7 @@ class DynamicIslandModule : Module() {
         const val STYLE_C = 0
         const val STYLE_A = 1
         const val STYLE_B = 2
+        const val STYLE_PLAYER_CARD = 3
         const val COMPACT_MIN_WIDTH = 164f
         const val COMPACT_MAX_WIDTH = 256f
         const val FULL_WIDTH = 238.5f
