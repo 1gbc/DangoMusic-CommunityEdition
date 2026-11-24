@@ -1409,6 +1409,7 @@ class LyricsModule : Module() {
         lastCamY = camY
         lastCamZ = camZ
         val maxDist = distance.value * 2.0
+        val minD = distance.value * 0.6
 
         val vHalf = platform.fov / 2.0
         val aspect = platform.windowWidth.toDouble() / platform.windowHeight.coerceAtLeast(1)
@@ -1434,12 +1435,30 @@ class LyricsModule : Module() {
                 f.z = world.cameraZ + rz
             }
 
-            // 字本身占的角度：留出一半宽 / 高，再多留 2 度边距
-            // 翻译在原文下面多占一截：按整体高度算（偏保守，上下都留出来）
-            val halfW = Math.toDegrees(atan2(rowWidth(f) * s / 2.0, len))
-            val halfH = Math.toDegrees(atan2(rowBottom(f) * s, len))
-            val hLim = max(0.0, hHalf - halfW - 2.0)
-            val vLim = max(0.0, vHalf - halfH - 2.0)
+            // 开启保持距离后，按实际绘制距离计算视野边界，锚点只在前方没有方块时随之推远。
+            val drawnLen = if (keepAway.get()) max(len, minD) else len
+            if (drawnLen > len) {
+                // 记的位置也一起推过去（像被推着走），之后不会一直贴着镜头来回甩；
+                // 但推过去的地方被方块挡着（正往墙走）就不写回，后退时还能回到墙前原来的位置
+                val k = drawnLen / len
+                val px = rx * k
+                val py = ry * k
+                val pz = rz * k
+                if (platform.clearFraction(world.cameraX, world.cameraY, world.cameraZ,
+                        world.cameraX + px, world.cameraY + py, world.cameraZ + pz) >= 1.0) {
+                    rx = px; ry = py; rz = pz
+                    len = drawnLen
+                    f.x = world.cameraX + rx
+                    f.y = world.cameraY + ry
+                    f.z = world.cameraZ + rz
+                }
+            }
+
+            val halfW = Math.toDegrees(atan2(rowWidth(f) * s / 2.0, drawnLen))
+            val halfH = Math.toDegrees(atan2(rowBottom(f) * s, drawnLen))
+            // 贴得太近时保留活动范围，避免把歌词硬拉到准星中央。
+            val hLim = max(hHalf * 0.2, hHalf - halfW - 2.0)
+            val vLim = max(vHalf * 0.2, vHalf - halfH - 2.0)
 
             val curYaw = Math.toDegrees(atan2(-rx, rz))
             val curPitch = Math.toDegrees(asin((-ry / len).coerceIn(-1.0, 1.0)))
