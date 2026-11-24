@@ -819,9 +819,9 @@ internal class TracksPage(private val screen: MusicScreen) {
         val frac = listPos - first
         val clipArea = LayoutBounds(body.x - 4f, body.y - 2f, body.width + 8f, body.height + 2f)
         val reorderArea = LayoutBounds(body.x, body.y, body.width, (body.height - ui.bottomInset).coerceAtLeast(0f))
-        val queueList = queuePage && !ScreenState.coverView
-        if (queueList) queueDrag.offer(all, reorderArea, body.y - listPos * rowH, rowH, ui,
-            rows = tracks, canReorder = canReorder) { slot -> playFrom(all, slot, fromQueue = true) }
+        val acceptsDoubleClick = selectOnly && !ScreenState.coverView
+        if (acceptsDoubleClick) queueDrag.offer(all, reorderArea, body.y - listPos * rowH, rowH, ui,
+            rows = tracks, canReorder = canReorder, queueBacked = queuePage) { slot -> playFrom(all, slot) }
         ui.beginClip(clipArea)
         val curRow = if (columns == null) currentRow(tracks, playing?.key, queuePage || showingFmQueue()) else -1
         if (curRow >= 0 && curRow != queueDrag.liftedRow) {
@@ -890,7 +890,7 @@ internal class TracksPage(private val screen: MusicScreen) {
                         if (!queuePage || showControl) ui.hits += coverHit to playCover
                     }
                 }
-                ui.hits += if (queueList) queueDrag.rowHit(hit, select) else hit to select
+                ui.hits += if (acceptsDoubleClick) queueDrag.rowHit(hit, select) else hit to select
                 if (flash > 0f && t.key == flashId) {
                     ctx.drawShape(row, ShapeStyle(Color.TRANSPARENT, radius, 1.5f, RED.copy(a = flash)))
                 }

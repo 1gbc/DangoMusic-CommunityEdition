@@ -8,6 +8,12 @@ import java.util.Arrays;
 public class WorldLyricCameraCheck {
     private static void check(float pitch, float yaw, float roll, float aspect, float fov, float width,
                               float top, float bottom, float floor, boolean facePlayer, boolean fit) throws Exception {
+        check(pitch, yaw, roll, aspect, fov, width, top, bottom, floor, facePlayer, fit, 0f, 0f);
+    }
+
+    private static void check(float pitch, float yaw, float roll, float aspect, float fov, float width,
+                              float top, float bottom, float floor, boolean facePlayer, boolean fit,
+                              float offsetX, float offsetY) throws Exception {
         Matrix4f view = new Matrix4f();
         view.rotate((float)Math.toRadians(roll), new Vector3f(0, 0, 1));
         view.rotate((float)Math.toRadians(pitch), new Vector3f(1, 0, 0));
@@ -32,7 +38,7 @@ public class WorldLyricCameraCheck {
         Object camera = cameraType.getConstructor(Matrix4f.class, Matrix4f.class).newInstance(view, projection);
         var place = Arrays.stream(cameraType.getMethods())
                 .filter(method -> method.getName().startsWith("place$")).findFirst().orElseThrow();
-        Object pose = place.invoke(camera, 10f, 0.1f, width, top, bottom, floor, facePlayer);
+        Object pose = place.invoke(camera, 10f, 0.1f, width, top, bottom, floor, facePlayer, offsetX, offsetY);
         if (pose == null) throw new AssertionError("A valid camera must place the lyrics");
 
         var point = pose.getClass().getMethod("point", float.class, float.class, float.class);
@@ -42,8 +48,8 @@ public class WorldLyricCameraCheck {
         }
         Vector3f origin = (Vector3f)point.invoke(pose, 0f, 0f, 1f);
         Vector4f center = project(origin, view, projection);
-        if (Math.abs(center.x / center.w + 0.5f) > 0.001f) {
-            throw new AssertionError("The same scene location in the view should stay a quarter across the screen");
+        if ((offsetX == 0f || !fit) && Math.abs(center.x / center.w + 0.5f - offsetX) > 0.001f) {
+            throw new AssertionError("The left anchor must apply its available horizontal lag");
         }
         Matrix4f worldPush = (Matrix4f)pose.getClass().getMethod("transform", float.class, float.class, float.class)
                 .invoke(pose, 0f, 0f, 1f);
@@ -90,7 +96,7 @@ public class WorldLyricCameraCheck {
         Class<?> camera = Class.forName("dangomusicce.gfx.WorldLyricCamera");
         Object instance = camera.getConstructor(Matrix4f.class, Matrix4f.class).newInstance(view, projection);
         var place = Arrays.stream(camera.getMethods()).filter(m -> m.getName().startsWith("place$")).findFirst().orElseThrow();
-        Object pose = place.invoke(instance, 10f, 0.1f, 25f, -18f, 24f, Float.NaN, tilted);
+        Object pose = place.invoke(instance, 10f, 0.1f, 25f, -18f, 24f, Float.NaN, tilted, 0f, 0f);
         var point = pose.getClass().getMethod("point", float.class, float.class, float.class);
         Vector3f center = (Vector3f) point.invoke(pose, 0f, 0f, 1f);
         Vector3f right = (Vector3f) point.invoke(pose, 1f, 0f, 1f);
@@ -138,7 +144,7 @@ public class WorldLyricCameraCheck {
         }
     }
 
-    private static void checkFloatingLine(float viewPitch, float linePitch, float fov, boolean needsCorrection)
+    private static void checkFloatingLine(float viewPitch, float linePitch, float fov, float strength, boolean needsCorrection)
             throws Exception {
         Matrix4f view = new Matrix4f().translate(new Vector3f(0f, 0f, -0.1f))
             .rotate((float)Math.toRadians(viewPitch), new Vector3f(1, 0, 0))
@@ -160,7 +166,7 @@ public class WorldLyricCameraCheck {
         float top = -11f;
         float bottom = 17f;
         Matrix4f corrected = (Matrix4f)fit.invoke(camera, 0.0, -10 * Math.sin(direction), 10 * Math.cos(direction),
-            0f, linePitch, 0.046f, halfWidth, top, bottom, 10f, Float.NaN, true);
+            0f, linePitch, 0.046f, halfWidth, top, bottom, 10f, Float.NaN, strength);
         if ((corrected != null) != needsCorrection) {
             throw new AssertionError("Unexpected correction at view pitch " + viewPitch + ", line pitch " + linePitch);
         }
@@ -177,12 +183,46 @@ public class WorldLyricCameraCheck {
         }
     }
 
+    private static void checkTurnLag() throws Exception {
+        Class<?> module = Class.forName("dangomusicce.module.impls.music.LyricsModule");
+        Object lyrics = module.getConstructor().newInstance();
+        Class<?> angles = Class.forName("dangomusicce.gfx.ViewAngles");
+        var angle = angles.getConstructor(float.class, float.class);
+        var tick = module.getDeclaredMethod("leftStackTurn", angles, long.class);
+        tick.setAccessible(true);
+        long time = 1_000_000_000L;
+        tick.invoke(lyrics, angle.newInstance(179f, 0f), time);
+        Object turned = tick.invoke(lyrics, angle.newInstance(-179f, 10f), time += 16_000_000L);
+        var x = turned.getClass().getMethod("getFirst");
+        var y = turned.getClass().getMethod("getSecond");
+        float lagX = (Float)x.invoke(turned);
+        float lagY = (Float)y.invoke(turned);
+        if (lagX > -0.01f || lagX < -0.04f || lagY < 0.05f || lagY > 0.20f) {
+            throw new AssertionError("Yaw wrap and pitch changes must give a bounded lag: " + lagX + ", " + lagY);
+        }
+        Object still = turned;
+        for (int frame = 0; frame < 40; frame++) {
+            still = tick.invoke(lyrics, angle.newInstance(-179f, 10f), time += 16_000_000L);
+        }
+        if (Math.abs((Float)x.invoke(still)) > 0.002f || Math.abs((Float)y.invoke(still)) > 0.002f) {
+            throw new AssertionError("The stack must settle near its resting position when the camera stops");
+        }
+        Object pole = tick.invoke(lyrics, angle.newInstance(0f, 90f), time + 16_000_000L);
+        if (Math.abs((Float)x.invoke(pole)) > 0.002f) {
+            throw new AssertionError("Yaw changes at the vertical pole should not jerk the stack sideways");
+        }
+    }
+
     public static void main(String[] args) throws Exception {
         checkFixedTilt();
-        checkFloatingLine(0f, 0f, 70f, false);
-        checkFloatingLine(90f, 0f, 70f, true);
-        checkFloatingLine(90f, 59f, 48f, true);
-        checkFloatingLine(-90f, 0f, 70f, true);
+        checkFloatingLine(0f, 0f, 70f, 1f, false);
+        checkFloatingLine(52f, 0f, 48f, 0f, false);
+        checkFloatingLine(90f, 0f, 70f, 1f, true);
+        checkFloatingLine(90f, 59f, 48f, 1f, true);
+        checkFloatingLine(-90f, 0f, 70f, 1f, true);
+        checkTurnLag();
+        check(30, 0, 8, 16f / 9, 70, 20, -18, 24, Float.NaN, true, false, 0.13f, 0.17f);
+        check(88, -117, -8, 9f / 16, 42, 85, -130, 60, Float.NaN, false, true, -0.16f, -0.20f);
         checkFloorLift(75, -2.6f, -9.65f, 9.7f, true);
         checkFloorLift(-50, -6.43f, 7.66f, 45f, true);
         checkFloorLift(-70, -3.42f, 9.4f, 9.0f, false);

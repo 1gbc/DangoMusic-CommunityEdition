@@ -21,6 +21,7 @@ internal class QueueDrag {
         val rowHeight: Float,
         val upcoming: Boolean,
         val canReorder: Boolean,
+        val queueBacked: Boolean,
         val play: (Int) -> Unit,
     ) {
         val count = rows?.size ?: queue.size - first
@@ -71,9 +72,10 @@ internal class QueueDrag {
         first: Int = 0,
         upcoming: Boolean = false,
         canReorder: Boolean = true,
+        queueBacked: Boolean = true,
         play: (Int) -> Unit,
     ) {
-        val shown = View(queue, rows, first, bounds, top, rowHeight, upcoming, canReorder, play)
+        val shown = View(queue, rows, first, bounds, top, rowHeight, upcoming, canReorder, queueBacked, play)
         view = shown
         val drag = press ?: return
         if (!matches(drag, shown)) {
@@ -101,14 +103,18 @@ internal class QueueDrag {
         val row = shown.row(y.toFloat())
         if (row !in 0 until shown.count) return false
         val rowClick = rowHits.containsKey(hit)
-        if (!rowClick) resetClick()
+        if (!rowClick) {
+            resetClick()
+            if (!shown.queueBacked) return false // Catalog artwork and artist links keep their own actions.
+        }
         press = Press(shown, row, x, y, y - shown.top - row * shown.rowHeight, hit, rowClick)
         return true
     }
 
     private fun matches(drag: Press, shown: View) =
         drag.view.queue === shown.queue && drag.view.rows === shown.rows && drag.view.first == shown.first &&
-            drag.view.upcoming == shown.upcoming && drag.view.canReorder == shown.canReorder && MusicPlayer.queue === shown.queue
+            drag.view.upcoming == shown.upcoming && drag.view.canReorder == shown.canReorder &&
+            drag.view.queueBacked == shown.queueBacked && (!shown.queueBacked || MusicPlayer.queue === shown.queue)
 
     private fun move(x: Int, y: Int) {
         val drag = press ?: return
