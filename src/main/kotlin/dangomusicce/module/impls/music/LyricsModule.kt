@@ -312,6 +312,12 @@ class LyricsModule : Module() {
     @ModuleValue("Stay on screen", "Lyrics glide back into view when you turn away, so they never leave the screen")
     private val stayOnScreen = BooleanValue(true)
 
+    internal fun staysOnScreen() = stayOnScreen.get()
+
+    internal fun facesPlayer() = staysOnScreen() || facePlayer.get()
+
+    internal fun keepsDistance() = staysOnScreen() || keepAway.get()
+
     @ModuleValue("Above ground", "Lyrics never appear below your eyes, so they don't sink into the ground")
     private val aboveGround = BooleanValue(false)
 
@@ -1376,7 +1382,7 @@ class LyricsModule : Module() {
         val now = System.nanoTime()
         val dt = if (keepNanos == 0L) 0.016 else ((now - keepNanos) / 1e9).coerceIn(0.0, 0.1)
         keepNanos = now
-        if (!stayOnScreen.get()) {
+        if (!staysOnScreen()) {
             lastCamX = Double.NaN
             return
         }
@@ -1436,7 +1442,7 @@ class LyricsModule : Module() {
             }
 
             // 开启保持距离后，按实际绘制距离计算视野边界，锚点只在前方没有方块时随之推远。
-            val drawnLen = if (keepAway.get()) max(len, minD) else len
+            val drawnLen = max(len, minD)
             if (drawnLen > len) {
                 // 记的位置也一起推过去（像被推着走），之后不会一直贴着镜头来回甩；
                 // 但推过去的地方被方块挡着（正往墙走）就不写回，后退时还能回到墙前原来的位置
@@ -1552,7 +1558,7 @@ class LyricsModule : Module() {
             val len = sqrt(rx * rx + ry * ry + rz * rz)
             if (len < 1e-4) continue
             // 和 drawWorld 里一样先做 Keep away，射线打到真正要画的位置
-            if (keepAway.get() && len < minD) {
+            if (keepsDistance() && len < minD) {
                 val k = minD / len
                 rx *= k; ry *= k; rz *= k
             }
@@ -1595,7 +1601,7 @@ class LyricsModule : Module() {
         var rz = f.z - world.cameraZ
         val len = sqrt(rx * rx + ry * ry + rz * rz)
         val minD = distance.value * 0.6
-        if (keepAway.get() && len in 1e-4..minD) {
+        if (keepsDistance() && len in 1e-4..minD) {
             val k = minD / len
             rx *= k; ry *= k; rz *= k
         }
@@ -1607,8 +1613,8 @@ class LyricsModule : Module() {
         val lift = if (floor == null) 0.0 else
             max(0.0, floor - (world.cameraY + ry) + (rowBottom(f) + slide.coerceAtLeast(0f) + 6f) * s)
         val horizontal = sqrt(rx * rx + rz * rz)
-        val yaw = if (facePlayer.get() && horizontal > 1e-4) Math.toDegrees(atan2(-rx, rz)).toFloat() else f.yaw
-        val pitch = if (facePlayer.get() && len > 1e-4) Math.toDegrees(atan2(-(ry + lift), horizontal)).toFloat() else f.pitch
+        val yaw = if (facesPlayer() && horizontal > 1e-4) Math.toDegrees(atan2(-rx, rz)).toFloat() else f.yaw
+        val pitch = if (facesPlayer() && len > 1e-4) Math.toDegrees(atan2(-(ry + lift), horizontal)).toFloat() else f.pitch
         if (f === active) {
             // Broadcast the anchor before viewer-local block avoidance.
             sharedPose = LyricsAnchor(world.cameraX + rx / reach, world.cameraY + (ry + lift) / reach,

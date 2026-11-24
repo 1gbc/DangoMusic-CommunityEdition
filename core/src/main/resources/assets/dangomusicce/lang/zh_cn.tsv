@@ -77,6 +77,7 @@ Lyrics keep turning to face you	歌词始终转向玩家
 Keep away	保持距离
 Lyrics back off when you walk or sprint into them	靠近歌词时自动向后避让
 Stay on screen	保持在屏幕内
+Required while Stay on screen is enabled	「保持在屏幕内」开启时强制启用
 Lyrics glide back into view when you turn away, so they never leave the screen	转动视角时，歌词平滑移回屏幕内
 Above ground	保持离地
 Lyrics never appear below your eyes, so they don't sink into the ground	避免歌词过低或沉入地面

@@ -3,7 +3,6 @@ package dangomusicce.musicui
 import dangomusicce.client.ClientMusic
 import dangomusicce.font.MixedText
 import dangomusicce.gfx.GuiCanvas
-import dangomusicce.i18n.I18n
 import dangomusicce.lyrics.LyricLine
 import dangomusicce.module.impls.music.LyricsModule
 import dangomusicce.music.CoverCache
@@ -24,19 +23,26 @@ internal class IslandPlayerCard {
     private class Layout(val card: LayoutBounds, val expansion: Float, viewportHeight: Float) {
         private fun between(compact: Float, full: Float) = compact + (full - compact) * expansion
 
-        private val coverSize = between(22f, 76f)
+        private val coverSize = between(22f, 86f)
         val cover = LayoutBounds(card.x + 10f, card.y + (card.height - coverSize) / 2f, coverSize, coverSize)
         private val textX = cover.right + between(15f, 12f)
         private val textWidth = (card.right - 14f - textX).coerceAtLeast(0f)
-        val lyrics = LayoutBounds(textX, card.y + between(5f, 12f), textWidth - 20f * expansion, 13f)
-        val title = LayoutBounds(textX, card.y + 29f, textWidth, 13f)
-        val subtitle = title.copy(y = title.bottom + 1f)
-        val progress = LayoutBounds(textX + 29f * expansion, card.y + between(22f, 60f),
-            (textWidth - 58f * expansion).coerceAtLeast(0f), 2.5f)
+        val lyrics = LayoutBounds(textX, card.y + between(4f, 7f),
+            (textWidth - 20f * expansion).coerceAtLeast(0f), 18f)
+        val title = LayoutBounds(textX, card.y + 27f, textWidth, 18f)
+        val subtitle = LayoutBounds(textX, title.bottom + 1f, textWidth, 16f)
+        // Finish moving the seek bar before fading in the adjacent timestamps.
+        private val progressExpansion = (expansion / DETAILS_START).coerceAtMost(1f)
+        private val progressY = card.y + 25f + 46f * progressExpansion
+        private val timeInset = 33f * progressExpansion
+        val progress = LayoutBounds(textX + timeInset, progressY,
+            (textWidth - timeInset * 2f).coerceAtLeast(0f), 2.5f)
+        val elapsedTime = LayoutBounds(textX, progressY - 6f, 29f, 15f)
+        val durationTime = elapsedTime.copy(x = progress.right + 4f)
         val progressHit = progress.expand(0f, 5f)
         val lock = LayoutBounds(card.right - 32f, card.y + 4f, 23f, 22f)
         private val controlsX = progress.x + (progress.width - BUTTON_SIZE * 4) / 2f
-        fun button(control: Control) = LayoutBounds(controlsX + control.ordinal * BUTTON_SIZE, card.y + 68f, BUTTON_SIZE, BUTTON_SIZE)
+        fun button(control: Control) = LayoutBounds(controlsX + control.ordinal * BUTTON_SIZE, card.y + 82f, BUTTON_SIZE, BUTTON_SIZE)
         private val volume = button(Control.VOLUME)
         val popup = LayoutBounds(
             (volume.x - 55f).coerceIn(card.x, card.right - 126f),
@@ -213,7 +219,8 @@ internal class IslandPlayerCard {
         val expansion = ((bounds.height - COMPACT_HEIGHT) / (HEIGHT - COMPACT_HEIGHT)).coerceIn(0f, 1f)
         val interactive = expanded && expansion >= 0.94f
         val layout = Layout(bounds, expansion, viewportHeight)
-        val details = ((expansion - 0.55f) / 0.39f).coerceIn(0f, 1f)
+        val details = ((expansion - DETAILS_START) / (1f - DETAILS_START)).coerceIn(0f, 1f)
+        val controls = ((expansion - 0.90f) / 0.09f).coerceIn(0f, 1f)
         val identity = Track(song.key, snap.remote)
         frame = if (interactive) Frame(layout, scale, identity) else null
         if (!interactive || press?.track != identity) press = null
@@ -229,19 +236,6 @@ internal class IslandPlayerCard {
         if (cover != null) ctx.drawRoundedImage(layout.cover, cover, radius)
         else ctx.drawShape(layout.cover, ShapeStyle(Theme.TRACK, radius))
 
-        if (details > 0f) {
-            ctx.pushOpacity(details)
-            if (changed || title != song.name) {
-                title = song.name
-                titleSince = now
-            }
-            drawLine(ctx, mt, song.name, layout.title, layout.title.y, 11f, Theme.TEXT_PRIMARY,
-                Theme.FONT_SEMIBOLD, (now - titleSince) / 1e9)
-            val credits = (song.artists + listOfNotNull(song.albumName)).filter(String::isNotBlank).joinToString(" · ")
-            drawLine(ctx, mt, credits, layout.subtitle, layout.subtitle.y, 9.5f, Theme.TEXT_SECONDARY, Theme.FONT_REGULAR)
-            ctx.popOpacity()
-        }
-
         val sheet = lyricModule.playerLyrics(song)
         val lines = sheet?.lines
         val index = sheet?.indexAt(snap.positionMs) ?: -1
@@ -250,23 +244,34 @@ internal class IslandPlayerCard {
             lyricSince = now
         }
         lyrics = lines
-        val line = lines?.getOrNull(index)?.text
-        val label = line ?: when {
-            lyricModule.isLoadingLyrics(song) -> I18n.text("Loading lyrics...")
-            lines.isNullOrEmpty() -> I18n.text("No lyrics available")
-            else -> ""
+        val line = lines?.getOrNull(index)
+        if (changed || title != song.name) {
+            title = song.name
+            titleSince = now
         }
-        drawLine(ctx, mt, label.replace('\r', ' ').replace('\n', ' '), layout.lyrics, layout.lyrics.y,
-            10.5f, if (line == null) Theme.TEXT_SECONDARY else Theme.TEXT_PRIMARY,
+        if (details > 0f) {
+            ctx.pushOpacity(details)
+            if (line != null) {
+                drawLine(ctx, mt, song.name, layout.title, 11f, Theme.TEXT_PRIMARY,
+                    Theme.FONT_SEMIBOLD, (now - titleSince) / 1e9)
+            }
+            val credits = (song.artists + listOfNotNull(song.albumName)).filter(String::isNotBlank).joinToString(" · ")
+            drawLine(ctx, mt, credits, layout.subtitle,
+                9.5f, Theme.TEXT_SECONDARY, Theme.FONT_REGULAR)
+            ctx.popOpacity()
+        }
+        drawLine(ctx, mt, lyricLabel(song.name, line), layout.lyrics, 10.5f, Theme.TEXT_PRIMARY,
             Theme.FONT_SEMIBOLD, (now - lyricSince) / 1e9)
         drawProgress(ctx, layout.progress, press?.progress ?: songProgress, interactive && enabled(Control.PROGRESS, snap))
         if (details > 0f) {
             ctx.pushOpacity(details)
             val shownPosition = press?.progress?.let { (snap.durationMs * it.toDouble()).toLong() } ?: snap.positionMs
-            val left = LayoutBounds(layout.progress.x - 29f, layout.progress.y - 5f, 27f, 11f)
-            val right = left.copy(x = layout.progress.right + 4f)
-            drawLine(ctx, mt, clock(shownPosition), left, left.y, 8.5f, Theme.TEXT_SECONDARY, Theme.FONT_REGULAR)
-            drawLine(ctx, mt, clock(snap.durationMs), right, right.y, 8.5f, Theme.TEXT_SECONDARY, Theme.FONT_REGULAR)
+            drawLine(ctx, mt, clock(shownPosition), layout.elapsedTime, 8.5f, Theme.TEXT_SECONDARY, Theme.FONT_REGULAR)
+            drawLine(ctx, mt, clock(snap.durationMs), layout.durationTime, 8.5f, Theme.TEXT_SECONDARY, Theme.FONT_REGULAR)
+            ctx.popOpacity()
+        }
+        if (controls > 0f) {
+            ctx.pushOpacity(controls)
             drawControls(ctx, layout, snap, dt)
             if (interactive && pointer != null) drawIslandLock(ctx, layout.lock, locked, hovered(Control.LOCK))
             ctx.popOpacity()
@@ -294,7 +299,7 @@ internal class IslandPlayerCard {
     }
 
     private fun drawLine(
-        ctx: GuiCanvas, mt: MixedText, text: String, bounds: LayoutBounds, y: Float,
+        ctx: GuiCanvas, mt: MixedText, text: String, bounds: LayoutBounds,
         size: Float, color: Color, font: String, elapsed: Double = 0.0,
     ) {
         if (text.isBlank() || bounds.width <= 0f || bounds.height <= 0f) return
@@ -309,6 +314,7 @@ internal class IslandPlayerCard {
         ctx.pushClip(clip)
         mt.clip = clip
         try {
+            val y = bounds.y + bounds.height / 2f - size * 0.39f
             mt.text(ctx, text, bounds.x - offset, y, size, color, font)
         } finally {
             mt.clip = previousClip
@@ -357,8 +363,13 @@ internal class IslandPlayerCard {
     companion object {
         const val WIDTH = 306f
         const val COMPACT_WIDTH = 218f
-        const val HEIGHT = 94f
-        const val COMPACT_HEIGHT = 32f
+        const val HEIGHT = 112f
+        const val COMPACT_HEIGHT = 34f
+        private const val DETAILS_START = 0.8f
+
+        private fun lyricLabel(title: String, line: LyricLine?) =
+            (line?.text ?: title).replace('\r', ' ').replace('\n', ' ')
+
         private const val BUTTON_SIZE = 22f
         private val buttons = listOf(Control.PREVIOUS, Control.PLAY_PAUSE, Control.NEXT, Control.VOLUME)
 

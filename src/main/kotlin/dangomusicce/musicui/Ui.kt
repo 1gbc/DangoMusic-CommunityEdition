@@ -308,22 +308,26 @@ internal class Ui {
      * iOS 风格开关。给了 [key]（比如这个开关对应的设置值）就带动画：圆钮用弹簧滑过去，稍微冲过一点再回来，
      * 滑动时沿运动方向拉长一点（液体感），底色在灰和红之间渐变。
      */
-    fun toggleSwitch(b: LayoutBounds, on: Boolean, clip: LayoutBounds, key: Any? = null, action: () -> Unit) {
+    fun toggleSwitch(
+        b: LayoutBounds, on: Boolean, clip: LayoutBounds, key: Any? = null, enabled: Boolean = true,
+        action: () -> Unit,
+    ) {
         val target = if (on) 1f else 0f
         val anim = key?.let { switchAnim.getOrPut(it) { Spring(380f, 24f, target) } }
         val p = anim?.tick(target) ?: target
         val pc = p.coerceIn(0f, 1f)
-        val off = Color(1f, 1f, 1f, if (hover(b)) 0.24f else 0.16f)
+        val off = Color(1f, 1f, 1f, if (enabled && hover(b)) 0.24f else 0.16f)
         val fill = Color(off.r + (RED.r - off.r) * pc, off.g + (RED.g - off.g) * pc, off.b + (RED.b - off.b) * pc, off.a + (RED.a - off.a) * pc)
-        ctx.drawShape(b, ShapeStyle(fill, b.height / 2f))
+        val opacity = if (enabled) 1f else 0.54f
+        ctx.drawShape(b, ShapeStyle(fill.copy(a = fill.a * opacity), b.height / 2f))
         val k = b.height - 4f
         val stretch = min(6f, abs(anim?.v ?: 0f) * 0.9f)
         val travel = b.width - 4f - k
         val kx = b.x + 2f + travel * p.coerceIn(-0.08f, 1.08f) - (if ((anim?.v ?: 0f) > 0f) stretch else 0f)
         // 圆钮在两种风格下都保持圆形，滑动拉伸时自然变为胶囊。
         val knobRadius = k / 2f
-        ctx.drawShape(LayoutBounds(kx, b.y + 2f, k + stretch, k), ShapeStyle(Color(1f, 1f, 1f, 1f), knobRadius))
-        hits += b.expand(4f, 4f).intersect(clip) to action
+        ctx.drawShape(LayoutBounds(kx, b.y + 2f, k + stretch, k), ShapeStyle(Color(1f, 1f, 1f, opacity), knobRadius))
+        if (enabled) hits += b.expand(4f, 4f).intersect(clip) to action
     }
 
     // ---------------------------------------------------------------- 动画（照主菜单）

@@ -434,7 +434,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             Group("3D lyrics", "Font and colors", lm, false,
                 ly.take(listOf("worldWhileHudHidden", "scale", "lyricFont", "lyricColors", "textColor", "translationColor", "rainbowSpeed")), show = world),
             Group("3D position", "Where the lyrics float", lm, false,
-                ly.take(listOf("distance", "facePlayer", "keepAway", "stayOnScreen", "aboveGround", "avoidBlocks", "spread")), show = world),
+                ly.take(listOf("distance", "stayOnScreen", "facePlayer", "keepAway", "aboveGround", "avoidBlocks", "spread")), show = world),
             Group("Glow", "Deep Glow", lm, false, ly.take(listOf("glow", "glowNightOnly", "glowStrength", "glowRadius")), show = world),
             Group("Motion", "Animation", lm, false, ly.take(listOf("wiggle", "wiggleFps", "wiggleAmount", "wordPop", "textFlash", "flashSize",
                 "translationAnimation", "translationWiggle")), show = world),
@@ -1192,19 +1192,23 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         val ctlW = preferredControlWidth(r, b.width).coerceAtMost(b.width.coerceAtLeast(0f))
         val stacked = b.height > rowH
         val hasIslandPreview = r.key == "islandLayout" || r.key == "islandBackground"
+        val forcedLyricPosition = (r.key == "facePlayer" || r.key == "keepAway") &&
+            module.lyrics()?.staysOnScreen() == true
         val textW = ((if (stacked) b.width else b.width - ctlW - 14f) -
             if (hasIslandPreview && (stacked && b.width >= 136f || !stacked && b.width - ctlW >= 144f)) 54f else 0f)
             .coerceAtLeast(0f)
         ui.text(ui.trim(I18n.text(r.label), textW, 12f, Theme.FONT_MEDIUM), b.x, b.y + 8f, 12f, Theme.TEXT_PRIMARY, Theme.FONT_MEDIUM)
         val descSize = maxOf(9.5f, (9f / ui.scale).coerceAtMost(12f))
-        if (r.desc.isNotEmpty()) ui.text(ui.trim(I18n.text(r.desc), textW, descSize),
+        val description = if (forcedLyricPosition) "Required while Stay on screen is enabled" else r.desc
+        if (description.isNotEmpty()) ui.text(ui.trim(I18n.text(description), textW, descSize),
             b.x, b.y + 24f, descSize, Theme.TEXT_TERTIARY)
         val cy = if (stacked) b.bottom - 15f else b.y + b.height / 2f
         val cx = b.right - ctlW
         when (r.ctl) {
             Ctl.TOGGLE -> {
                 val v = r.value as BooleanValue
-                ui.toggleSwitch(LayoutBounds(cx, cy - 10f, ui.switchWidth, 20f), v.get(), clip, key = v) { v.toggle() }
+                ui.toggleSwitch(LayoutBounds(cx, cy - 10f, ui.switchWidth, 20f),
+                    forcedLyricPosition || v.get(), clip, key = v, enabled = !forcedLyricPosition) { v.toggle() }
             }
             Ctl.SLIDER -> drawSlider(b, r, clip, cx, cy)
             Ctl.CACHE -> drawCacheButton(r.value as CacheAction, LayoutBounds(cx, cy - 12f, ctlW, 24f), clip)
