@@ -318,8 +318,8 @@ Spin	转圈
 Creatures also spin around steadily	生物同时匀速转圈
 Spin speed	转圈速度
 How fast creatures spin: 1× is one turn every four beats	转圈有多快：1× 是四拍转一圈
-Dance amount	摇的幅度
-How much creatures squash and stretch	压扁拉长得多厉害
+How much wider creatures get when the beat slams them flat	鼓点砸下来时，生物被压扁、横向变宽多少
+How much taller creatures get when they spring back up	砸扁后弹起来时，生物拉长多少
 Beat offset	踩点偏移
 Move the bounce earlier or later if it doesn't land on the beat	没踩在点上时，把弹的时刻往前或往后挪
 Auto BPM	自动测 BPM
@@ -364,7 +364,8 @@ Pixel font, smooth font, or a .ttf / .otf font from config/dangomusic/fonts	原�
 Pixel font	像素字体
 Top-left song info	左上角歌曲信息
 Show cover	显示封面
-Bounce amount	弹的幅度
+Squash width	砸扁宽度
+Stretch length	拉长长度
 Custom lyric color	自定义歌词颜色
 Custom translation color	自定义翻译颜色
 Used when Lyric colors is set to Custom color	歌词配色选"自定义颜色"时使用
