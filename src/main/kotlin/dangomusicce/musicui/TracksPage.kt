@@ -143,6 +143,7 @@ internal class TracksPage(private val screen: MusicScreen) {
     }
 
     fun scroll(wheel: Int, rows: Int) {
+        queueDrag.resetClick()
         if (ScreenState.coverView) cfTarget += if (wheel > 0) -1 else 1 else scroll += rows
     }
 
@@ -759,6 +760,7 @@ internal class TracksPage(private val screen: MusicScreen) {
     fun scrollbarDown(mx: Int, y: Float): Boolean {
         if (ScreenState.coverView || sbTotal <= listRows || sbTrack.height <= 2f ||
             !sbTrack.expand(8f, 0f).contains(mx, y.toInt())) return false
+        queueDrag.resetClick()
         val th = thumbOf(sbTrack, sbTotal, listRows)
         sbGrab = if (y >= th.y && y <= th.bottom) y - th.y else th.height / 2f
         sbDragging = true
@@ -817,7 +819,9 @@ internal class TracksPage(private val screen: MusicScreen) {
         val frac = listPos - first
         val clipArea = LayoutBounds(body.x - 4f, body.y - 2f, body.width + 8f, body.height + 2f)
         val reorderArea = LayoutBounds(body.x, body.y, body.width, (body.height - ui.bottomInset).coerceAtLeast(0f))
-        if (canReorder) queueDrag.offer(all, reorderArea, body.y - listPos * rowH, rowH, ui, rows = tracks)
+        val acceptsDoubleClick = selectOnly && !ScreenState.coverView
+        if (acceptsDoubleClick) queueDrag.offer(all, reorderArea, body.y - listPos * rowH, rowH, ui,
+            rows = tracks, canReorder = canReorder, queueBacked = queuePage) { slot -> playFrom(all, slot) }
         ui.beginClip(clipArea)
         val curRow = if (columns == null) currentRow(tracks, playing?.key, queuePage || showingFmQueue()) else -1
         if (curRow >= 0 && curRow != queueDrag.liftedRow) {
@@ -861,15 +865,18 @@ internal class TracksPage(private val screen: MusicScreen) {
                         else -> playFrom(all, i)
                     }
                 }
+                val select = {
+                    selectedAppleTrack = selection
+                    if (!selectOnly) {
+                        if (columns == null) selPress.v -= 6f
+                        playFrom(all, i)
+                    }
+                }
                 if (columns != null) {
                     if (isCur || selection == selectedAppleTrack || hovered) {
                         ui.card(row, if (isCur || selection == selectedAppleTrack) Theme.CARD_HOVER else Theme.CARD, radius)
                     }
                     drawAppleTrackRow(row, t, columns, isCur, hovered, clipArea, playCover)
-                    ui.hits += hit to {
-                        selectedAppleTrack = selection
-                        if (!selectOnly) playFrom(all, i)
-                    }
                 } else {
                     if (selectOnly && selection == selectedAppleTrack) ui.card(row, Theme.CARD_HOVER, radius)
                     else if (!isCur && hovered) ui.card(row, Theme.CARD_HOVER, radius)
@@ -882,14 +889,8 @@ internal class TracksPage(private val screen: MusicScreen) {
                             isCur && MusicPlayer.state == MusicPlayer.State.PLAYING)
                         if (!queuePage || showControl) ui.hits += coverHit to playCover
                     }
-                    ui.hits += hit to {
-                        selectedAppleTrack = selection
-                        if (!selectOnly) {
-                            selPress.v -= 6f
-                            playFrom(all, i)
-                        }
-                    }
                 }
+                ui.hits += if (acceptsDoubleClick) queueDrag.rowHit(hit, select) else hit to select
                 if (flash > 0f && t.key == flashId) {
                     ctx.drawShape(row, ShapeStyle(Color.TRANSPARENT, radius, 1.5f, RED.copy(a = flash)))
                 }

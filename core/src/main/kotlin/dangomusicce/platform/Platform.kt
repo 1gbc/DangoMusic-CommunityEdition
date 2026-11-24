@@ -60,6 +60,9 @@ interface Platform {
     /** 聊天栏开着 */
     val chatOpen: Boolean
 
+    /** Whether the player has hidden the vanilla HUD with F1. */
+    val hudHidden: Boolean get() = false
+
     /** 原版 GUI 缩放倍数（设置里的"界面尺寸"实际生效的值） */
     val guiScale: Int
 

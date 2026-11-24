@@ -40,6 +40,7 @@ internal class AppleQueuePanel(private val ui: Ui) {
 
     fun scroll(wheel: Int, x: Int, y: Int): Boolean {
         if (!contains(x, y)) return false
+        queueDrag.resetClick()
         offset = (offset + if (wheel > 0) -90f else 90f).coerceIn(0f, maxOffset)
         return true
     }
@@ -106,7 +107,9 @@ internal class AppleQueuePanel(private val ui: Ui) {
         hits: MutableList<Hit>, interactive: Boolean, netease: Boolean) {
         val count = queue.size - first
         val rowArea = list.copy(width = list.width - 5f)
-        if (interactive) queueDrag.offer(queue, rowArea, list.y - offset, ROW_HEIGHT, ui, first = first, upcoming = !netease)
+        if (interactive) queueDrag.offer(queue, rowArea, list.y - offset, ROW_HEIGHT, ui, first = first, upcoming = !netease) { slot ->
+            ClientMusic.control { MusicPlayer.playQueueSlot(queue, slot, upcomingOnly = !netease) }
+        }
         ui.beginClip(list)
         try {
             for (i in ((offset / ROW_HEIGHT).toInt() - 1).coerceAtLeast(0) until count) {
@@ -133,7 +136,7 @@ internal class AppleQueuePanel(private val ui: Ui) {
                         ClientMusic.control { MusicPlayer.activateQueueCover(queue, slot, upcomingOnly = !netease) }
                     }
                 }
-                hits += visible to select
+                hits += if (interactive) queueDrag.rowHit(visible, select) else visible to select
             }
             queueDrag.markerY()?.let { y ->
                 ui.card(LayoutBounds(list.x + 4f, y, rowArea.width - 8f, 2f), APPLE_CONTROL_BLUE, 1f)

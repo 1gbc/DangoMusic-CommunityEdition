@@ -10,6 +10,8 @@ import dangomusicce.events.HudRenderEvent
 import dangomusicce.events.TickEvent
 import dangomusicce.events.WorldRenderEndEvent
 import dangomusicce.legacy.LegacyGl
+import dangomusicce.module.impls.music.DynamicIslandModule
+import dangomusicce.module.impls.music.LyricsModule
 import dangomusicce.network.NearbyClient
 import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.ScaledResolution
@@ -65,6 +67,18 @@ internal object ClientRenderBridge {
             }
             else -> Unit
         }
+    }
+
+    @SubscribeEvent
+    fun hiddenHud(event: ForgeTickEvent.RenderTickEvent) {
+        if (!graphicsReady || event.phase != ForgeTickEvent.Phase.END) return
+        val mc = Minecraft.getMinecraft()
+        // F1 skips the Forge overlay in the world. The main framebuffer is still bound here.
+        if (!mc.gameSettings.hideGUI || mc.currentScreen != null || mc.theWorld == null || mc.thePlayer == null) return
+        val modules = DangoMusic.instance.moduleManager
+        modules.get(DynamicIslandModule::class.java).render(HudRenderEvent())
+        modules.get(LyricsModule::class.java).renderCockpit()
+        BilibiliRequestHud.render(mc)
     }
 
     @SubscribeEvent

@@ -87,7 +87,8 @@ class NearbyModule : Module() {
     fun render(event: WorldRenderEndEvent) {
         if (!enabled || !seeLyrics.get()) return
         // 歌词样式设成“不显示”时，别人投影过来的歌词也不画
-        if (DangoMusic.instance.moduleManager.get(LyricsModule::class.java).lyricsHidden()) return
+        val lyrics = DangoMusic.instance.moduleManager.get(LyricsModule::class.java)
+        if (lyrics.lyricsHidden() || !lyrics.allowsWorldLyrics(DangoClient.platform.hudHidden)) return
         if (PlaybackView.localPresent()) return
         val host = NearbyClient.activeHost() ?: return
         if (!host.shareLyrics) return

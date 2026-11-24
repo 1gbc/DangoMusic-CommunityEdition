@@ -864,11 +864,15 @@ class MusicScreen(
             return
         }
         if (mouseButton == 0 && !lyricsOpen && (appleBarMenu.capturesInput || appleQueue.contains(mx, my))) {
+            tracks.queueDrag.resetClick()
             settings.blurSearch()
             val hit = ui.hits.firstOrNull { it.first.contains(mx, my) }
-            if (hit != null && (appleBarMenu.capturesInput || !appleQueue.queueDrag.down(mx, my, hit))) hit.second()
+            if (!appleBarMenu.capturesInput && hit != null && appleQueue.queueDrag.down(mx, my, hit)) return
+            appleQueue.queueDrag.resetClick()
+            hit?.second?.invoke()
             return
         }
+        appleQueue.queueDrag.resetClick()
         if (!lyricsOpen && mouseButton == 0 && ScreenState.page == Page.SETTINGS && settings.searchClick(mx, my)) return
         // 快捷键的“重置”按钮可能滚到了播放栏底下：点在播放栏上时先交给播放栏（以前会把音质按钮的点击吃掉）
         if (!lyricsOpen && mouseButton == 0 && !barRect.expand(0f, 8f).contains(mx, my) && settings.resetKeyAt(mx, my)) return
@@ -904,6 +908,7 @@ class MusicScreen(
         }
         if (hit != null && !barRect.contains(mx, my) && !sidebar.menuOpen &&
             tracks.queueDrag.down(mx, my, hit)) return
+        tracks.queueDrag.resetClick()
         settings.onClickElsewhere(hit)
         if (hit == null || hit.first !== sidebar.searchRect) sidebar.searchFocused = false
         if (hit == null || !sidebar.isMenuHit(hit.first)) sidebar.menuOpen = false
