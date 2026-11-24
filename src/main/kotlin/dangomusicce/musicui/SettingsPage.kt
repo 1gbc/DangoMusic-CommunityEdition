@@ -99,7 +99,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
 
     /** 显示成百分比的选项 */
     private val percentKeys = setOf(
-        "volume", "glowRadius", "posX", "posY",
+        "volume", "glowRadius", "posX", "posY", "danceSquash", "danceStretch",
         "sideOpacity", "sideTint", "sideBrightness", "sideOtherLines", "sideGlowStrength", "sideRefraction",
         "sideInertiaStrength",
     )
@@ -382,7 +382,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                 "flashSize" to "textFlash",
                 "ktvLyricColors" to "ktvMode", "ktvInstrumental" to "ktvMode", "ktvBaseColor" to "ktvMode",
                 "ktvBaseShadow" to "ktvMode", "ktvSungShadow" to "ktvMode",
-                "danceAuto" to "dance", "danceTap" to "dance", "danceSpin" to "dance", "danceAmount" to "dance", "danceOffset" to "dance",
+                "danceAuto" to "dance", "danceTap" to "dance", "danceSpin" to "dance", "danceSquash" to "dance", "danceStretch" to "dance", "danceOffset" to "dance",
                 "danceSpinSpeed" to "danceSpin",
                 "translationAnimation" to "translation", "translationWiggle" to "translation", "translationColor" to "translation",
                 "sideRefraction" to "sideGlass",
@@ -391,6 +391,8 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             fmts = mapOf(
                 "spread" to degrees,
                 "glowRadius" to ::percent,
+                "danceSquash" to ::percent,
+                "danceStretch" to ::percent,
                 "danceOffset" to { v: Any -> "${(v as IntValue).value} ms" },
                 "danceSpinSpeed" to { v: Any -> "%.2f×".format((v as FloatValue).value) },
                 "sideTilt" to degrees, "sidePitch" to degrees, "sideItalic" to degrees,
@@ -439,7 +441,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             Group("KTV mode", "Line-by-line highlight", lm, false, ly.take(listOf(
                 "ktvMode", "ktvInstrumental", "ktvLyricColors", "ktvBaseColor", "ktvSungColor", "ktvBaseShadow", "ktvSungShadow",
             )), show = world),
-            Group("Dance", "Mobs on the beat", lm, false, ly.take(listOf("dance", "danceAuto", "danceTap", "danceSpin", "danceSpinSpeed", "danceAmount", "danceOffset"))),
+            Group("Dance", "Mobs on the beat", lm, false, ly.take(listOf("dance", "danceSquash", "danceStretch", "danceSpin", "danceSpinSpeed", "danceAuto", "danceTap", "danceOffset"))),
         )
         ly.take().let { if (it.isNotEmpty()) lyrics += Group("Other", "More", lm, false, it) }
 
