@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/assets/logo.png" width="128" alt="DangoMusic Community Edition"></p>
+<p align="center"><img src="docs/assets/像素霓虹 DangoMusic 音乐社区.png" width="128" alt="DangoMusic Community Edition"></p>
 
 # DangoMusic Community Edition
 
