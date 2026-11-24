@@ -23,26 +23,27 @@ internal class IslandPlayerCard {
     private class Layout(val card: LayoutBounds, val expansion: Float, viewportHeight: Float) {
         private fun between(compact: Float, full: Float) = compact + (full - compact) * expansion
 
-        private val coverSize = between(22f, 86f)
+        private val coverSize = between(22f, 76f)
         val cover = LayoutBounds(card.x + 10f, card.y + (card.height - coverSize) / 2f, coverSize, coverSize)
         private val textX = cover.right + between(15f, 12f)
         private val textWidth = (card.right - 14f - textX).coerceAtLeast(0f)
-        val lyrics = LayoutBounds(textX, card.y + between(4f, 7f),
-            (textWidth - 20f * expansion).coerceAtLeast(0f), 18f)
-        val title = LayoutBounds(textX, card.y + 27f, textWidth, 18f)
-        val subtitle = LayoutBounds(textX, title.bottom + 1f, textWidth, 16f)
+        val lyrics = LayoutBounds(textX, card.y + between(4f, 5f),
+            (textWidth - 20f * expansion).coerceAtLeast(0f), between(18f, 16f))
+        val lyricSize = between(10.5f, 9.5f)
+        val title = LayoutBounds(textX, card.y + 23f, textWidth, 16f)
+        val subtitle = LayoutBounds(textX, title.bottom + 1f, textWidth, 13f)
         // Finish moving the seek bar before fading in the adjacent timestamps.
         private val progressExpansion = (expansion / DETAILS_START).coerceAtMost(1f)
-        private val progressY = card.y + 25f + 46f * progressExpansion
-        private val timeInset = 33f * progressExpansion
+        private val progressY = card.y + 25f + 34.25f * progressExpansion
+        private val timeInset = 31f * progressExpansion
         val progress = LayoutBounds(textX + timeInset, progressY,
             (textWidth - timeInset * 2f).coerceAtLeast(0f), 2.5f)
-        val elapsedTime = LayoutBounds(textX, progressY - 6f, 29f, 15f)
-        val durationTime = elapsedTime.copy(x = progress.right + 4f)
+        val elapsedTime = LayoutBounds(textX, progressY - 5.25f, 28f, 13f)
+        val durationTime = elapsedTime.copy(x = progress.right + 3f)
         val progressHit = progress.expand(0f, 5f)
-        val lock = LayoutBounds(card.right - 32f, card.y + 4f, 23f, 22f)
+        val lock = LayoutBounds(card.right - 32f, card.y + 3f, 23f, 20f)
         private val controlsX = progress.x + (progress.width - BUTTON_SIZE * 4) / 2f
-        fun button(control: Control) = LayoutBounds(controlsX + control.ordinal * BUTTON_SIZE, card.y + 82f, BUTTON_SIZE, BUTTON_SIZE)
+        fun button(control: Control) = LayoutBounds(controlsX + control.ordinal * BUTTON_SIZE, card.y + 68f, BUTTON_SIZE, BUTTON_SIZE)
         private val volume = button(Control.VOLUME)
         val popup = LayoutBounds(
             (volume.x - 55f).coerceIn(card.x, card.right - 126f),
@@ -252,22 +253,22 @@ internal class IslandPlayerCard {
         if (details > 0f) {
             ctx.pushOpacity(details)
             if (line != null) {
-                drawLine(ctx, mt, song.name, layout.title, 11f, Theme.TEXT_PRIMARY,
+                drawLine(ctx, mt, song.name, layout.title, 10f, Theme.TEXT_PRIMARY,
                     Theme.FONT_SEMIBOLD, (now - titleSince) / 1e9)
             }
             val credits = (song.artists + listOfNotNull(song.albumName)).filter(String::isNotBlank).joinToString(" · ")
             drawLine(ctx, mt, credits, layout.subtitle,
-                9.5f, Theme.TEXT_SECONDARY, Theme.FONT_REGULAR)
+                8.5f, Theme.TEXT_SECONDARY, Theme.FONT_REGULAR)
             ctx.popOpacity()
         }
-        drawLine(ctx, mt, lyricLabel(song.name, line), layout.lyrics, 10.5f, Theme.TEXT_PRIMARY,
+        drawLine(ctx, mt, lyricLabel(song.name, line), layout.lyrics, layout.lyricSize, Theme.TEXT_PRIMARY,
             Theme.FONT_SEMIBOLD, (now - lyricSince) / 1e9)
         drawProgress(ctx, layout.progress, press?.progress ?: songProgress, interactive && enabled(Control.PROGRESS, snap))
         if (details > 0f) {
             ctx.pushOpacity(details)
             val shownPosition = press?.progress?.let { (snap.durationMs * it.toDouble()).toLong() } ?: snap.positionMs
-            drawLine(ctx, mt, clock(shownPosition), layout.elapsedTime, 8.5f, Theme.TEXT_SECONDARY, Theme.FONT_REGULAR)
-            drawLine(ctx, mt, clock(snap.durationMs), layout.durationTime, 8.5f, Theme.TEXT_SECONDARY, Theme.FONT_REGULAR)
+            drawLine(ctx, mt, clock(shownPosition), layout.elapsedTime, 8f, Theme.TEXT_SECONDARY, Theme.FONT_REGULAR)
+            drawLine(ctx, mt, clock(snap.durationMs), layout.durationTime, 8f, Theme.TEXT_SECONDARY, Theme.FONT_REGULAR)
             ctx.popOpacity()
         }
         if (controls > 0f) {
@@ -363,7 +364,7 @@ internal class IslandPlayerCard {
     companion object {
         const val WIDTH = 306f
         const val COMPACT_WIDTH = 218f
-        const val HEIGHT = 112f
+        const val HEIGHT = 94f
         const val COMPACT_HEIGHT = 34f
         private const val DETAILS_START = 0.8f
 
