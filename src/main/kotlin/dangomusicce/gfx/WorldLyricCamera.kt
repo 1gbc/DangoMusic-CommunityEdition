@@ -81,6 +81,59 @@ class WorldLyricCamera internal constructor(view: Matrix4f, private val projecti
         return WorldLyricPose(position, eye, right, down, size)
     }
 
+    /** Fit the rendered single line after the spring, floor lift and block avoidance have run. */
+    internal fun fitFloatingLine(
+        x: Double, y: Double, z: Double, yaw: Float, pitch: Float, scale: Float,
+        halfWidth: Float, top: Float, bottom: Float, fallbackDepth: Float, floor: Float, facePlayer: Boolean,
+    ): Matrix4f? {
+        val inverse = cameraToWorld ?: return null
+        if (projection.m00 <= 0f || projection.m11 <= 0f) return null
+        val anchor = Vector3f(x.toFloat(), y.toFloat(), z.toFloat())
+        val center = Matrix4f.transform(viewProjection, Vector4f(anchor.x, anchor.y, anchor.z, 1f), null)
+        val yawRad = Math.toRadians(yaw.toDouble())
+        val pitchRad = Math.toRadians(pitch.toDouble())
+        val yawSin = sin(yawRad).toFloat()
+        val yawCos = cos(yawRad).toFloat()
+        val pitchSin = sin(pitchRad).toFloat()
+        // The same world-space glyph axes as LegacyWorld.push.
+        val right = Vector3f(-yawCos, 0f, -yawSin)
+        val down = Vector3f(yawSin * pitchSin, -cos(pitchRad).toFloat(), -yawCos * pitchSin)
+        val corners = arrayOf(
+            clipOffset(right, down, -halfWidth, top), clipOffset(right, down, halfWidth, top),
+            clipOffset(right, down, -halfWidth, bottom), clipOffset(right, down, halfWidth, bottom),
+        )
+        fun fallback() = place(fallbackDepth, scale, halfWidth, top, bottom, floor, facePlayer)
+            ?.transform(0f, 0f, 1f)
+
+        // At constant camera depth, horizontal and vertical translation can move
+        // the entire plane inside the viewport without changing its tilt or size.
+        var minX = Float.NEGATIVE_INFINITY
+        var maxX = Float.POSITIVE_INFINITY
+        var minY = Float.NEGATIVE_INFINITY
+        var maxY = Float.POSITIVE_INFINITY
+        for (corner in corners) {
+            val w = center.w + corner.w * scale
+            val zClip = center.z + corner.z * scale
+            if (!w.isFinite() || !zClip.isFinite() || w <= 0f || abs(zClip) >= w) return fallback()
+            val xClip = center.x + corner.x * scale
+            val yClip = center.y + corner.y * scale
+            val edge = 0.98f * w
+            minX = maxOf(minX, -edge - xClip)
+            maxX = minOf(maxX, edge - xClip)
+            minY = maxOf(minY, -edge - yClip)
+            maxY = minOf(maxY, edge - yClip)
+        }
+        if (minX > maxX || minY > maxY) return fallback()
+        val dx = 0f.coerceIn(minX, maxX)
+        val dy = 0f.coerceIn(minY, maxY)
+        if (dx == 0f && dy == 0f) return null
+
+        val shift = directionInWorld(inverse, (dx / projection.m00).toDouble(), (dy / projection.m11).toDouble(), 0.0)
+        Vector3f.add(anchor, shift, anchor)
+        val eye = toWorld(inverse, 0f, 0f, 0f)
+        return WorldLyricPose(anchor, eye, right, down, scale).transform(0f, 0f, 1f)
+    }
+
     /** Cap the extra floor lift against the real vertical frustum, leaving room for the text. */
     internal fun limitUpwardLift(x: Double, y: Double, z: Double, requested: Double): Double {
         val center = Matrix4f.transform(viewProjection, Vector4f(x.toFloat(), y.toFloat(), z.toFloat(), 1f), null)

@@ -754,12 +754,12 @@ class LyricsModule : Module() {
         val gfx = DangoClient.gfx
         val floor = e.playerEyeY?.minus(GROUND_MARGIN)?.takeIf { aboveGround.get() }
         val motion = if (!useFlash) stackMotion(stack, frameNanos) else null
-        val limitFloorLift = floor != null && stayOnScreen.get()
-        val camera = if (motion != null && (count > 1 || limitFloorLift)) gfx.world.lyricCamera() else null
+        val keepFloatingVisible = stayOnScreen.get()
+        val camera = if (motion != null && (count > 1 || keepFloatingVisible)) gfx.world.lyricCamera() else null
         val left = if (motion != null && count > 1) {
             camera?.let { leftStack(it, stack, motion, floor) }
         } else null
-        val floorCamera = camera.takeIf { limitFloorLift && left == null }
+        val floatingCamera = camera.takeIf { keepFloatingVisible && left == null }
         val view = if (motion != null && left == null) {
             gfx.world.cameraAngles().takeIf { it.yaw.isFinite() && it.pitch.isFinite() }
         } else null
@@ -785,7 +785,7 @@ class LyricsModule : Module() {
                         if (deepGlow.begin()) {
                             glowPass = true
                             try {
-                                drawWorld(songNow, stack, frameNanos, floor, view, count > 1, motion, left, floorCamera)
+                                drawWorld(songNow, stack, frameNanos, floor, view, count > 1, motion, left, floatingCamera)
                             } finally {
                                 glowPass = false
                             }
@@ -805,7 +805,7 @@ class LyricsModule : Module() {
                 // 离屏画布上 alpha 要叠加：重新设一次文字的渲染状态（混合方式）
                 if (contrast) gfx.world.resync()
                 try {
-                    drawWorld(songNow, stack, frameNanos, floor, view, count > 1, motion, left, floorCamera)
+                    drawWorld(songNow, stack, frameNanos, floor, view, count > 1, motion, left, floatingCamera)
                 } finally {
                     if (contrast) {
                         gfx.contrast.end()
@@ -1784,7 +1784,7 @@ class LyricsModule : Module() {
 
     private fun pushFloatingStack(
         stack: List<StackRow>, motion: StackMotion, floor: Double?, view: ViewAngles?, multiline: Boolean,
-        floorCamera: WorldLyricCamera?,
+        camera: WorldLyricCamera?,
     ) {
         val world = DangoClient.gfx.world
         val f = motion.lyric
@@ -1808,8 +1808,8 @@ class LyricsModule : Module() {
         fun liftFor(extra: Float, slide: Float): Double {
             val lift = worldStackLift(extra, bottom, slide, s, world.cameraY + ry, floor)
             val natural = extra.toDouble() * s
-            if (floorCamera == null || lift <= natural) return lift
-            return natural + floorCamera.limitUpwardLift(rx, ry + natural, rz, lift - natural)
+            if (camera == null || lift <= natural) return lift
+            return natural + camera.limitUpwardLift(rx, ry + natural, rz, lift - natural)
         }
         val lift = liftFor(motion.lift, motion.slide)
         val horizontal = sqrt(rx * rx + rz * rz)
@@ -1837,12 +1837,24 @@ class LyricsModule : Module() {
                 f.lastWiggleFrame ?: -1L,
             )
         }
+        if (!multiline && camera != null) {
+            val margin = 6f
+            val halfWidth = rowWidth(f) / 2f + margin
+            val top = motion.slide - halfMain(f) - margin
+            val fitted = camera.fitFloatingLine(rx, ry + lift, rz, yaw, pitch, s,
+                halfWidth, top, bottom + motion.slide + margin, distance.value * reach.toFloat(),
+                floor?.minus(world.cameraY)?.toFloat() ?: Float.NaN, facePlayer.get())
+            if (fitted != null) {
+                world.push(fitted)
+                return
+            }
+        }
         world.push(safe?.x ?: rx, safe?.y ?: (ry + lift), safe?.z ?: rz, safe?.yaw ?: yaw, safe?.pitch ?: pitch, s)
     }
 
     private fun drawWorld(
         songNow: Long, stack: List<StackRow>, frameNanos: Long, floor: Double?, view: ViewAngles?, multiline: Boolean,
-        motion: StackMotion?, left: LeftStack?, floorCamera: WorldLyricCamera?,
+        motion: StackMotion?, left: LeftStack?, floatingCamera: WorldLyricCamera?,
     ) {
         if (motion == null) return
         val world = DangoClient.gfx.world
@@ -1871,7 +1883,7 @@ class LyricsModule : Module() {
 
         val f = motion.lyric
         if (left != null) pushLeftStack(left, motion)
-        else pushFloatingStack(stack, motion, floor, view, multiline, floorCamera)
+        else pushFloatingStack(stack, motion, floor, view, multiline, floatingCamera)
         try {
             if (f === active) {
                 val outgoing = motion.outgoing

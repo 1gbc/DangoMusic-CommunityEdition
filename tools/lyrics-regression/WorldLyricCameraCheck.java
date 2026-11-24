@@ -138,8 +138,51 @@ public class WorldLyricCameraCheck {
         }
     }
 
+    private static void checkFloatingLine(float viewPitch, float linePitch, float fov, boolean needsCorrection)
+            throws Exception {
+        Matrix4f view = new Matrix4f().translate(new Vector3f(0f, 0f, -0.1f))
+            .rotate((float)Math.toRadians(viewPitch), new Vector3f(1, 0, 0))
+            .rotate((float)Math.PI, new Vector3f(0, 1, 0));
+        Matrix4f projection = new Matrix4f();
+        projection.m11 = (float)(1 / Math.tan(Math.toRadians(fov / 2)));
+        projection.m00 = projection.m11 / (16f / 9f);
+        projection.m22 = -1.0003f;
+        projection.m23 = -1f;
+        projection.m32 = -0.10f;
+        projection.m33 = 0f;
+
+        Class<?> type = Class.forName("dangomusicce.gfx.WorldLyricCamera");
+        Object camera = type.getConstructor(Matrix4f.class, Matrix4f.class).newInstance(view, projection);
+        var fit = Arrays.stream(type.getMethods()).filter(m -> m.getName().startsWith("fitFloatingLine$"))
+            .findFirst().orElseThrow();
+        double direction = Math.toRadians(linePitch);
+        float halfWidth = 43f;
+        float top = -11f;
+        float bottom = 17f;
+        Matrix4f corrected = (Matrix4f)fit.invoke(camera, 0.0, -10 * Math.sin(direction), 10 * Math.cos(direction),
+            0f, linePitch, 0.046f, halfWidth, top, bottom, 10f, Float.NaN, true);
+        if ((corrected != null) != needsCorrection) {
+            throw new AssertionError("Unexpected correction at view pitch " + viewPitch + ", line pitch " + linePitch);
+        }
+        if (corrected == null) return;
+        Matrix4f clipTransform = Matrix4f.mul(projection, Matrix4f.mul(view, corrected, null), null);
+        for (float x : new float[]{-halfWidth, halfWidth}) {
+            for (float y : new float[]{top, bottom}) {
+                Vector4f clip = Matrix4f.transform(clipTransform, new Vector4f(x, y, 0f, 1f), null);
+                if (clip.w <= 0f || Math.abs(clip.x) > clip.w * 0.981f ||
+                        Math.abs(clip.y) > clip.w * 0.981f || Math.abs(clip.z) > clip.w) {
+                    throw new AssertionError("Single-line glyph bounds are still outside the viewport: " + clip);
+                }
+            }
+        }
+    }
+
     public static void main(String[] args) throws Exception {
         checkFixedTilt();
+        checkFloatingLine(0f, 0f, 70f, false);
+        checkFloatingLine(90f, 0f, 70f, true);
+        checkFloatingLine(90f, 59f, 48f, true);
+        checkFloatingLine(-90f, 0f, 70f, true);
         checkFloorLift(75, -2.6f, -9.65f, 9.7f, true);
         checkFloorLift(-50, -6.43f, 7.66f, 45f, true);
         checkFloorLift(-70, -3.42f, 9.4f, 9.0f, false);
