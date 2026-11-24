@@ -81,6 +81,24 @@ class WorldLyricCamera internal constructor(view: Matrix4f, private val projecti
         return WorldLyricPose(position, eye, right, down, size)
     }
 
+    /** Cap the extra floor lift against the real vertical frustum, leaving room for the text. */
+    internal fun limitUpwardLift(x: Double, y: Double, z: Double, requested: Double): Double {
+        val center = Matrix4f.transform(viewProjection, Vector4f(x.toFloat(), y.toFloat(), z.toFloat(), 1f), null)
+        if (!center.y.isFinite() || !center.w.isFinite() || center.w <= 0f) return 0.0
+        val margin = 0.85
+        val upY = viewProjection.m11.toDouble()
+        val upW = viewProjection.m13.toDouble()
+        // All clip-space coordinates are linear in the extra world-up displacement.
+        fun limit(room: Double, slope: Double): Double =
+            if (slope < 0.0) (room / -slope).coerceAtLeast(0.0) else requested
+        return minOf(
+            requested,
+            limit(margin * center.w - center.y, margin * upW - upY),
+            limit(margin * center.w + center.y, margin * upW + upY),
+            limit(center.w - 0.05, upW),
+        )
+    }
+
     private fun clipOffset(right: Vector3f, down: Vector3f, x: Float, y: Float): Vector4f =
         Matrix4f.transform(viewProjection, Vector4f(right.x * x + down.x * y, right.y * x + down.y * y,
             right.z * x + down.z * y, 0f), null)

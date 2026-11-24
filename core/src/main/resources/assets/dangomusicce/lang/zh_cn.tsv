@@ -715,6 +715,12 @@ Classic: rounded corners, capsule switches with round knobs. Continuous corners:
 Classic	经典
 Continuous corners	连续圆角
 Lyric style	歌词样式
+Show lyrics when HUD is hidden	F1 隐藏界面时显示歌词
+Show when HUD is hidden	F1 隐藏界面时显示
+Keep the Dynamic Island visible when F1 hides the game HUD	按 F1 隐藏游戏界面时，仍显示灵动岛
+Keep the song request card visible when F1 hides the game HUD	按 F1 隐藏游戏界面时，仍显示点歌台卡片
+Keep 3D lyrics visible when F1 hides the game HUD	按 F1 隐藏游戏界面时，仍显示 3D 歌词
+Keep cockpit lyrics visible when F1 hides the game HUD	按 F1 隐藏游戏界面时，仍显示驾驶舱歌词
 3D world lyrics	3D 世界歌词
 Both	两者都显示
 Side position	位置

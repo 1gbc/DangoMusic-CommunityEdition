@@ -79,17 +79,25 @@ internal object HudPointerInput {
             val x = Mouse.getEventX()
             val y = mc.displayHeight - Mouse.getEventY() - 1
             // 点歌卡片画在最上面，和驾驶舱歌词重叠时先归点歌卡片；指在卡片上时歌词行也不亮
-            val onCard = BilibiliRequestHud.blocksPointer(x, y)
+            val hudHidden = mc.gameSettings.hideGUI
+            val islandVisible = island.allowsIslandHud(hudHidden)
+            val requestVisible = BilibiliRequestHud.isVisible(hudHidden)
+            if (draggingIsland && !islandVisible) {
+                island.endPointerDrag()
+                draggingIsland = false
+            }
+            if (!requestVisible) BilibiliRequestHud.cancelGesture()
+            val onCard = requestVisible && BilibiliRequestHud.blocksPointer(x, y)
             if (onCard) lyrics.cockpitPointerMove(-1, -1) else lyrics.cockpitPointerMove(x, y)
             val wheel = Mouse.getEventDWheel()
             if (wheel != 0 && !draggingIsland) {
                 if (onCard || !lyrics.cockpitPointerScroll(x, y, wheel)) {
-                    if (BilibiliRequests.enabled) BilibiliRequestHud.scroll(mc, x, y, wheel)
+                    if (requestVisible) BilibiliRequestHud.scroll(mc, x, y, wheel)
                 }
             }
             if (Mouse.getEventButton() != 0) {
                 if (draggingIsland) island.movePointerDrag(x, y)
-                else if (BilibiliRequests.enabled) BilibiliRequestHud.movePointer(mc, x, y)
+                else if (requestVisible) BilibiliRequestHud.movePointer(mc, x, y)
                 return
             }
             if (waitForLeftRelease) {
@@ -98,17 +106,17 @@ internal object HudPointerInput {
             }
             if (Mouse.getEventButtonState()) {
                 // The request card is rendered above the island where their bounds overlap.
-                draggingIsland = !onCard && island.beginPointerDrag(x, y)
+                draggingIsland = islandVisible && !onCard && island.beginPointerDrag(x, y)
                 // 驾驶舱歌词在灵动岛之后：单击从指着的那一行开始播放
                 pressedLyrics = !onCard && !draggingIsland && lyrics.cockpitPointerPress(x, y)
-                if (!draggingIsland && !pressedLyrics && BilibiliRequests.enabled) BilibiliRequestHud.press(mc, x, y)
+                if (!draggingIsland && !pressedLyrics && requestVisible) BilibiliRequestHud.press(mc, x, y)
             } else if (draggingIsland) {
                 island.movePointerDrag(x, y)
                 island.endPointerDrag()
                 draggingIsland = false
             } else if (pressedLyrics) {
                 pressedLyrics = false
-            } else if (BilibiliRequests.enabled) BilibiliRequestHud.release(mc, x, y)
+            } else if (requestVisible) BilibiliRequestHud.release(mc, x, y)
         }
 
         override fun onGuiClosed() {

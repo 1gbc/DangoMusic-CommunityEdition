@@ -48,6 +48,11 @@ class DynamicIslandModule : Module() {
     @ModuleValue("Island layout", "Choose the Dynamic Island layout")
     private val islandLayout = IntValue(STYLE_C, STYLE_B, STYLE_C)
 
+    @ModuleValue("Show when HUD is hidden", "Keep the Dynamic Island visible when F1 hides the game HUD")
+    private val islandWhileHudHidden = BooleanValue(false)
+
+    internal fun allowsIslandHud(hudHidden: Boolean): Boolean = !hudHidden || islandWhileHudHidden.get()
+
     @ModuleValue("Island animations", "Show the playback waveform and volume hotkey feedback")
     private val islandAnimations = BooleanValue(false)
 
@@ -224,7 +229,15 @@ class DynamicIslandModule : Module() {
     // ---------------------------------------------------------------- 渲染
 
     @EventHandler
-    fun render(e: HudRenderEvent) = renderIsland(e)
+    fun render(e: HudRenderEvent) {
+        if (!enabled) return
+        if (!allowsIslandHud(DangoClient.platform.hudHidden)) {
+            placement = null
+            finishDrag()
+            return
+        }
+        renderIsland(e)
+    }
 
     internal fun renderIsland(e: HudRenderEvent? = null) {
         placement = null

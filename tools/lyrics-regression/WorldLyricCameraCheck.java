@@ -118,8 +118,32 @@ public class WorldLyricCameraCheck {
         }
     }
 
+    private static void checkFloorLift(float pitch, float z, float y, float requested, boolean clipped) throws Exception {
+        Matrix4f view = new Matrix4f().rotate((float)Math.toRadians(pitch), new Vector3f(1, 0, 0));
+        Matrix4f projection = new Matrix4f();
+        projection.m11 = (float)(1 / Math.tan(Math.toRadians(35)));
+        projection.m23 = -1f;
+        projection.m33 = 0f;
+        Class<?> type = Class.forName("dangomusicce.gfx.WorldLyricCamera");
+        Object camera = type.getConstructor(Matrix4f.class, Matrix4f.class).newInstance(view, projection);
+        var clamp = Arrays.stream(type.getMethods()).filter(m -> m.getName().startsWith("limitUpwardLift$"))
+            .findFirst().orElseThrow(() -> new AssertionError("Ground lift needs to respect the rendered camera"));
+        double sent = (Double)clamp.invoke(camera, 0.0, (double)y, (double)z, (double)requested);
+        if (sent < 0.0 || (clipped ? sent >= requested : Math.abs(sent - requested) > 1e-5)) {
+            throw new AssertionError("Ground lift at pitch " + pitch + " returned " + sent);
+        }
+        Vector4f point = project(new Vector3f(0, (float)(y + sent), z), view, projection);
+        if (point.w <= 0f || Math.abs(point.y / point.w) > 0.851f) {
+            throw new AssertionError("The corrected anchor must be visible at pitch " + pitch);
+        }
+    }
+
     public static void main(String[] args) throws Exception {
         checkFixedTilt();
+        checkFloorLift(75, -2.6f, -9.65f, 9.7f, true);
+        checkFloorLift(-50, -6.43f, 7.66f, 45f, true);
+        checkFloorLift(-70, -3.42f, 9.4f, 9.0f, false);
+        checkFloorLift(0, -10, -2, 2, false);
         check(0, 0, 0, 16f / 9, 70, 25, -18, 24, Float.NaN, true, false);
         check(0, 0, 0, 16f / 9, 70, 25, -18, 24, 2.2f, true, false);
         check(47, 178, -8, 21f / 9, 91, 25, -18, 24, Float.NaN, false, false);

@@ -91,6 +91,15 @@ class LyricsModule : Module() {
     @ModuleValue("Lyric style", "Where lyrics appear: floating in the world, cockpit-style on the screen edge, both, or nowhere")
     internal val lyricStyle = IntValue(STYLE_WORLD, STYLE_OFF, STYLE_OFF)
 
+    @ModuleValue("Show lyrics when HUD is hidden", "Keep 3D lyrics visible when F1 hides the game HUD")
+    private val worldWhileHudHidden = BooleanValue(true)
+
+    @ModuleValue("Show lyrics when HUD is hidden", "Keep cockpit lyrics visible when F1 hides the game HUD")
+    private val sideWhileHudHidden = BooleanValue(false)
+
+    internal fun allowsWorldLyrics(hudHidden: Boolean): Boolean = !hudHidden || worldWhileHudHidden.get()
+    internal fun allowsCockpitLyrics(hudHidden: Boolean): Boolean = !hudHidden || sideWhileHudHidden.get()
+
     @ModuleValue("Side position", "Where the side lyric list sits")
     internal val sidePosition = IntValue(0, 2, 2)
 
@@ -739,13 +748,18 @@ class LyricsModule : Module() {
             if (f.scrollOut > 0f) frameNanos - f.fadeStartNanos >= SCROLL_NANOS
             else active != null || frameNanos - f.fadeStartNanos >= 400_000_000L
         }
+        if (!worldVisible() || !allowsWorldLyrics(platform.hudHidden)) return
+
         val useFlash = textFlash.get() && !ktvMode.get() && count == 1
         val gfx = DangoClient.gfx
         val floor = e.playerEyeY?.minus(GROUND_MARGIN)?.takeIf { aboveGround.get() }
-        val motion = if (worldVisible() && !useFlash) stackMotion(stack, frameNanos) else null
+        val motion = if (!useFlash) stackMotion(stack, frameNanos) else null
+        val limitFloorLift = floor != null && stayOnScreen.get()
+        val camera = if (motion != null && (count > 1 || limitFloorLift)) gfx.world.lyricCamera() else null
         val left = if (motion != null && count > 1) {
-            gfx.world.lyricCamera()?.let { leftStack(it, stack, motion, floor) }
+            camera?.let { leftStack(it, stack, motion, floor) }
         } else null
+        val floorCamera = camera.takeIf { limitFloorLift && left == null }
         val view = if (motion != null && left == null) {
             gfx.world.cameraAngles().takeIf { it.yaw.isFinite() && it.pitch.isFinite() }
         } else null
@@ -761,9 +775,7 @@ class LyricsModule : Module() {
         gfx.guarded {
             val songNow = songPos.toLong()
             val beat = if (s != null) playbackBeatPulse(playbackPositionMs()) else 0f
-            if (!worldVisible()) {
-                // 3D lyrics 关掉或只用侧边列表 = 不画 3D 歌词
-            } else if (useFlash) {
+            if (useFlash) {
                 flash.draw(if (s != null && !paused) lyrics else null, songNow, beat, flashSize.value, 1)
             } else {
                 // 先把歌词画到发光画布上做出光晕，再正常画一遍清晰的字
@@ -773,7 +785,7 @@ class LyricsModule : Module() {
                         if (deepGlow.begin()) {
                             glowPass = true
                             try {
-                                drawWorld(songNow, stack, frameNanos, floor, view, count > 1, motion, left)
+                                drawWorld(songNow, stack, frameNanos, floor, view, count > 1, motion, left, floorCamera)
                             } finally {
                                 glowPass = false
                             }
@@ -793,7 +805,7 @@ class LyricsModule : Module() {
                 // 离屏画布上 alpha 要叠加：重新设一次文字的渲染状态（混合方式）
                 if (contrast) gfx.world.resync()
                 try {
-                    drawWorld(songNow, stack, frameNanos, floor, view, count > 1, motion, left)
+                    drawWorld(songNow, stack, frameNanos, floor, view, count > 1, motion, left, floorCamera)
                 } finally {
                     if (contrast) {
                         gfx.contrast.end()
@@ -808,16 +820,20 @@ class LyricsModule : Module() {
     @EventHandler
     fun renderHud(e: HudRenderEvent) {
         if (!enabled) return
-        val s = current
-        DangoClient.gfx.guarded {
-            // 不用驾驶舱样式时也调一下：刚切走时让列表淡出，而不是一下子消失（完全淡出后什么都不画）
-            if (sideVisible() || !side.idle) drawSide(e, s)
-            Dance.tapStatus()?.let { drawTapStatus(it) }
+        renderCockpit(e)
+        Dance.tapStatus()?.let { status -> DangoClient.gfx.guarded { drawTapStatus(status) } }
+    }
+
+    internal fun renderCockpit(e: HudRenderEvent? = null) {
+        if (!enabled || !allowsCockpitLyrics(DangoClient.platform.hudHidden)) return
+        // 切换歌词样式时让旧列表淡出。
+        if (sideVisible() || !side.idle) {
+            DangoClient.gfx.guarded { drawSide(e, current) }
         }
     }
 
     /** 侧边歌词列表：当前歌词、进度和设置交给 [SideLyrics] 画（玻璃字、透视倾斜、发光、逐字点亮） */
-    private fun drawSide(e: HudRenderEvent, s: NowPlaying?) {
+    private fun drawSide(e: HudRenderEvent?, s: NowPlaying?) {
         val platform = DangoClient.platform
         // 驾驶舱字体：每帧对一下版本标记，字体文件被替换了就重新加载（热重载）
         val (sf, sk) = LyricFonts.load(sideFont.value)
@@ -900,7 +916,7 @@ class LyricsModule : Module() {
      * 返回 true = 这次滚轮归歌词；鼠标不在歌词上时返回 false，交给点歌台等别的 HUD
      */
     fun cockpitPointerScroll(x: Int, y: Int, wheel: Int): Boolean {
-        if (wheel == 0 || !side.covers(x, y)) return false
+        if (wheel == 0 || !allowsCockpitLyrics(DangoClient.platform.hudHidden) || !side.covers(x, y)) return false
         if (!enabled || !sideVisible() || current == null) return true
         val lyrics = currentKey?.let { lyricsFor(it) } ?: return true
         val rows = lyrics.lines.size
@@ -918,7 +934,7 @@ class LyricsModule : Module() {
      * 返回 true = 这次点击归歌词（点在行与行的空隙上也算，免得穿透给别的 HUD）
      */
     fun cockpitPointerPress(x: Int, y: Int): Boolean {
-        if (!side.covers(x, y)) return false
+        if (!allowsCockpitLyrics(DangoClient.platform.hudHidden) || !side.covers(x, y)) return false
         val s = current
         if (!enabled || !sideVisible() || s == null) return true
         val lyrics = currentKey?.let { lyricsFor(it) } ?: return true
@@ -1024,8 +1040,11 @@ class LyricsModule : Module() {
         if (player == null) return Floating(lines, startMs, reveal, 0.0, 0.0, 0.0, 0f, 0f, ct, line, nextMs).also { it.translation = tr; it.phonetic = phonetic }
         val yaw = player.yaw + (random.nextFloat() * 2f - 1f) * spread.value
         val d = distance.value.toDouble()
-        var pitch = (player.pitch - 3f - random.nextFloat() * 10f).coerceIn(-60f, 30f)
-        if (aboveGround.get()) pitch = min(pitch, maxPitch(d))
+        val followScreen = stayOnScreen.get()
+        val spawnPitch = player.pitch - 3f - random.nextFloat() * 10f
+        var pitch = if (followScreen) spawnPitch.coerceIn(-89f, 89f) else spawnPitch.coerceIn(-60f, 30f)
+        // With screen following enabled, apply the floor at render time so a new line can start in view.
+        if (aboveGround.get() && !followScreen) pitch = min(pitch, maxPitch(d))
         val yr = Math.toRadians(yaw.toDouble())
         val pr = Math.toRadians(pitch.toDouble())
         val dx = -sin(yr) * cos(pr)
@@ -1765,6 +1784,7 @@ class LyricsModule : Module() {
 
     private fun pushFloatingStack(
         stack: List<StackRow>, motion: StackMotion, floor: Double?, view: ViewAngles?, multiline: Boolean,
+        floorCamera: WorldLyricCamera?,
     ) {
         val world = DangoClient.gfx.world
         val f = motion.lyric
@@ -1785,14 +1805,20 @@ class LyricsModule : Module() {
         rx *= reach; ry *= reach; rz *= reach
         val s = 0.03f * scale.value * (distance.value / 6.5f) * reach.toFloat()
         val bottom = if (f === active) stack.last().let { it.center + rowBottom(it.lyric) } else rowBottom(f)
-        val lift = worldStackLift(motion.lift, bottom, motion.slide, s, world.cameraY + ry, floor)
+        fun liftFor(extra: Float, slide: Float): Double {
+            val lift = worldStackLift(extra, bottom, slide, s, world.cameraY + ry, floor)
+            val natural = extra.toDouble() * s
+            if (floorCamera == null || lift <= natural) return lift
+            return natural + floorCamera.limitUpwardLift(rx, ry + natural, rz, lift - natural)
+        }
+        val lift = liftFor(motion.lift, motion.slide)
         val horizontal = sqrt(rx * rx + rz * rz)
         val yaw = if (facePlayer.get() && horizontal > 1e-4) {
             Math.toDegrees(atan2(-rx, rz)).toFloat()
         } else f.yaw
         // Face the settled anchor so the lyric slide itself cannot tilt the stack.
         val facingLift = if (f === active && f.scrollIn > 0f) {
-            worldStackLift(bottom - rowBottom(f), bottom, 0f, s, world.cameraY + ry, floor)
+            liftFor(bottom - rowBottom(f), 0f)
         } else lift
         val pitch = if (facePlayer.get() && len > 1e-4) {
             Math.toDegrees(atan2(-(ry + facingLift), horizontal)).toFloat()
@@ -1816,7 +1842,7 @@ class LyricsModule : Module() {
 
     private fun drawWorld(
         songNow: Long, stack: List<StackRow>, frameNanos: Long, floor: Double?, view: ViewAngles?, multiline: Boolean,
-        motion: StackMotion?, left: LeftStack?,
+        motion: StackMotion?, left: LeftStack?, floorCamera: WorldLyricCamera?,
     ) {
         if (motion == null) return
         val world = DangoClient.gfx.world
@@ -1845,7 +1871,7 @@ class LyricsModule : Module() {
 
         val f = motion.lyric
         if (left != null) pushLeftStack(left, motion)
-        else pushFloatingStack(stack, motion, floor, view, multiline)
+        else pushFloatingStack(stack, motion, floor, view, multiline, floorCamera)
         try {
             if (f === active) {
                 val outgoing = motion.outgoing
