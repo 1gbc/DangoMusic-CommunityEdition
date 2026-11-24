@@ -756,11 +756,10 @@ class LyricsModule : Module() {
         val floor = e.playerEyeY?.minus(GROUND_MARGIN)?.takeIf { aboveGround.get() }
         val motion = if (!useFlash) stackMotion(stack, frameNanos) else null
         val keepFloatingVisible = stayOnScreen.get()
-        fun angles() = gfx.world.cameraAngles().takeIf { it.yaw.isFinite() && it.pitch.isFinite() }
-        val view = if (motion != null) angles() else null
-        val needsSingleProjection = keepFloatingVisible &&
-            (floor != null || view?.let { steepViewWeight(it.pitch) > 0f } == true)
-        val camera = if (motion != null && (count > 1 || needsSingleProjection)) gfx.world.lyricCamera() else null
+        val camera = if (motion != null && (count > 1 || keepFloatingVisible)) gfx.world.lyricCamera() else null
+        val view = if (motion != null) {
+            camera?.angles ?: gfx.world.cameraAngles().takeIf { it.yaw.isFinite() && it.pitch.isFinite() }
+        } else null
         val (lagX, lagY) = leftStackTurn(view.takeIf { count > 1 }, frameNanos)
         val left = if (motion != null && count > 1) {
             camera?.let { leftStack(it, stack, motion, floor, lagX, lagY) }
@@ -1825,9 +1824,9 @@ class LyricsModule : Module() {
         val len = sqrt(rx * rx + ry * ry + rz * rz)
 
         // 离得太近（走过去 / 疾跑）就沿视线方向把歌词往后推，保持最小距离
-        val minD = distance.value * 0.6
-        if (keepAway.get() && len in 1e-4..minD) {
-            val k = minD / len
+        val restingDistance = if (keepAway.get()) max(len, distance.value * 0.6) else len
+        if (len >= 1e-4 && restingDistance > len) {
+            val k = restingDistance / len
             rx *= k; ry *= k; rz *= k
         }
 
@@ -1869,12 +1868,12 @@ class LyricsModule : Module() {
             )
         }
         val guard = if (!multiline && view != null) steepViewWeight(view.pitch) else 0f
-        if (camera != null && guard > 0f) {
+        if (camera != null && !multiline) {
             val margin = 6f
             val halfWidth = rowWidth(f) / 2f + margin
             val top = motion.slide - halfMain(f) - margin
             val fitted = camera.fitFloatingLine(rx, ry + lift, rz, yaw, pitch, s,
-                halfWidth, top, bottom + motion.slide + margin, distance.value * reach.toFloat(),
+                halfWidth, top, bottom + motion.slide + margin, (restingDistance * reach).toFloat(),
                 floor?.minus(world.cameraY)?.toFloat() ?: Float.NaN, guard)
             if (fitted != null) {
                 world.push(fitted)

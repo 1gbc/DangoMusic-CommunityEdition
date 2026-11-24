@@ -14,6 +14,10 @@ import kotlin.math.sqrt
 class WorldLyricCamera internal constructor(view: Matrix4f, private val projection: Matrix4f) {
     private val cameraToWorld = Matrix4f.invert(view, null)
     private val viewProjection = Matrix4f.mul(projection, view, null)
+    internal val angles = ViewAngles.fromViewBack(
+        view.m02.toDouble(), view.m12.toDouble(), view.m22.toDouble(), view.m00.toDouble(), view.m20.toDouble(),
+    )
+
     internal fun place(
         depth: Float, scale: Float, halfWidth: Float, top: Float, bottom: Float, floor: Float, facePlayer: Boolean,
         screenOffsetX: Float = 0f, screenOffsetY: Float = 0f,
@@ -96,10 +100,10 @@ class WorldLyricCamera internal constructor(view: Matrix4f, private val projecti
     /** Fit the rendered single line after the spring, floor lift and block avoidance have run. */
     internal fun fitFloatingLine(
         x: Double, y: Double, z: Double, yaw: Float, pitch: Float, scale: Float,
-        halfWidth: Float, top: Float, bottom: Float, fallbackDepth: Float, floor: Float, strength: Float,
+        halfWidth: Float, top: Float, bottom: Float, referenceDepth: Float, floor: Float, strength: Float,
     ): Matrix4f? {
         val inverse = cameraToWorld ?: return null
-        if (strength <= 0f || projection.m00 <= 0f || projection.m11 <= 0f) return null
+        if (projection.m00 <= 0f || projection.m11 <= 0f || projection.m23 >= 0f) return null
         val anchor = Vector3f(x.toFloat(), y.toFloat(), z.toFloat())
         val center = Matrix4f.transform(viewProjection, Vector4f(anchor.x, anchor.y, anchor.z, 1f), null)
         val yawRad = Math.toRadians(yaw.toDouble())
@@ -115,11 +119,28 @@ class WorldLyricCamera internal constructor(view: Matrix4f, private val projecti
             clipOffset(right, down, -halfWidth, bottom), clipOffset(right, down, halfWidth, bottom),
         )
         val eye = toWorld(inverse, 0f, 0f, 0f)
+        val referenceW = projection.m33 - projection.m23 * referenceDepth
+        if (!center.w.isFinite() || !referenceW.isFinite() || referenceW <= 0f) return null
+
+        // The spring keeps a radial distance, but perspective uses forward depth.
+        // Ease in a depth floor before any corner of the text can rush toward the lens.
+        val nearestW = center.w + corners.minOf { it.w } * scale
+        val band = referenceW * 0.2f
+        val deficit = (referenceW - nearestW).coerceAtLeast(0f)
+        val extraW = if (deficit < band) deficit * deficit / (2f * band) else deficit - band * 0.5f
+        if (extraW > 0f) {
+            val dz = extraW / projection.m23
+            Vector3f.add(anchor, directionInWorld(inverse, 0.0, 0.0, dz.toDouble()), anchor)
+            val clipShift = Matrix4f.transform(projection, Vector4f(0f, 0f, dz, 0f), null)
+            Vector4f.add(center, clipShift, center)
+        }
+        if (strength <= 0f) {
+            return if (extraW > 0f) WorldLyricPose(anchor, eye, right, down, scale).transform(0f, 0f, 1f) else null
+        }
+
         fun fallback(): Matrix4f? {
-            // When the old plane is too close or behind the camera, put a readable
-            // plane along the nearest screen edge instead of jumping to the left.
-            val depthW = projection.m33 - projection.m23 * fallbackDepth
-            if (!depthW.isFinite() || depthW <= 0f) return null
+            // If the tilted text is too wide to fit, use a front-facing plane.
+            val depthW = referenceW
             val edge = 0.98f * depthW
             val size = minOf(scale, edge * 0.999f / (halfWidth * projection.m00),
                 1.998f * edge / ((bottom - top) * projection.m11))
@@ -129,9 +150,9 @@ class WorldLyricCamera internal constructor(view: Matrix4f, private val projecti
             val targetScale = depthW / abs(center.w).coerceAtLeast(0.05f)
             val targetX = (center.x * targetScale).coerceIn(-edge + xMargin, edge - xMargin)
             val targetY = (center.y * targetScale).coerceIn(lowY, highY)
-            val cameraX = (targetX + projection.m20 * fallbackDepth - projection.m30) / projection.m00
-            val centerY = (targetY + projection.m21 * fallbackDepth - projection.m31) / projection.m11
-            val position = toWorld(inverse, cameraX, centerY, -fallbackDepth)
+            val cameraX = (targetX + projection.m20 * referenceDepth - projection.m30) / projection.m00
+            val centerY = (targetY + projection.m21 * referenceDepth - projection.m31) / projection.m11
+            val position = toWorld(inverse, cameraX, centerY, -referenceDepth)
             val cameraRight = directionInWorld(inverse, 1.0, 0.0, 0.0)
             val cameraDown = directionInWorld(inverse, 0.0, -1.0, 0.0)
             val cameraUpY = inverse.m11 / projection.m11
@@ -170,7 +191,7 @@ class WorldLyricCamera internal constructor(view: Matrix4f, private val projecti
         if (minX > maxX || minY > maxY) return fallback()
         val dx = 0f.coerceIn(minX, maxX)
         val dy = 0f.coerceIn(minY, maxY)
-        if (dx == 0f && dy == 0f) return null
+        if (dx == 0f && dy == 0f && extraW == 0f) return null
 
         val shift = directionInWorld(inverse, (dx * strength / projection.m00).toDouble(),
             (dy * strength / projection.m11).toDouble(), 0.0)

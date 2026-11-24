@@ -37,7 +37,8 @@ public class WorldLyricCameraCheck {
         }
         Object camera = cameraType.getConstructor(Matrix4f.class, Matrix4f.class).newInstance(view, projection);
         var place = Arrays.stream(cameraType.getMethods())
-                .filter(method -> method.getName().startsWith("place$")).findFirst().orElseThrow();
+                .filter(method -> method.getName().startsWith("place$") && method.getParameterCount() == 9)
+                .findFirst().orElseThrow();
         Object pose = place.invoke(camera, 10f, 0.1f, width, top, bottom, floor, facePlayer, offsetX, offsetY);
         if (pose == null) throw new AssertionError("A valid camera must place the lyrics");
 
@@ -95,7 +96,8 @@ public class WorldLyricCameraCheck {
 
         Class<?> camera = Class.forName("dangomusicce.gfx.WorldLyricCamera");
         Object instance = camera.getConstructor(Matrix4f.class, Matrix4f.class).newInstance(view, projection);
-        var place = Arrays.stream(camera.getMethods()).filter(m -> m.getName().startsWith("place$")).findFirst().orElseThrow();
+        var place = Arrays.stream(camera.getMethods())
+                .filter(m -> m.getName().startsWith("place$") && m.getParameterCount() == 9).findFirst().orElseThrow();
         Object pose = place.invoke(instance, 10f, 0.1f, 25f, -18f, 24f, Float.NaN, tilted, 0f, 0f);
         var point = pose.getClass().getMethod("point", float.class, float.class, float.class);
         Vector3f center = (Vector3f) point.invoke(pose, 0f, 0f, 1f);
@@ -213,13 +215,70 @@ public class WorldLyricCameraCheck {
         }
     }
 
+    private static void checkFloatingSizeDuringTurn(float top, float bottom, float reach) throws Exception {
+        Matrix4f projection = new Matrix4f();
+        projection.m11 = 1.73f;
+        projection.m00 = projection.m11 / (16f / 9f);
+        projection.m22 = -1.0003f;
+        projection.m23 = -1f;
+        projection.m32 = -0.10f;
+        projection.m33 = 0f;
+        var type = Class.forName("dangomusicce.gfx.WorldLyricCamera");
+        var fit = Arrays.stream(type.getMethods()).filter(m -> m.getName().startsWith("fitFloatingLine$"))
+                .findFirst().orElseThrow();
+        float distance = 10f * reach;
+        float scale = 0.046f * reach;
+        float halfWidth = 80f;
+        float restWidth = 2 * halfWidth * scale * projection.m00 / distance;
+        float previousWidth = restWidth;
+        for (int frame = 0; frame <= 180; frame++) {
+            // The spring can lag behind a quick pitch reversal by several rendered frames.
+            float pitch = frame <= 90 ? frame : 180 - frame;
+            float guard = Math.max(0f, Math.min(1f, (pitch - 60f) / 20f));
+            guard = guard * guard * (3f - 2f * guard);
+            Matrix4f view = new Matrix4f().rotate((float)Math.toRadians(pitch), new Vector3f(1, 0, 0))
+                    .rotate((float)Math.PI, new Vector3f(0, 1, 0));
+            Object camera = type.getConstructor(Matrix4f.class, Matrix4f.class).newInstance(view, projection);
+            Matrix4f pose = (Matrix4f)fit.invoke(camera, 0.0, 0.0, (double)distance, 0f, 0f, scale,
+                    halfWidth, top, bottom, distance, Float.NaN, guard);
+            if (pose == null) {
+                pose = new Matrix4f();
+                pose.m00 = -scale;
+                pose.m11 = -scale;
+                pose.m32 = distance;
+            }
+            Matrix4f clip = Matrix4f.mul(projection, Matrix4f.mul(view, pose, null), null);
+            for (float row : new float[]{top, (top + bottom) / 2f, bottom}) {
+                Vector4f left = Matrix4f.transform(clip, new Vector4f(-halfWidth, row, 0f, 1f), null);
+                Vector4f right = Matrix4f.transform(clip, new Vector4f(halfWidth, row, 0f, 1f), null);
+                float width = Math.abs(right.x / right.w - left.x / left.w);
+                if (left.w <= 0f || right.w <= 0f || !Float.isFinite(width) || width > restWidth / 0.899f) {
+                    throw new AssertionError("3D lyrics grew too large while turning: pitch " + pitch + ", width " + width);
+                }
+                if (guard == 1f && (Math.abs(left.y / left.w) > 0.981f || Math.abs(left.x / left.w) > 0.981f ||
+                        Math.abs(right.x / right.w) > 0.981f)) {
+                    throw new AssertionError("3D lyrics left the viewport at steep pitch " + pitch);
+                }
+                if (row == (top + bottom) / 2f) {
+                    if (Math.abs(width - previousWidth) > restWidth * 0.025f) {
+                        throw new AssertionError("3D lyric size jumped between frames at pitch " + pitch);
+                    }
+                    previousWidth = width;
+                }
+            }
+        }
+    }
+
     public static void main(String[] args) throws Exception {
         checkFixedTilt();
         checkFloatingLine(0f, 0f, 70f, 1f, false);
-        checkFloatingLine(52f, 0f, 48f, 0f, false);
+        checkFloatingLine(52f, 52f, 48f, 0f, false);
         checkFloatingLine(90f, 0f, 70f, 1f, true);
         checkFloatingLine(90f, 59f, 48f, 1f, true);
         checkFloatingLine(-90f, 0f, 70f, 1f, true);
+        checkFloatingSizeDuringTurn(-11f, 17f, 1f);
+        checkFloatingSizeDuringTurn(-33f, 35f, 1f);
+        checkFloatingSizeDuringTurn(-33f, 35f, 0.35f);
         checkTurnLag();
         check(30, 0, 8, 16f / 9, 70, 20, -18, 24, Float.NaN, true, false, 0.13f, 0.17f);
         check(88, -117, -8, 9f / 16, 42, 85, -130, 60, Float.NaN, false, true, -0.16f, -0.20f);
