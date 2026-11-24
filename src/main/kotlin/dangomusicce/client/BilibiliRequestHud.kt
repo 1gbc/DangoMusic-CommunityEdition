@@ -138,7 +138,10 @@ internal object BilibiliRequestHud {
     private val classic = Look("#401F2D", "#E6668B", 8f, 0f, classicLock(true), classicLock(false))
     private val apple = Look("#233B4C", "#74C7F0", 12f, 6f, appleLock(true), appleLock(false))
 
-    private val text = MixedText().apply { useNotoSansSc = true }
+    private val text = MixedText().apply {
+        useNotoSansSc = true
+        hudTextShadow = true
+    }
     private val gesture = RequestQueueGesture()
     private val rowPositions = mutableMapOf<Long, Float>()
     private var lifted: LiftedRow? = null
@@ -325,7 +328,8 @@ internal object BilibiliRequestHud {
         try {
             val radius = if (module.requestHudSmallCorners.get()) 5f else look.panel.radius
             backdrop.draw(layout.panel, look.panel.copy(radius = radius), background, playback.track, alpha = 0.94f)
-            header(ctx, layout, look, mc.session.username, layout.lock.containsPoint(mouseX, mouseY))
+            header(ctx, layout, look, mc.session.username, interactive && layout.panel.containsPoint(mouseX, mouseY),
+                layout.lock.containsPoint(mouseX, mouseY))
             nowPlaying(ctx, layout, playback)
             queue(ctx, layout, look, entries, hover)
             drawNotices(ctx, layout, look, notices, now, interactive, mouseX, mouseY)
@@ -348,7 +352,7 @@ internal object BilibiliRequestHud {
         }
     }
 
-    private fun header(ctx: GuiCanvas, layout: Layout, look: Look, player: String, lockHovered: Boolean) {
+    private fun header(ctx: GuiCanvas, layout: Layout, look: Look, player: String, showLock: Boolean, lockHovered: Boolean) {
         val left = layout.rows.x
         val y = layout.panel.y + 17f * layout.lineScale
         val titleSize = 14f * layout.textScale
@@ -367,6 +371,7 @@ internal object BilibiliRequestHud {
         }
         dot(ctx, nameX - 9f, y, color)
         text.text(ctx, name, nameX, y - nameSize * 0.43f, nameSize, primaryText)
+        if (!showLock) return
         val locked = module.requestHudLocked.get()
         if (lockHovered) {
             ctx.drawShape(layout.lock, ShapeStyle(look.accent.copy(a = 0.17f), look.panel.radius / 2f))
@@ -620,14 +625,18 @@ internal object BilibiliRequestHud {
                         }
                     }
                     ctx.drawShape(LayoutBounds(controls.copy.left, chip.y + 3f, 1f, chip.height - 6f),
-                        ShapeStyle(Theme.HAIRLINE))
+                        ShapeStyle(primaryText.copy(a = 0.35f)))
                     val centerY = chip.y + chip.height / 2f
                     PlayerIcons.draw(ctx, enqueueIcon, chip.x + ADD_SEGMENT_WIDTH / 2f, centerY, 13f, addColor)
                     PlayerIcons.draw(ctx, copyIcon, controls.copy.x + 11f, centerY, 13f, copyColor)
                     val displayed = when (feedback?.success) {
                         true -> I18n.text("Command copied")
                         false -> I18n.text("Copy failed")
-                        null -> key.command
+                        null -> when (hover) {
+                            CommandAction.ENQUEUE -> I18n.text("Add to queue")
+                            CommandAction.COPY -> I18n.text("Copy command")
+                            null -> key.command
+                        }
                     }
                     text.text(ctx, text.trim(label, chip.x - x - 6f, size), x, top, size, primaryText)
                     text.text(ctx, text.trim(displayed, controls.copy.width - 24f, size, Theme.FONT_SEMIBOLD),

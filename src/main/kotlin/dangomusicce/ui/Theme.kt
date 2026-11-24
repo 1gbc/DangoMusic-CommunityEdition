@@ -24,16 +24,16 @@ object Theme {
     // ---- 颜色（iOS 深色模式系统色） ----
     val TEXT_PRIMARY = Color(1f, 1f, 1f, 0.96f)
     val TEXT_SECONDARY = Color(0.92f, 0.92f, 0.96f, 0.62f)
-    val TEXT_TERTIARY = Color(0.92f, 0.92f, 0.96f, 0.38f)
+    val TEXT_TERTIARY = Color(0.92f, 0.92f, 0.96f, 0.54f)
 
     val ACCENT = Color.fromHex("#0A84FF")
     val GREEN = Color.fromHex("#30D158")
     val SWITCH_OFF = Color(0.47f, 0.47f, 0.50f, 0.36f)
     val TRACK = Color(0.47f, 0.47f, 0.50f, 0.30f)
 
-    val CARD = Color(1f, 1f, 1f, 0.055f)
+    val CARD = Color(1f, 1f, 1f, 0.070f)
     val CARD_HOVER = Color(1f, 1f, 1f, 0.085f)
-    val HAIRLINE = Color(1f, 1f, 1f, 0.08f)
+    val HAIRLINE = Color(1f, 1f, 1f, 0.13f)
     val SEPARATOR = Color(1f, 1f, 1f, 0.07f)
 
     val ICON_DISABLED = Color(0.38f, 0.38f, 0.42f, 1f)

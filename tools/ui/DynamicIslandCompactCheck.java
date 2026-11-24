@@ -46,7 +46,7 @@ public class DynamicIslandCompactCheck {
             switch(m.getName()) {
                 case "drawShape": shapes.add((LayoutBounds)a[0]); shapeRadii.add(((ShapeStyle)a[1]).getRadius()); break;
                 case "drawGlass": shell.add((LayoutBounds)a[0]); radii.add(((GlassStyle)a[1]).getRadius()); break;
-                case "drawText": texts.add((String)a[0]); textXs.add((float)a[1]); textClips.add(clipStack.peek());
+                case "drawText": if (((FontStyle)a[3]).getColor().getR() == 0f) break; texts.add((String)a[0]); textXs.add((float)a[1]); textClips.add(clipStack.peek());
                     titleSizes.add(((FontStyle)a[3]).getFontSize() * renderScale[0]);
                     fonts.add(((FontStyle)a[3]).getFont()); break;
                 case "pushScale": renderScale[0]=(float)a[0]; break;
@@ -60,7 +60,7 @@ public class DynamicIslandCompactCheck {
             return switch(m.getName()) {
                 case "newCanvas" -> canvas;
                 case "drawCjkRuns" -> {
-                    for (Object run : (List<?>)a[0]) cjkRuns.add((CjkRun)run);
+                    for (Object run : (List<?>)a[0]) { if (((CjkRun)run).getR() != 0f) cjkRuns.add((CjkRun)run); }
                     yield null;
                 }
                 case "uiTextWidth", "cjkWidth" -> ((String)a[0]).length() * (float)a[1] * .58f;

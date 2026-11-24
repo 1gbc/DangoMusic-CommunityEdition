@@ -49,11 +49,14 @@ void main() {
     vec3 c = clamp(m.rgb / m.a, 0.0, 1.0);
     vec3 bg = texture2D(scene, uv).rgb;
     float lc = luma(c);
-    float d = max(length(c - bg) * 0.7, abs(lc - luma(bg)) * 1.6);
-    float sim = 1.0 - smoothstep(0.18, 0.42, d);
+    float backgroundLuma = luma(bg);
+    float difference = abs(lc - backgroundLuma);
+    // Saturated scenery can still be close to the text in luminance.
+    float chromaDifference = length(c - bg) * 0.25;
+    float sim = 1.0 - smoothstep(0.13, 0.42, max(chromaDifference, difference));
     // 阴影、描边（很暗）不动
     sim *= smoothstep(0.08, 0.16, lc);
-    vec3 target = luma(bg) > 0.45 ? c * 0.22 : mix(c, vec3(1.0), 0.75);
+    vec3 target = backgroundLuma > 0.45 ? c * 0.15 : mix(c, vec3(1.0), 0.86);
     vec3 outc = mix(c, target, sim);
     gl_FragColor = vec4(outc * m.a, m.a);
 }

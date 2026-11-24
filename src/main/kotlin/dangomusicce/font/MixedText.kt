@@ -82,8 +82,15 @@ class MixedText {
         return w
     }
 
+    var hudTextShadow = false
+
     fun text(ctx: RenderContext, s: String, x: Float, y: Float, size: Float, color: Color, font: String = Theme.FONT_REGULAR) {
         if (s.isEmpty()) return
+        if (hudTextShadow) drawText(ctx, s, x + 0.55f, y + 0.75f, size, Color.BLACK.copy(a = color.a * 0.37f), font)
+        drawText(ctx, s, x, y, size, color, font)
+    }
+
+    private fun drawText(ctx: RenderContext, s: String, x: Float, y: Float, size: Float, color: Color, font: String) {
         val opacity = ctx.getOpacity()
         fullFontStyle(font)?.let { renderStyle ->
             runs += CjkRun(s, x + shiftX, y + size * BASELINE + shiftY, size * CJK_SCALE,

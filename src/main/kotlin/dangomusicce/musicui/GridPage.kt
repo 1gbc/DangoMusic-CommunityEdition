@@ -75,7 +75,7 @@ internal class GridPage(private val screen: MusicScreen) {
         val liked = Library.playlists.firstOrNull(Library::canPlayHeartMode)
         val featured = personal + listOfNotNull(liked)
         val recommended = items.filterNot { it.id == NeteaseApi.DAILY_ID || it.id == NeteaseApi.FM_ID }
-        val columns = ((area.width + 16f) / 138f).toInt().coerceIn(1, 6)
+        val columns = ((area.width + 16f) / 138f).toInt().coerceIn(1, 8)
         val width = (area.width - (columns - 1) * 16f) / columns
         var offset = 0f
         ui.beginClip(area)

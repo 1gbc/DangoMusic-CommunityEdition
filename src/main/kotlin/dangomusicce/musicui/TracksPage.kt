@@ -884,7 +884,7 @@ internal class TracksPage(private val screen: MusicScreen) {
                     if (selectOnly) {
                         val thumb = trackThumbnail(row)
                         val coverHit = thumb.intersect(clipArea)
-                        val showControl = if (queuePage) ui.hover(coverHit) && queueDrag.liftedRow < 0 else hovered
+                        val showControl = if (queuePage) hovered && queueDrag.liftedRow < 0 else hovered
                         if (showControl) ui.drawTrackCoverControl(thumb, 6f, 16f,
                             isCur && MusicPlayer.state == MusicPlayer.State.PLAYING)
                         if (!queuePage || showControl) ui.hits += coverHit to playCover
@@ -976,7 +976,7 @@ internal class TracksPage(private val screen: MusicScreen) {
         val queueRow = ScreenState.page == Page.QUEUE
         val coverHovered = ui.hover(coverHit) && (!queueRow || queueDrag.liftedRow < 0)
         if (play != null) {
-            if (queueRow && coverHovered) ui.drawTrackCoverControl(thumb, coverRadius, 14f, playing)
+            if (queueRow && hovered && queueDrag.liftedRow < 0) ui.drawTrackCoverControl(thumb, coverRadius, 14f, playing)
             else if (playing || !queueRow && hovered) {
                 ui.card(thumb, Color.BLACK.copy(a = if (hovered) 0.34f else 0.46f), coverRadius)
                 val cx = thumb.x + 12f
@@ -984,7 +984,7 @@ internal class TracksPage(private val screen: MusicScreen) {
                 else PlayerIcons.draw(ui.ctx, if (playing) AppleLyricsIcons.pause else AppleLyricsIcons.play,
                     cx, thumb.y + 12f, 14f, Theme.TEXT_PRIMARY)
             }
-            if (coverHit.height > 0f && (!queueRow || coverHovered)) ui.hits += coverHit to play
+            if (coverHit.height > 0f && (!queueRow || hovered && queueDrag.liftedRow < 0)) ui.hits += coverHit to play
         }
         val x = thumb.right + 9f
         val songW = (columns.artist ?: columns.timeStart) - x - 8f

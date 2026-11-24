@@ -123,12 +123,15 @@ void main() {
     vec2 uv = gl_FragCoord.xy / screen;
     vec4 m = texture2D(mask, uv);
     float cov = m.a;
+    vec3 behind = texture2D(soft, uv).rgb;
+    float shadowMask = texture2D(d0, uv + vec2(-0.75, 1.0) / screen).a;
+    float shadow = shadowMask * opacity * mix(0.10, 0.54, smoothstep(0.22, 0.68, luma(behind)));
     vec3 energy = texture2D(halo, uv).rgb * haloAmt;
-    if (cov < 0.003 && energy.r + energy.g + energy.b < 0.003) discard;
+    if (cov < 0.003 && shadow < 0.003 && energy.r + energy.g + energy.b < 0.003) discard;
     vec3 g = vec3(1.0) - exp(-energy);
     g = floor(g * 255.0 + rand(gl_FragCoord.xy)) / 255.0;
     if (cov < 0.003) {
-        gl_FragColor = vec4(g, 0.0);
+        gl_FragColor = vec4(g * (1.0 - shadow), shadow);
         return;
     }
 
@@ -151,16 +154,16 @@ void main() {
     vec3 lightC = (inner + rim) * brightness;
     float bgDim = 0.78;
     if (contrast > 0.5) {
-        vec3 behind = texture2D(soft, uv).rgb;
         lightC = separate(lightC + bg * 0.3, behind) - bg * 0.3;
         bgDim = mix(0.78, 0.5, smoothstep(0.55, 0.85, luma(behind)));
     }
     vec3 glassC = bg * bgDim + max(lightC, vec3(0.0));
     vec3 solidC = mix(vec3(1.0), hue, tintText) * (0.35 + 0.65 * lit) * brightness + inner * 0.4;
     vec3 body = mix(glassC, solidC, solid);
-    if (contrast > 0.5 && solid > 0.5) body = separate(body, texture2D(soft, uv).rgb);
+    if (contrast > 0.5 && solid > 0.5) body = separate(body, behind);
     float a = cov * opacity;
-    gl_FragColor = vec4(body * a + g * (1.0 - a), a);
+    float combined = a + shadow * (1.0 - a);
+    gl_FragColor = vec4(body * a + g * (1.0 - combined), combined);
 }
 """
     }

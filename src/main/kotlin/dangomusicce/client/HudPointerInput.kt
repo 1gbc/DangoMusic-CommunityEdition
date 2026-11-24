@@ -80,6 +80,7 @@ internal object HudPointerInput {
 
         private fun pointAt(x: Int, y: Int, onRequest: Boolean, islandVisible: Boolean): Boolean {
             val onIsland = islandVisible && !onRequest && island.playerCardAt(x, y)
+            island.updateIslandHover(x, y, islandVisible && !onRequest)
             island.updatePlayerCardPointer(x, y, onIsland)
             if (onRequest || onIsland) lyrics.cockpitPointerMove(-1, -1) else lyrics.cockpitPointerMove(x, y)
             return onIsland
@@ -135,6 +136,7 @@ internal object HudPointerInput {
                         Gesture.REQUEST
                     }
                     onIsland && island.pressPlayerCard(x, y) -> Gesture.PLAYER_CARD
+                    islandVisible && island.clickIslandLock(x, y) -> null
                     islandVisible && island.beginPointerDrag(x, y) -> Gesture.ISLAND_DRAG
                     onIsland -> null
                     lyrics.cockpitPointerPress(x, y) -> Gesture.LYRICS

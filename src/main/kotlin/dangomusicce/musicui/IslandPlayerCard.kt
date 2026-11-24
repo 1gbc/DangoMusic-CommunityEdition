@@ -13,32 +13,45 @@ import dangomusicce.ui.LayoutBounds
 import dangomusicce.ui.ShapeStyle
 import dangomusicce.ui.Theme
 import dangomusicce.ui.Vec2
+import dangomusicce.ui.VectorIcon
 import dangomusicce.utils.Color
 import kotlin.math.abs
 import kotlin.math.exp
 
 internal class IslandPlayerCard {
-    private enum class Control { PREVIOUS, PLAY_PAUSE, NEXT, VOLUME, PROGRESS }
+    private enum class Control { PREVIOUS, PLAY_PAUSE, NEXT, VOLUME, PROGRESS, LOCK, VOLUME_SLIDER }
 
-    private class Layout(val card: LayoutBounds, rows: Int) {
-        private val coverSize = (card.height - 14f).coerceIn(0f, 57f)
-        val cover = LayoutBounds(card.x + 7f, card.y + (card.height - coverSize) / 2f, coverSize, coverSize)
+    private class Layout(val card: LayoutBounds, val expanded: Boolean, viewportHeight: Float) {
+        private val coverSize = if (expanded) 39f else 22f
+        val cover = LayoutBounds(card.x + 8f, card.y + if (expanded) 10f else 5f, coverSize, coverSize)
         private val textX = cover.right + 9f
-        private val controlX = card.right - 7f - BUTTON_SIZE * 4f
-        private val controlY = card.y + (card.height - BUTTON_SIZE - 8f) / 2f
-        private val textWidth = (controlX - 6f - textX).coerceAtLeast(0f)
-        val progress = LayoutBounds(textX, card.bottom - 9f, (card.right - 10f - textX).coerceAtLeast(0f), 2.5f)
-        val progressHit = progress.expand(0f, 4f)
-        val title = LayoutBounds(textX, card.y + 5f, textWidth, ROW_HEIGHT)
-        val lyrics = LayoutBounds(textX, title.bottom + 2f, textWidth,
-            (progressHit.y - title.bottom - 2f).coerceIn(0f, rows * ROW_HEIGHT))
-
-        fun button(control: Control) = LayoutBounds(
-            controlX + control.ordinal * BUTTON_SIZE, controlY, BUTTON_SIZE, BUTTON_SIZE,
+        private val textWidth = (card.right - 14f - textX).coerceAtLeast(0f)
+        val title = LayoutBounds(textX, card.y + 9f, textWidth - 20f, 13f)
+        val subtitle = title.copy(y = title.bottom + 1f)
+        val lyrics = LayoutBounds(textX, card.y + if (expanded) 39f else 5f, textWidth, 13f)
+        val progress = LayoutBounds(textX + if (expanded) 29f else 0f,
+            card.y + if (expanded) 60f else 22f, (textWidth - if (expanded) 58f else 0f).coerceAtLeast(0f), 2.5f)
+        val progressHit = progress.expand(0f, 5f)
+        val lock = LayoutBounds(card.right - 32f, card.y + 4f, 23f, 22f)
+        private val controlsX = card.x + (card.width - BUTTON_SIZE * 4) / 2f
+        fun button(control: Control) = LayoutBounds(controlsX + control.ordinal * BUTTON_SIZE, card.y + 68f, BUTTON_SIZE, BUTTON_SIZE)
+        private val volume = button(Control.VOLUME)
+        val popup = LayoutBounds(
+            (volume.x - 55f).coerceIn(card.x, card.right - 126f),
+            if (card.bottom + 28f <= viewportHeight) card.bottom + 3f else card.y - 27f,
+            126f, 24f,
         )
+        val volumeTrack = LayoutBounds(popup.x + 36f, popup.y + popup.height / 2f - 1.5f, popup.width - 61f, 3f)
+        val mute = LayoutBounds(popup.right - 23f, popup.y, 21f, popup.height)
+        val volumeBridge = LayoutBounds(popup.x, minOf(popup.y, volume.y), popup.width,
+            maxOf(popup.bottom, volume.bottom) - minOf(popup.y, volume.y))
 
-        fun controlAt(x: Float, y: Float): Control? {
+        fun controlAt(x: Float, y: Float, volumeOpen: Boolean): Control? {
+            if (!expanded) return null
+            if (volumeOpen && mute.has(x, y)) return Control.VOLUME
+            if (volumeOpen && volumeTrack.expand(4f, 9f).has(x, y)) return Control.VOLUME_SLIDER
             if (!card.has(x, y)) return null
+            if (lock.has(x, y)) return Control.LOCK
             if (progressHit.has(x, y)) return Control.PROGRESS
             return buttons.firstOrNull { button(it).has(x, y) }
         }
@@ -49,8 +62,10 @@ internal class IslandPlayerCard {
     }
 
     private data class Frame(val layout: Layout, val scale: Float, val track: Track) {
-        fun contains(x: Int, y: Int) = layout.card.has(x / scale, y / scale)
-        fun target(x: Int, y: Int) = layout.controlAt(x / scale, y / scale)
+        fun contains(x: Int, y: Int, volumeOpen: Boolean) = layout.card.has(x / scale, y / scale) ||
+            volumeOpen && layout.volumeBridge.has(x / scale, y / scale)
+        fun target(x: Int, y: Int, volumeOpen: Boolean) = layout.controlAt(x / scale, y / scale, volumeOpen)
+        fun volumeAt(x: Int) = (x / scale - layout.volumeTrack.x) / layout.volumeTrack.width
         fun fraction(x: Int) = ((x / scale - layout.progress.x) / layout.progress.width).coerceIn(0f, 1f)
     }
 
@@ -72,15 +87,20 @@ internal class IslandPlayerCard {
     private var lyrics: List<LyricLine>? = null
     private var lyricIndex = -1
     private var lyricSince = 0L
-    private var lyricShift = 0f
+    private var volumeOpen = false
 
     fun pointerAt(x: Int, y: Int, available: Boolean) {
         pointer = if (available) Vec2(x.toFloat(), y.toFloat()) else null
+        val current = frame
+        volumeOpen = available && current != null && (press?.control == Control.VOLUME_SLIDER ||
+            current.target(x, y, false) == Control.VOLUME ||
+            volumeOpen && current.layout.volumeBridge.has(x / current.scale, y / current.scale))
     }
 
     fun clearPointer() {
         pointer = null
         press = null
+        volumeOpen = false
         buttonHover.fill(0f)
         buttonDepth.fill(0f)
     }
@@ -91,26 +111,26 @@ internal class IslandPlayerCard {
         track = null
         lyrics = null
         lyricIndex = -1
-        lyricShift = 0f
     }
 
-    fun contains(x: Int, y: Int) = frame?.contains(x, y) == true
+    fun contains(x: Int, y: Int) = frame?.contains(x, y, volumeOpen) == true
 
     fun canStartDrag(x: Int, y: Int): Boolean {
         val current = frame ?: return false
         val px = x / current.scale
         val py = y / current.scale
-        return current.layout.card.has(px, py) && current.target(x, y) == null &&
+        return current.layout.card.has(px, py) && current.target(x, y, volumeOpen) == null &&
             !current.layout.title.has(px, py) && !current.layout.lyrics.has(px, py)
     }
 
     fun mouseDown(x: Int, y: Int): Boolean {
         val current = frame ?: return false
-        val target = current.target(x, y) ?: return false
+        val target = current.target(x, y, volumeOpen) ?: return false
         val snap = PlaybackView.snapshot()
         if (current.track.matches(snap) && enabled(target, snap)) {
             press = Press(target, current.track).also {
                 if (target == Control.PROGRESS) it.progress = current.fraction(x)
+                if (target == Control.VOLUME_SLIDER) applyVolume(current.volumeAt(x))
             }
         }
         return true
@@ -119,16 +139,25 @@ internal class IslandPlayerCard {
     fun mouseDrag(x: Int) {
         val active = press ?: return
         val current = frame ?: return
+        if (active.control == Control.VOLUME_SLIDER && active.track == current.track) applyVolume(current.volumeAt(x))
         if (active.progress != null && active.track == current.track) active.progress = current.fraction(x)
     }
 
-    fun mouseUp(x: Int, y: Int, available: Boolean) {
+    fun mouseUp(x: Int, y: Int, available: Boolean, toggleLock: () -> Unit) {
         val active = press ?: return
         press = null
         val current = frame ?: return
         if (!available || current.track != active.track) return
         val snap = PlaybackView.snapshot()
         if (!active.track.matches(snap) || !enabled(active.control, snap)) return
+        if (active.control == Control.VOLUME_SLIDER) {
+            applyVolume(current.volumeAt(x))
+            return
+        }
+        if (active.control == Control.LOCK && current.target(x, y, volumeOpen) == Control.LOCK) {
+            toggleLock()
+            return
+        }
         if (active.control == Control.PROGRESS) {
             val fraction = current.fraction(x)
             songProgress = fraction
@@ -138,7 +167,7 @@ internal class IslandPlayerCard {
                     PlaybackView.seek((latest.durationMs * fraction.toDouble()).toLong())
                 }
             }
-        } else if (current.target(x, y) == active.control) {
+        } else if (current.target(x, y, volumeOpen) == active.control) {
             if (active.control == Control.VOLUME) {
                 val volume = MusicPlayer.volume
                 applyVolume(if (volume > 0f) 0f else lastVolume)
@@ -160,7 +189,8 @@ internal class IslandPlayerCard {
 
     fun scroll(x: Int, y: Int, wheel: Int) {
         val current = frame ?: return
-        if (current.target(x, y) != Control.VOLUME || !current.track.matches(PlaybackView.snapshot())) return
+        val target = current.target(x, y, volumeOpen)
+        if ((target != Control.VOLUME && target != Control.VOLUME_SLIDER) || !current.track.matches(PlaybackView.snapshot())) return
         val steps = (wheel / 120f).let { if (abs(it) < 1f) Math.signum(it) else it }
         applyVolume(MusicPlayer.volume + 0.05f * steps)
     }
@@ -173,12 +203,13 @@ internal class IslandPlayerCard {
     }
 
     fun draw(
-        ctx: GuiCanvas, mt: MixedText, bounds: LayoutBounds, scale: Float, rows: Int,
-        snap: PlaybackView.Snapshot, lyricModule: LyricsModule, now: Long, dt: Float, interactive: Boolean,
+        ctx: GuiCanvas, mt: MixedText, bounds: LayoutBounds, scale: Float, expanded: Boolean, viewportHeight: Float,
+        snap: PlaybackView.Snapshot, lyricModule: LyricsModule, now: Long, dt: Float, locked: Boolean,
     ) {
         val song = snap.track ?: return hide()
-        if (bounds.width < 190f || bounds.height < 32f) return hide()
-        val layout = Layout(bounds, rows)
+        if (bounds.width < 126f || bounds.height < 29f) return hide()
+        val interactive = expanded && bounds.height >= 92f
+        val layout = Layout(bounds, interactive, viewportHeight)
         val identity = Track(song.key, snap.remote)
         frame = if (interactive) Frame(layout, scale, identity) else null
         if (!interactive || press?.track != identity) press = null
@@ -194,62 +225,64 @@ internal class IslandPlayerCard {
         if (cover != null) ctx.drawRoundedImage(layout.cover, cover, radius)
         else ctx.drawShape(layout.cover, ShapeStyle(Theme.TRACK, radius))
 
-        val metadata = listOf(song.name, song.artists.joinToString(" / ")).filter { it.isNotBlank() }
-            .joinToString(" · ").replace('\r', ' ').replace('\n', ' ')
-        if (changed || title != metadata) {
-            title = metadata
-            titleSince = now
+        if (interactive) {
+            if (changed || title != song.name) {
+                title = song.name
+                titleSince = now
+            }
+            drawLine(ctx, mt, song.name, layout.title, layout.title.y, 11f, Theme.TEXT_PRIMARY,
+                Theme.FONT_SEMIBOLD, (now - titleSince) / 1e9)
+            val credits = (song.artists + listOfNotNull(song.albumName)).filter(String::isNotBlank).joinToString(" · ")
+            drawLine(ctx, mt, credits, layout.subtitle, layout.subtitle.y, 9.5f, Theme.TEXT_SECONDARY, Theme.FONT_REGULAR)
         }
-        drawLine(ctx, mt, metadata, layout.title, layout.title.y + 1f, 11f, Theme.TEXT_PRIMARY,
-            Theme.FONT_SEMIBOLD, (now - titleSince) / 1e9)
 
         val sheet = lyricModule.playerLyrics(song)
         val lines = sheet?.lines
         val index = sheet?.indexAt(snap.positionMs) ?: -1
-        if (changed || lyrics !== lines) {
-            lyricIndex = -1
-            lyricShift = 0f
-        }
-        lyrics = lines
-        drawLyrics(ctx, mt, layout.lyrics, rows, lines, index, lyricModule.isLoadingLyrics(song), now, dt)
-        drawProgress(ctx, layout.progress, press?.progress ?: songProgress, enabled(Control.PROGRESS, snap))
-        drawControls(ctx, layout, snap, dt)
-    }
-
-    private fun drawLyrics(
-        ctx: GuiCanvas, mt: MixedText, area: LayoutBounds, rows: Int, lines: List<LyricLine>?,
-        index: Int, loading: Boolean, now: Long, dt: Float,
-    ) {
-        lyricShift = approach(lyricShift, 0f, dt, 15f)
-        if (index != lyricIndex) {
-            val difference = index - lyricIndex
-            lyricShift = if (rows > 1 && index >= 0 && lyricIndex >= 0 && abs(difference) == 1) {
-                (lyricShift + difference * ROW_HEIGHT).coerceIn(-ROW_HEIGHT, ROW_HEIGHT)
-            } else 0f
+        if (changed || lyrics !== lines || index != lyricIndex) {
             lyricIndex = index
             lyricSince = now
         }
-        if (area.height <= 0f || area.width <= 0f) return
-        if (lines.isNullOrEmpty()) {
-            val label = I18n.text(if (loading) "Loading lyrics..." else "No lyrics available")
-            drawLine(ctx, mt, label, area, area.y, 10f, Theme.TEXT_SECONDARY, Theme.FONT_REGULAR)
-            return
+        lyrics = lines
+        val line = lines?.getOrNull(index)?.text
+        val label = line ?: when {
+            lyricModule.isLoadingLyrics(song) -> I18n.text("Loading lyrics...")
+            lines.isNullOrEmpty() -> I18n.text("No lyrics available")
+            else -> ""
         }
-        if (index < 0) return
-        if (rows == 1) {
-            drawLine(ctx, mt, lines[index].text, area, area.y, 10.5f, Theme.TEXT_PRIMARY,
-                Theme.FONT_SEMIBOLD, (now - lyricSince) / 1e9)
-            return
+        drawLine(ctx, mt, label.replace('\r', ' ').replace('\n', ' '), layout.lyrics, layout.lyrics.y,
+            10.5f, if (line == null) Theme.TEXT_SECONDARY else Theme.TEXT_PRIMARY,
+            Theme.FONT_SEMIBOLD, (now - lyricSince) / 1e9)
+        drawProgress(ctx, layout.progress, press?.progress ?: songProgress, interactive && enabled(Control.PROGRESS, snap))
+        if (interactive) {
+            val shownPosition = press?.progress?.let { (snap.durationMs * it.toDouble()).toLong() } ?: snap.positionMs
+            val left = LayoutBounds(layout.progress.x - 29f, layout.progress.y - 5f, 27f, 11f)
+            val right = left.copy(x = layout.progress.right + 4f)
+            drawLine(ctx, mt, clock(shownPosition), left, left.y, 8.5f, Theme.TEXT_SECONDARY, Theme.FONT_REGULAR)
+            drawLine(ctx, mt, clock(snap.durationMs), right, right.y, 8.5f, Theme.TEXT_SECONDARY, Theme.FONT_REGULAR)
+            drawControls(ctx, layout, snap, dt)
+            if (pointer != null) drawIslandLock(ctx, layout.lock, locked, hovered(Control.LOCK))
         }
-        val first = index - if (rows == 3) 1 else 0
-        for (i in (first - 1)..(first + rows)) {
-            val line = lines.getOrNull(i) ?: continue
-            val lineY = area.y + (i - first) * ROW_HEIGHT + lyricShift
-            val visible = area.intersect(LayoutBounds(area.x, lineY, area.width, ROW_HEIGHT))
-            val focus = (1f - abs(i - index + lyricShift / ROW_HEIGHT)).coerceIn(0f, 1f)
-            drawLine(ctx, mt, line.text, visible, lineY, 10.5f, Theme.TEXT_PRIMARY.copy(a = 0.43f + 0.57f * focus),
-                if (i == index) Theme.FONT_SEMIBOLD else Theme.FONT_REGULAR)
-        }
+    }
+
+    private fun hovered(control: Control): Boolean =
+        pointer?.let { frame?.target(it.x.toInt(), it.y.toInt(), volumeOpen) } == control
+
+    private fun clock(ms: Long): String {
+        val seconds = ms.coerceAtLeast(0) / 1000
+        return "${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')}"
+    }
+
+    fun drawVolumePopup(ctx: GuiCanvas) {
+        if (!volumeOpen) return
+        val layout = frame?.layout ?: return
+        PopupLook.panel(ctx, layout.popup)
+        val volume = MusicPlayer.volume.coerceIn(0f, 1f)
+        drawHorizontalVolumeTrack(ctx, layout.volumeTrack, volume)
+        val centerY = layout.popup.y + layout.popup.height / 2f
+        val label = PlayerIcons.volumePercent(volume).toString() + "%"
+        Theme.drawText(ctx, label, layout.popup.x + 7f, centerY, 9f, Theme.FONT_SEMIBOLD, Theme.TEXT_PRIMARY)
+        PlayerIcons.speaker(ctx, layout.mute.x + layout.mute.width / 2f, centerY, Theme.TEXT_PRIMARY, 0.60f)
     }
 
     private fun drawLine(
@@ -296,7 +329,7 @@ internal class IslandPlayerCard {
         ctx.drawShape(bar, ShapeStyle(Theme.TRACK, r))
         val fill = bar.width * fraction
         if (fill > 0f) ctx.drawShape(bar.copy(width = fill), ShapeStyle(Theme.TEXT_PRIMARY, minOf(r, fill / 2f)))
-        val hover = pointer?.let { frame?.target(it.x.toInt(), it.y.toInt()) } == Control.PROGRESS
+        val hover = pointer?.let { frame?.target(it.x.toInt(), it.y.toInt(), volumeOpen) } == Control.PROGRESS
         if (seekable && (press?.progress != null || hover)) {
             ctx.drawShape(LayoutBounds(bar.x + fill - 2.5f, bar.y + r - 2.5f, 5f, 5f),
                 ShapeStyle(Theme.TEXT_PRIMARY, 2.5f))
@@ -304,7 +337,7 @@ internal class IslandPlayerCard {
     }
 
     private fun drawControls(ctx: GuiCanvas, layout: Layout, snap: PlaybackView.Snapshot, dt: Float) {
-        val hover = pointer?.let { frame?.target(it.x.toInt(), it.y.toInt()) }
+        val hover = pointer?.let { frame?.target(it.x.toInt(), it.y.toInt(), volumeOpen) }
         for (control in buttons) {
             val i = control.ordinal
             val hit = layout.button(control)
@@ -324,19 +357,18 @@ internal class IslandPlayerCard {
                 Control.PLAY_PAUSE -> PlayerIcons.draw(ctx, if (snap.playing) PlayerIcons.cardPause else PlayerIcons.cardPlay, x, y, size, color)
                 Control.NEXT -> PlayerIcons.draw(ctx, PlayerIcons.cardNext, x, y, size, color)
                 Control.VOLUME -> speaker.draw(ctx, x, y, MusicPlayer.volume, color, size / 24f, dt)
-                Control.PROGRESS -> Unit
+                else -> Unit
             }
         }
     }
 
     companion object {
-        const val WIDTH = 332f
-        const val HEIGHT = 47f
-        private const val ROW_HEIGHT = 12f
+        const val WIDTH = 306f
+        const val COMPACT_WIDTH = 218f
+        const val HEIGHT = 94f
+        const val COMPACT_HEIGHT = 32f
         private const val BUTTON_SIZE = 22f
-        private val buttons = Control.entries.filter { it != Control.PROGRESS }
-
-        fun height(rows: Int) = HEIGHT + (rows - 1) * ROW_HEIGHT
+        private val buttons = listOf(Control.PREVIOUS, Control.PLAY_PAUSE, Control.NEXT, Control.VOLUME)
 
         private fun LayoutBounds.has(x: Float, y: Float) = x >= left && x < right && y >= top && y < bottom
 
@@ -357,5 +389,37 @@ internal class IslandPlayerCard {
             return if (phase < leg) ((phase - 1.2) * 18.0).toFloat().coerceIn(0f, overflow)
             else (overflow - ((phase - leg - 1.2) * 18.0).toFloat().coerceIn(0f, overflow))
         }
+    }
+}
+
+private fun islandLockIcon(locked: Boolean) = VectorIcon.path(strokeWidth = 1.7f) {
+    roundRect(5.5, 10.0, 13.0, 10.0, 2.3)
+    move(8.25, 10.0)
+    line(8.25, 7.0)
+    if (locked) {
+        curve(8.25, 2.3, 16.0, 2.3, 16.0, 7.0)
+        line(16.0, 10.0)
+    } else {
+        curve(8.25, 2.2, 14.8, 2.2, 17.0, 5.7)
+    }
+    move(12.0, 14.0)
+    line(12.0, 16.0)
+}
+
+private val lockedIslandIcon = islandLockIcon(true)
+private val unlockedIslandIcon = islandLockIcon(false)
+
+internal fun drawIslandLock(ctx: GuiCanvas, bounds: LayoutBounds, locked: Boolean, hovered: Boolean) {
+    if (hovered) ctx.drawShape(bounds, ShapeStyle(Theme.TEXT_PRIMARY.copy(a = 0.17f), 6f))
+    PlayerIcons.draw(ctx, if (locked) lockedIslandIcon else unlockedIslandIcon,
+        bounds.x + bounds.width / 2f, bounds.y + bounds.height / 2f, 14f,
+        if (locked) APPLE_CONTROL_BLUE else Theme.TEXT_PRIMARY)
+}
+
+internal fun drawHorizontalVolumeTrack(ctx: GuiCanvas, bounds: LayoutBounds, volume: Float) {
+    ctx.drawShape(bounds, ShapeStyle(Theme.TEXT_PRIMARY.copy(a = 0.19f), bounds.height / 2f))
+    val fill = bounds.width * volume
+    if (fill > 0f) {
+        ctx.drawShape(bounds.copy(width = fill), ShapeStyle(Theme.TEXT_PRIMARY, minOf(fill, bounds.height) / 2f))
     }
 }

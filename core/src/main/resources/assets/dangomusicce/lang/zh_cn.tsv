@@ -816,8 +816,6 @@ Style A	样式 A
 Style B	样式 B
 Style C	样式 C
 Mini player card	控制卡片
-Card lyric lines	卡片歌词行数
-Number of lyric lines shown on the mini player card	设置控制卡片显示的歌词行数（1–3 行，默认 1 行）
 Playback tab	播放
 Interface & HUD	界面与 HUD
 Reset all settings	恢复全部设置
@@ -934,3 +932,11 @@ Horizontal position of the song request HUD	卡片在可移动范围内的横向
 Vertical position of the song request HUD	卡片在可移动范围内的纵向坐标
 Lock request HUD	锁定点歌台位置
 Keep the song request HUD in place while using the queue	锁定卡片位置，仍可操作点歌队列
+Full card	完整卡片
+Mini capsule	迷你胶囊
+Slim bar	紧凑窄条
+Lyric capsule	歌词胶囊
+Advanced / Debug	高级 / 调试
+Advanced lyric tuning	歌词进阶调节
+Copy command	复制指令
+Add to queue	加入队列

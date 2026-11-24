@@ -41,6 +41,7 @@ import kotlin.math.roundToInt
  * 直接读写各模块的 @ModuleValue，改了立刻生效，ConfigManager 会自动存盘。
  */
 internal class SettingsPage(private val screen: MusicScreen, private val module: NeteaseMusicModule) {
+    private val islandPreviewBackdrop = HudBackdrop { ui.ctx }
     private val ui = screen.ui
 
     private enum class Ctl { TOGGLE, SLIDER, KEY, LANGUAGE, COLOR, FONT, CHOICE, CACHE, BILIBILI }
@@ -85,7 +86,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         "lyricColors" to listOf("Custom color", "Cover color", "Cover gradient", "Rainbow"),
         "ktvLyricColors" to listOf("Custom color", "Cover color", "Cover gradient", "Rainbow"),
         "audioOutput" to listOf("Auto", "Java Sound", "Game audio (OpenAL)"),
-        "islandLayout" to listOf("Style C", "Style A", "Style B", "Mini player card"),
+        "islandLayout" to listOf("Full card", "Mini capsule", "Slim bar", "Lyric capsule"),
         "uiStyle" to listOf("Classic", "Continuous corners"),
         "appleSidebarStyle" to listOf("Flowing cover colors", "Dark glass"),
         "requestHudBackground" to HudBackground.entries.map { it.label },
@@ -435,7 +436,8 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             Group("3D position", "Where the lyrics float", lm, false,
                 ly.take(listOf("distance", "facePlayer", "keepAway", "stayOnScreen", "aboveGround", "avoidBlocks", "spread")), show = world),
             Group("Glow", "Deep Glow", lm, false, ly.take(listOf("glow", "glowNightOnly", "glowStrength", "glowRadius")), show = world),
-            Group("Motion", "Animation", lm, false, ly.take(listOf("wiggle", "wiggleFps", "wiggleAmount", "wordPop", "textFlash", "flashSize")), show = world),
+            Group("Motion", "Animation", lm, false, ly.take(listOf("wiggle", "wiggleAmount", "wordPop", "textFlash", "flashSize")), show = world),
+            Group("Advanced / Debug", "Advanced lyric tuning", lm, false, ly.take(listOf("wiggleFps")), show = world),
             Group("KTV mode", "Line-by-line highlight", lm, false, ly.take(listOf(
                 "ktvMode", "ktvInstrumental", "ktvLyricColors", "ktvBaseColor", "ktvSungColor", "ktvBaseShadow", "ktvSungShadow",
             )), show = world),
@@ -464,17 +466,16 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         if (!DangoMusic.instance.platform.hasGameAudio) player.left.remove("audioOutput") // 1.8.9 只有 Java Sound
         val islandModule = mm.get(DynamicIslandModule::class.java)
         val island = Src(islandModule, fmts = mapOf("posX" to ::percent, "posY" to ::percent), shows = mapOf(
-            "cardLyricLines" to { islandModule.hasPlayerCardLayout },
             "islandAnimations" to { !islandModule.hasPlayerCardLayout },
         ))
         val playback = player.take(listOf("volume", "originalAudio", "normalize", "playbackFades", "resumeSession"))
-        val environment = player.take(listOf("envAudio", "envRain", "envStrength", "envRays"))
+        val environment = player.take(listOf("envAudio", "envRain", "envStrength"))
         val looks = player.take(listOf("uiStyle", "language", "collapseSettingsOnClose"))
         val neteaseLooks = player.take(listOf(
             "neteaseInterfaceStyle", "neteaseMenuTextSize", "neteaseMenuFont", "neteasePlayerBarSize", "songCommentsEnabled",
         ))
         val appleLooks = player.take(listOf("appleSidebarStyle", "appleMenuTextSize", "appleMenuFont", "applePlayerBarSize"))
-        val advanced = player.take(listOf("audioOutput", "audioBuffer")) + listOf(
+        val advanced = player.take(listOf("audioOutput", "audioBuffer", "envRays")) + listOf(
             Row("Cache usage", "NetEase audio stored on disk", CacheAction.USAGE, Ctl.CACHE, null, { "" }),
             Row("Open cache folder", "Open the NetEase audio cache location", CacheAction.OPEN, Ctl.CACHE, null, { "" }),
             Row("Clear cache", "Remove downloaded NetEase audio from disk", CacheAction.CLEAR, Ctl.CACHE, null, { "" }),
@@ -483,7 +484,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             Group("Player", "Playback", module, false, playback, collapsible = false, fullWidth = true),
             Group("Environment audio", "Sound around you", module, false, environment,
                 dim = { original.get() }, note = { if (original.get()) "Off while Original audio is on" else null }),
-            Group("Advanced", "Output and buffering", module, false, advanced),
+            Group("Advanced / Debug", "Output and buffering", module, false, advanced),
         )
         val requestFunction = player.take(listOf("bilibiliRequests", "bilibiliMock")) + listOf(
             Row("Bilibili connection", "", BilibiliAction.STATUS, Ctl.BILIBILI, null, { "" },
@@ -505,7 +506,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             Group("NetEase interface settings", "Player menu appearance", module, false, neteaseLooks, fullWidth = true),
             Group("Apple Music interface settings", "Player menu appearance", module, false, appleLooks, fullWidth = true),
             Group("Dynamic Island", "Overlay", islandModule, true, island.take(listOf(
-                "islandWhileHudHidden", "islandLayout", "cardLyricLines", "islandAnimations", "islandBackground",
+                "islandWhileHudHidden", "islandLayout", "islandAnimations", "islandBackground",
                 "scale", "posX", "posY", "islandLocked",
             )) + island.take(), fullWidth = true),
             Group("Bilibili song requests", "Live danmaku and request queue", module, false, emptyList(),
@@ -1188,9 +1189,14 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
     private fun drawRow(b: LayoutBounds, r: Row, clip: LayoutBounds) {
         val ctlW = preferredControlWidth(r, b.width).coerceAtMost(b.width.coerceAtLeast(0f))
         val stacked = b.height > rowH
-        val textW = if (stacked) b.width else b.width - ctlW - 14f
+        val hasIslandPreview = r.key == "islandLayout" || r.key == "islandBackground"
+        val textW = ((if (stacked) b.width else b.width - ctlW - 14f) -
+            if (hasIslandPreview && (stacked && b.width >= 136f || !stacked && b.width - ctlW >= 144f)) 54f else 0f)
+            .coerceAtLeast(0f)
         ui.text(ui.trim(I18n.text(r.label), textW, 12f, Theme.FONT_MEDIUM), b.x, b.y + 8f, 12f, Theme.TEXT_PRIMARY, Theme.FONT_MEDIUM)
-        if (r.desc.isNotEmpty()) ui.text(ui.trim(I18n.text(r.desc), textW, 9.5f), b.x, b.y + 24f, 9.5f, Theme.TEXT_TERTIARY)
+        val descSize = maxOf(9.5f, (9f / ui.scale).coerceAtMost(12f))
+        if (r.desc.isNotEmpty()) ui.text(ui.trim(I18n.text(r.desc), textW, descSize),
+            b.x, b.y + 24f, descSize, Theme.TEXT_TERTIARY)
         val cy = if (stacked) b.bottom - 15f else b.y + b.height / 2f
         val cx = b.right - ctlW
         when (r.ctl) {
@@ -1226,6 +1232,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             Ctl.CHOICE -> {
                 val v = r.value as IntValue
                 val labels = choiceLabels.getValue(r.key)
+                if (r.key == "islandLayout" || r.key == "islandBackground") drawIslandPreview(r.key, v.value, cx, cy, b, stacked)
                 stepper(clip, cx, cy, I18n.text(labels[(v.value - v.minRange).coerceIn(0, labels.size - 1)]), labels.size > 1) { delta ->
                     v.setValue(v.minRange + Math.floorMod(v.value - v.minRange + delta, labels.size))
                 }
@@ -1249,6 +1256,26 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                     }
                 }
             }
+        }
+    }
+
+    private fun drawIslandPreview(key: String, value: Int, cx: Float, cy: Float, row: LayoutBounds, stacked: Boolean) {
+        val material = key == "islandBackground"
+        val width = if (!material && value == 1) 37f else 46f
+        val height = if (!material && value == 2) 11f else 16f
+        val x = if (stacked) row.right - width else cx - width - 8f
+        if (x < row.x + 90f) return
+        val b = LayoutBounds(x, if (stacked) row.y + 7f else cy - height / 2f, width, height)
+        val radius = if (!material && value in listOf(1, 3)) height / 2f else 4f
+        if (material) {
+            islandPreviewBackdrop.draw(b, Theme.GLASS_WINDOW.copy(radius = radius), HudBackground.entries[value],
+                dangomusicce.music.PlaybackView.snapshot().track)
+        }
+        ui.ctx.drawShape(b, ShapeStyle(Color.TRANSPARENT, radius, 1f, Theme.TEXT_TERTIARY))
+        ui.card(LayoutBounds(b.x + 4f, b.y + 3f, height - 6f, height - 6f), Theme.TEXT_SECONDARY.copy(a = 0.30f), 2f)
+        ui.card(LayoutBounds(b.x + height + 1f, b.y + height / 2f - 2f, b.width - height - 7f, 2f), Theme.TEXT_SECONDARY, 1f)
+        if (!material && value in listOf(0, 3)) {
+            ui.card(LayoutBounds(b.x + height + 1f, b.y + height / 2f + 3f, b.width - height - 11f, 1f), Theme.TEXT_TERTIARY, 0.5f)
         }
     }
 

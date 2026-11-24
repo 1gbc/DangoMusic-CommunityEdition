@@ -500,9 +500,9 @@ class MusicScreen(
     }
 
     private fun menuScaleForWindow(base: Float, requested: Float, width: Int, height: Int): Float {
-        if (requested <= 1f) return base * requested
-        val fits = min(width / 420f, height / 240f).coerceAtLeast(base)
-        return min(base * requested, fits)
+        val fits = min(width / 500f, height / 290f)
+        val preferred = base * requested
+        return min(maxOf(preferred, 0.76f), fits.coerceAtLeast(0.25f))
     }
 
     private var menuTextScale = 1f
@@ -529,7 +529,9 @@ class MusicScreen(
 
     private fun drawWindow(alpha: Float) {
         barLayoutScale = 1f
-        val win = LayoutBounds(26f, 20f + (1f - alpha) * 12f, ui.lw - 52f, ui.lh - 40f)
+        val marginX = (ui.lw * 0.02f).coerceIn(10f, 26f)
+        val marginY = (ui.lh * 0.025f).coerceIn(8f, 20f)
+        val win = LayoutBounds(marginX, marginY + (1f - alpha) * 12f, ui.lw - 2f * marginX, ui.lh - 2f * marginY)
         if (appleLyricsOpen) {
             val netease = lyricsSource == MusicSource.NETEASE
             val viewport = LayoutBounds(0f, 0f, ui.lw, ui.lh)
@@ -560,10 +562,9 @@ class MusicScreen(
             return
         }
         if (lyricsOpen && !canOpenLyrics) closeLyrics()
-        val pad = 10f
+        val pad = (win.width / 100f).coerceIn(6f, 10f)
         val preferredSideWidth = if (usesAppleLayout) 224f * 0.9f else 224f
-        val sideW = if (menuTextScale == 1f) preferredSideWidth
-            else minOf(preferredSideWidth, win.width * 0.32f).coerceAtLeast(0f)
+        val sideW = minOf(preferredSideWidth, win.width * 0.32f)
         if (lyricsOpen) {
             val barH = if (appleNavigation) 45f else 88f
             barRect = LayoutBounds(win.x, win.bottom - barH, win.width, barH)

@@ -108,8 +108,13 @@ void main() {
     float l = luma(col);
     col = max(mix(vec3(l), col, u_Saturation), 0.0);
     l = luma(col);
-    if (l > u_MaxLuma) col *= u_MaxLuma / l;
-    col = mix(col, u_Tint.rgb, u_Tint.a);
+    // Reuse the existing blurred sample so bright patches do not require another backdrop pass.
+    float bright = smoothstep(0.28, 0.76, l);
+    float lumaLimit = u_MaxLuma * mix(1.0, 0.62, bright);
+    if (l > lumaLimit) col *= lumaLimit / l;
+    vec3 tint = mix(u_Tint.rgb, u_Tint.rgb * 0.44, bright);
+    col = mix(col, tint, u_Tint.a);
+    col *= mix(1.0, 0.84, bright);
 
     // 顶部柔光
     float fy = (p.y + halfSize.y) / max(u_Bounds.w, 1.0);

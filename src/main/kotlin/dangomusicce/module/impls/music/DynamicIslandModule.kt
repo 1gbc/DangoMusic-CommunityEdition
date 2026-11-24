@@ -2,6 +2,9 @@ package dangomusicce.module.impls.music
 
 import dangomusicce.DangoClient
 import dangomusicce.DangoMusic
+import dangomusicce.client.HudPointerInput
+import dangomusicce.musicui.drawIslandLock
+import net.minecraft.client.Minecraft
 import dangomusicce.event.EventHandler
 import dangomusicce.events.HudRenderEvent
 import dangomusicce.font.MixedText
@@ -49,9 +52,6 @@ class DynamicIslandModule : Module() {
     @ModuleValue("Island layout", "Choose the Dynamic Island layout")
     private val islandLayout = IntValue(STYLE_C, STYLE_PLAYER_CARD, STYLE_C)
 
-    @ModuleValue("Card lyric lines", "Number of lyric lines shown on the mini player card")
-    private val cardLyricLines = IntValue(1, 3, 1)
-
     internal val hasPlayerCardLayout get() = islandLayout.value == STYLE_PLAYER_CARD
 
     @ModuleValue("Show when HUD is hidden", "Keep the Dynamic Island visible when F1 hides the game HUD")
@@ -92,6 +92,31 @@ class DynamicIslandModule : Module() {
     private var context: GuiCanvas? = null
     private val backdrop = HudBackdrop { checkNotNull(context) }
     private val playerCard = IslandPlayerCard()
+    private var pointerHover = false
+
+    private fun islandLockBounds(bounds: LayoutBounds) =
+        LayoutBounds(bounds.right - 31f, bounds.y + 4f, 22f, 22f)
+
+    internal fun updateIslandHover(x: Int, y: Int, active: Boolean) {
+        pointerHover = active && enabled && placement?.let {
+            it.bounds.contains((x / it.scale).toInt(), (y / it.scale).toInt())
+        } == true
+    }
+
+    internal fun clickIslandLock(x: Int, y: Int): Boolean {
+        val current = placement ?: return false
+        if (!enabled || hasPlayerCardLayout || !pointerHover ||
+            !islandLockBounds(current.bounds).contains((x / current.scale).toInt(), (y / current.scale).toInt())) return false
+        toggleIslandLock()
+        return true
+    }
+
+    private fun toggleIslandLock() {
+        finishDrag()
+        islandLocked.set(!islandLocked.get())
+        DangoMusic.instance.configManager.saveIfChanged()
+    }
+
 
     private var shown = Kind.IDLE
     private var contentAlpha = 0f
@@ -132,7 +157,7 @@ class DynamicIslandModule : Module() {
 
     private val clock = SimpleDateFormat("HH:mm")
 
-    private val mt = MixedText()
+    private val mt = MixedText().apply { hudTextShadow = true }
 
     override fun onEnable() {
         w = 0f; h = 0f; vw = 0f; vh = 0f
@@ -171,11 +196,14 @@ class DynamicIslandModule : Module() {
     internal fun movePlayerCard(x: Int) = playerCard.mouseDrag(x)
 
     internal fun releasePlayerCard(x: Int, y: Int, available: Boolean) =
-        playerCard.mouseUp(x, y, enabled && hasPlayerCardLayout && available)
+        playerCard.mouseUp(x, y, enabled && hasPlayerCardLayout && available, ::toggleIslandLock)
 
     internal fun scrollPlayerCard(x: Int, y: Int, wheel: Int) = playerCard.scroll(x, y, wheel)
 
-    internal fun clearPlayerCardPointer() = playerCard.clearPointer()
+    internal fun clearPlayerCardPointer() {
+        pointerHover = false
+        playerCard.clearPointer()
+    }
 
     internal fun beginPointerDrag(x: Int, y: Int): Boolean = beginDrag(x, y, fromChat = false)
 
@@ -337,8 +365,11 @@ class DynamicIslandModule : Module() {
         }
 
         // 弹簧：略带回弹，接近 iOS 灵动岛的手感
-        val tw = widthOf(want, snap, available, titleSizePx / baseScale)
-        val th = (if (want == Kind.PLAYER_CARD) IslandPlayerCard.height(cardLyricLines.value) else want.height) + extension
+        val expandedCard = want == Kind.PLAYER_CARD && e != null &&
+            HudPointerInput.interacting(Minecraft.getMinecraft().currentScreen)
+        val tw = if (want == Kind.PLAYER_CARD && !expandedCard) min(available, IslandPlayerCard.COMPACT_WIDTH)
+            else widthOf(want, snap, available, titleSizePx / baseScale)
+        val th = (if (want == Kind.PLAYER_CARD && !expandedCard) IslandPlayerCard.COMPACT_HEIGHT else want.height) + extension
         val stiff = 230f
         val damp = 24f
         vw += ((tw - w) * stiff - vw * damp) * dt
@@ -376,7 +407,7 @@ class DynamicIslandModule : Module() {
         val background = HudBackground.entries[islandBackground.value]
         ctx.begin(background.capturesWorld, 0, 0)
         try {
-            val r = min(shown.cornerRadius, h / 2f)
+            val r = if (shown == Kind.PLAYER_CARD && !expandedCard) h / 2f else min(shown.cornerRadius, h / 2f)
 
             ctx.pushScale(k, k, 1f)
             val glass = Theme.GLASS_WINDOW.copy(radius = r,
@@ -398,8 +429,8 @@ class DynamicIslandModule : Module() {
             when {
                 shown == Kind.IDLE -> drawIdle(ctx, cb)
                 shown == Kind.MINI -> drawMini(ctx, cb, snap, titleSize, pill.x + pill.width / 2f)
-                shown == Kind.PLAYER_CARD -> playerCard.draw(ctx, mt, pill, k, cardLyricLines.value, snap,
-                    DangoMusic.instance.moduleManager.get(LyricsModule::class.java), now, dt, e != null && want == shown && contentAlpha > 0.25f)
+                shown == Kind.PLAYER_CARD -> playerCard.draw(ctx, mt, pill, k, expandedCard, platform.windowHeight / k, snap,
+                    DangoMusic.instance.moduleManager.get(LyricsModule::class.java), now, dt, islandLocked.get())
                 else -> drawFull(ctx, cb, snap, shown, titleSize)
             }
             if (animations && (shown == Kind.SLIM || shown == Kind.CARD)) {
@@ -413,9 +444,17 @@ class DynamicIslandModule : Module() {
                 drawVolume(ctx, x, cb.bottom + 9f)
                 ctx.popOpacity()
             }
+            if (shown != Kind.PLAYER_CARD && pointerHover) {
+                val lock = islandLockBounds(pill)
+                drawIslandLock(ctx, lock, islandLocked.get(), lock.contains((platform.mouseX / k).toInt(), (platform.mouseY / k).toInt()))
+            }
             ctx.popTransform()
             mt.flush(k)
             ctx.popClip()
+            if (shown == Kind.PLAYER_CARD && expandedCard) {
+                ctx.pushScale(k, k, 1f)
+                try { playerCard.drawVolumePopup(ctx) } finally { ctx.popTransform() }
+            }
         } finally {
             ctx.end()
         }

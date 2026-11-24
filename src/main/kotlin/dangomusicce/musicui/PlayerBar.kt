@@ -543,9 +543,7 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
             drawVolumeValue(valueBox, clip, volume, interactive)
             val start = valueBox.right + 6f
             volRect = LayoutBounds(start, centerY - 1.5f, (box.right - 27f - start).coerceAtLeast(1f), 3f)
-            val fill = volRect.width * volume
-            ui.card(volRect, Theme.TEXT_PRIMARY.copy(a = 0.19f), volRect.height / 2f)
-            if (fill > 0f) ui.card(volRect.copy(width = fill), Theme.TEXT_PRIMARY, minOf(fill, volRect.height) / 2f)
+            drawHorizontalVolumeTrack(ui.ctx, volRect, volume)
             val mute = LayoutBounds(box.right - 23f, box.y + 3f, 20f, box.height - 6f)
             val scale = ui.appleHoverScale(appleMuteHover, interactive && ui.hover(mute))
             popupSpeaker.draw(ui, mute.x + mute.width / 2f, centerY, volume, Theme.TEXT_PRIMARY, .60f * scale)
