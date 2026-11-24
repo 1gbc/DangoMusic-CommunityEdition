@@ -22,10 +22,13 @@ import kotlin.math.sin
  * 用点的时间定这首歌的 BPM 和网格，比自动估的优先。换歌后要重新点。
  */
 object Dance {
-    /** 设置：开关、转圈、幅度（1 = 默认） */
+    /** 设置：开关、转圈 */
     @Volatile var enabled = false
     @Volatile var spin = false
-    @Volatile var amount = 1f
+    /** 鼓点砸下来压到最扁时，横向变成原来的几倍（1.18 = 宽 18%；高度按体积不变跟着变矮） */
+    @Volatile var squashWidth = 1.18f
+    /** 弹回来拉到最长时，纵向变成原来的几倍（1.15 = 高 15%；宽度按体积不变跟着变窄） */
+    @Volatile var stretchLength = 1.15f
     /** 转圈速度倍数：1 = 四拍转一圈，2 = 两拍一圈，0.5 = 八拍一圈 */
     @Volatile var spinSpeed = 1f
     /** 踩点偏移（ms，正 = 往后推），各人声卡延迟不一样，用来对准 */
@@ -250,7 +253,15 @@ object Dance {
         }
         val beats = (songClock + LATENCY_MS + offsetMs - gridMs) / periodMs
         val phase = (beats - floor(beats)).toFloat()                  // 0..1：这一拍走到哪
-        val squash = 1f + BOUNCE_DEPTH * amount * envelope * bounce(phase)
+        // 形变曲线 -1（砸扁）..+1（拉长）换成竖直方向的缩放；左右由渲染那边按体积不变反向缩放
+        val f = bounce(phase) * envelope
+        val squash = if (f < 0f) {
+            val width = squashWidth.coerceIn(1f, 2f)
+            val flat = 1f / (width * width)
+            1f + (1f - flat) * f
+        } else {
+            1f + (stretchLength.coerceIn(1f, 2f) - 1f) * f
+        }
         // 转圈：匀速转，默认四拍一圈，按 spinSpeed 加快 / 放慢
         if (spin) spinAngle = (spinAngle + dt * 1000.0 / periodMs * 90.0 * spinSpeed.coerceIn(0.1f, 8f) * envelope) % 360.0
         else spinAngle = 0.0
@@ -258,27 +269,41 @@ object Dance {
     }
 
     /**
-     * 一拍里的形变（-1 = 压扁到底，+1 = 拉到最长），一拍正好一个完整周期，拍与拍之间没有停顿：
-     * 正好在拍子上压到最扁，接着快速弹起，到 [STRETCH_PEAK] 拍处拉到最长，再一路平滑地落回去，
-     * 下一拍又压到最扁。
+     * 一拍里的形变（-1 = 砸扁到底，0 = 原样，+1 = 拉到最长），像鼓点把生物砸扁：
+     * - 拍子前最后 [SLAM] 拍：加速往下砸，正好在拍子上压到最扁（这一下最快，看起来就是"砸"）；
+     * - 在最扁处停一下，再弹起，到 [REBOUND] 拍处拉到最长；
+     * - 再平缓地回到原样，等下一拍。
      *
-     * 以前是前半拍弹一下、后半拍原样不动，每段两头还都是缓入缓出，两次弹之间夹着将近半拍的静止，
-     * 看起来一顿一顿的。现在用一条余弦把整拍连起来：只在最扁和最长那一下速度为 0（像弹簧到头），
-     * 中间一直在动；拍点前后速度连续，所以连着弹也是顺的。
+     * 以前是一条余弦：从拍子前大半拍就开始慢慢往下压，拍子上压到最扁后马上快速弹长。
+     * 眼睛抓到的是动得最快的那一下，也就是拍子后面的"拉长"，所以看起来像鼓点把人拉长了。
+     * 现在最快的一下是砸扁，砸到底后稍停再弹起，落点清楚。
      */
     private fun bounce(phase: Float): Float {
         val p = phase.coerceIn(0f, 1f)
-        // 把一拍拆成"弹起"（短、快）和"落下"（长、缓）两段，各占余弦的半个周期
-        val w = if (p < STRETCH_PEAK) 0.5f * p / STRETCH_PEAK
-            else 0.5f + 0.5f * (p - STRETCH_PEAK) / (1f - STRETCH_PEAK)
-        return -cos(2.0 * PI * w).toFloat()
+        return when {
+            // 弹起：砸扁后先在最扁处停一下（看得清"扁"），再弹到最长，越接近最高点越慢
+            p < REBOUND -> {
+                val t = p / REBOUND
+                -1f + 2f * t * t * (3f - 2f * t)
+            }
+            // 回落：从最长平滑回到原样，两头都是缓的
+            p < 1f - SLAM -> {
+                val t = (p - REBOUND) / (1f - SLAM - REBOUND)
+                (1f + cos(PI * t).toFloat()) / 2f
+            }
+            // 砸扁：越砸越快，正好在下一拍压到最扁
+            else -> {
+                val t = (p - (1f - SLAM)) / SLAM
+                -t * t
+            }
+        }
     }
 
-    /** 一拍里拉到最长的位置（0..1）：小于 0.5 时弹起比落下快，更像踩在点上 */
-    private const val STRETCH_PEAK = 0.35f
+    /** 拍子前多少拍开始往下砸（0.12 拍 ≈ 120 BPM 时 60 ms） */
+    private const val SLAM = 0.12f
 
-    /** 幅度为 1 时，压扁 / 拉长各多少（上下缩放 ±这么多） */
-    private const val BOUNCE_DEPTH = 0.2f
+    /** 砸扁后弹到最长的位置（拍） */
+    private const val REBOUND = 0.3f
 
     /** 对拍要点几下 */
     const val TAP_COUNT = 16
@@ -289,8 +314,13 @@ object Dance {
     /** 攒够这么长的鼓点再算准一次，之后不再动（ms） */
     private const val FINAL_LOCK_MS = 30000.0
 
-    /** 声卡输出比报的播放位置晚一点，画面往后推这么多（ms） */
-    private const val LATENCY_MS = -60.0
+    /**
+     * 画面相对检测到的鼓点要挪多少（ms）。播放位置读的是声卡那边已经播出去的位置，本身就对得上耳朵，
+     * 所以不再额外往后推。以前这里是 -60：自动测节拍时压到最扁比鼓点晚 60 ms，
+     * 120 BPM 下正好是"往下砸"那一段，看起来像鼓点踩在刚开始下压的地方。
+     * 声卡自己还有十几到几十毫秒的输出延迟，画面因此会略微领先于声音，这正好：人对画面落后声音更敏感。
+     */
+    private const val LATENCY_MS = 0.0
 
     /** 现在估出来的 BPM（界面显示用），没估出来是 0 */
     val bpm: Int get() = if (periodMs > 0.0) (60000.0 / periodMs + 0.5).toInt() else 0

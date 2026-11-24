@@ -372,8 +372,11 @@ class LyricsModule : Module() {
     @ModuleValue("Spin speed", "How fast creatures spin: 1× is one turn every four beats")
     private val danceSpinSpeed = FloatValue(0.25f, 4f, 1f, 2)
 
-    @ModuleValue("Bounce amount", "How much creatures squash and stretch")
-    private val danceAmount = FloatValue(0.2f, 2f, 1.3f, 1)
+    @ModuleValue("Squash width", "How much wider creatures get when the beat slams them flat")
+    private val danceSquash = FloatValue(1f, 1.6f, 1.18f, 2)
+
+    @ModuleValue("Stretch length", "How much taller creatures get when they spring back up")
+    private val danceStretch = FloatValue(1f, 1.6f, 1.15f, 2)
 
     @ModuleValue("Beat offset", "Move the bounce earlier or later if it doesn't land on the beat")
     private val danceOffset = IntValue(-300, 300, 0)
@@ -646,7 +649,8 @@ class LyricsModule : Module() {
         Dance.enabled = enabled && dance.get()
         Dance.spin = danceSpin.get()
         Dance.spinSpeed = danceSpinSpeed.value
-        Dance.amount = danceAmount.value
+        Dance.squashWidth = danceSquash.value
+        Dance.stretchLength = danceStretch.value
         Dance.offsetMs = danceOffset.value
         if (!translationColorMigrated) {
             translationColorMigrated = true
