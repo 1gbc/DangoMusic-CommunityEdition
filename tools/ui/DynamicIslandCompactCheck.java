@@ -3,6 +3,8 @@ import java.nio.file.*;
 import java.util.*;
 import dangomusicce.*;
 import dangomusicce.gfx.*;
+import dangomusicce.lyrics.LyricLine;
+import dangomusicce.lyrics.Lyrics;
 import dangomusicce.module.impls.music.DynamicIslandModule;
 import dangomusicce.module.impls.music.LyricsModule;
 import dangomusicce.module.impls.music.NeteaseMusicModule;
@@ -38,10 +40,11 @@ public class DynamicIslandCompactCheck {
         var lyrics = new LyricsModule();
         check(((BooleanValue)field(LyricsModule.class, "stayOnScreen").get(lyrics)).getDefault(),
             "3D lyrics default to staying on screen");
-        for (var key : List.of("lyricFont", "sideFont")) {
-            check(((TextValue)field(LyricsModule.class, key).get(lyrics)).getDefault()
-                .equals(LyricFonts.PREFERRED_LYRIC_FONT), key + " defaults to Soukou Mincho");
-        }
+        var smooth = (BooleanValue)field(LyricsModule.class, "smoothFont").get(lyrics);
+        var worldFont = (TextValue)field(LyricsModule.class, "lyricFont").get(lyrics);
+        check(!smooth.getDefault() && worldFont.getDefault().isEmpty(), "3D lyrics default to the Minecraft pixel font");
+        var sideFont = (TextValue)field(LyricsModule.class, "sideFont").get(lyrics);
+        check(sideFont.getDefault().equals("sys:3ds Light"), "Cockpit lyrics default to the system 3ds Light face");
         var player = new NeteaseMusicModule();
         check(((IntValue)field(NeteaseMusicModule.class, "neteaseInterfaceStyle").get(player)).getDefault() == 1 &&
             ((IntValue)field(NeteaseMusicModule.class, "appleSidebarStyle").get(player)).getDefault() == 0,
@@ -168,10 +171,11 @@ public class DynamicIslandCompactCheck {
         check(Math.abs(cjkRuns.get(0).getSize()*renderScale[0] - 18f*800f/1292f*.96f)<.001f,
             "The title also matches the lyrics page in a height-limited viewport");
         if (args.length > 1) {
-            var fontFile = Files.createDirectories(cfg.resolve("fonts")).resolve(LyricFonts.PREFERRED_LYRIC_FONT);
-            Files.copy(Path.of(args[1]), fontFile);
+            var localFont = Path.of(args[1]);
+            var fontFile = Files.createDirectories(cfg.resolve("fonts")).resolve(localFont.getFileName());
+            Files.copy(localFont, fontFile);
             try {
-                fontChoice.setValue(LyricFonts.PREFERRED_LYRIC_FONT);
+                fontChoice.setValue(fontFile.getFileName().toString());
                 draw.run();
                 check(cjkRuns.size() == 1 && cjkRuns.get(0).getStyle() == CjkStyle.ISLAND_BOLD,
                     "The selected Island font is used in title measurement and rendering");
@@ -236,6 +240,23 @@ public class DynamicIslandCompactCheck {
             for(int i=0;i<90;i++)draw.run();
             check(shell.get(0).getWidth()<=174.01f,"The full island fits a narrow window");
             width[0]=1280;
+        }
+        DangoMusic.Companion.getInstance().getModuleManager().register(lyrics);
+        var capsuleTrack = track("7", "Capsule");
+        @SuppressWarnings("unchecked")
+        var lyricCache = (Map<String, Object>)field(LyricsModule.class, "cache").get(lyrics);
+        String sample = "Lyric capsule sample";
+        lyricCache.put(capsuleTrack.getKey(), new Lyrics(List.of(new LyricLine(0, sample)), "test"));
+        MusicPlayer.INSTANCE.acceptAppleState(capsuleTrack, 2000, true);
+        layout.setValue(3);
+        for (int i = 0; i < 90; i++) draw.run();
+        var expectedFont = LyricFonts.INSTANCE.load("sys:3ds Light").getFirst();
+        if (expectedFont != null) {
+            check(cjkRuns.stream().anyMatch(run -> run.getS().equals(sample) && run.getStyle() == CjkStyle.ISLAND)
+                && configuredFonts.get(CjkStyle.ISLAND) == expectedFont,
+                "Default capsule lyric uses the regular 3ds Light face");
+        } else {
+            check(texts.contains(sample), "Default capsule lyric falls back when 3ds Light is unavailable");
         }
         System.out.println("Island defaults, font, resizing, clipping and song-change checks passed");
     }

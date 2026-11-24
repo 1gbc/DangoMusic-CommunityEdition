@@ -59,6 +59,7 @@ class DynamicIslandModule : Module() {
     private val islandFont = TextValue("")
 
     private val islandFontStyles = CjkStyle.ISLAND to CjkStyle.ISLAND_BOLD
+    private val defaultLyricStyles = CjkStyle.ISLAND to CjkStyle.ISLAND
 
     internal val hasPlayerCardLayout get() = islandLayout.value == STYLE_PLAYER_CARD
 
@@ -356,11 +357,12 @@ class DynamicIslandModule : Module() {
         val extension = if (volumeReveal > 0.01f) 22f * volumeReveal else 0f
 
         val want = if (snap.track == null) Kind.IDLE else layout
-        val fontId = islandFont.value.ifEmpty {
-            if (want == Kind.PLAYER_CARD || shown == Kind.PLAYER_CARD) LyricFonts.PREFERRED_LYRIC_FONT else ""
-        }
-        val activeFontStyles = islandFontStyles.takeIf { LyricFonts.bindStyles(fontId, it) != null }
-        mt.customFontStyles = activeFontStyles.takeIf { islandFont.value.isNotEmpty() }
+        val selectedFont = islandFont.value
+        val useDefaultLyricFont = selectedFont.isEmpty() && (want == Kind.PLAYER_CARD || shown == Kind.PLAYER_CARD)
+        val fontId = if (useDefaultLyricFont) LyricFonts.DEFAULT_HUD_LYRIC_FONT else selectedFont
+        val fontStyles = if (useDefaultLyricFont) defaultLyricStyles else islandFontStyles
+        val activeFontStyles = fontStyles.takeIf { LyricFonts.bindStyles(fontId, it) != null }
+        mt.customFontStyles = activeFontStyles.takeUnless { useDefaultLyricFont }
         val uiScale = min(platform.windowWidth / 1280f, platform.windowHeight / 800f).coerceAtLeast(0.5f)
         val requestedScale = uiScale * scale.value
         val titleSizePx = AppleLyricsLayout.titleSizeFor(platform.windowWidth.toFloat(), platform.windowHeight.toFloat()) * scale.value

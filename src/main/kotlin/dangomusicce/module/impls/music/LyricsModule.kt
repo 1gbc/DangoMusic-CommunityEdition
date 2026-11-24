@@ -154,7 +154,7 @@ class LyricsModule : Module() {
     internal val sideInertiaStrength = FloatValue(0.1f, 1f, 0.5f, 2)
 
     @ModuleValue("Cockpit font", "The default bold font, a font from config/dangomusicce/fonts, another mod's font folder, or a system font")
-    internal val sideFont = TextValue(LyricFonts.PREFERRED_LYRIC_FONT)
+    internal val sideFont = TextValue(LyricFonts.DEFAULT_HUD_LYRIC_FONT)
 
     /** 驾驶舱字体那一行里选“像素字体”时为 false（和 3D 歌词的 smoothFont 一样，设置页里合进字体那一行） */
     @ModuleValue("Cockpit smooth font", "")
@@ -259,10 +259,10 @@ class LyricsModule : Module() {
 
     /** 平滑字体还是原版像素字体：设置页里和"歌词字体"合成一项，不单独显示 */
     @ModuleValue("Smooth font", "Smooth font instead of the Minecraft pixel font")
-    private val smoothFont = BooleanValue(true)
+    private val smoothFont = BooleanValue(false)
 
     @ModuleValue("Lyric font", "Pixel font, smooth font, or a .ttf / .otf font from config/dangomusic/fonts")
-    private val lyricFont = TextValue(LyricFonts.PREFERRED_LYRIC_FONT)
+    private val lyricFont = TextValue("")
 
     @ModuleValue("Wiggle", "Low-fps jitter on every letter, like hand-drawn animation")
     private val wiggle = BooleanValue(true)

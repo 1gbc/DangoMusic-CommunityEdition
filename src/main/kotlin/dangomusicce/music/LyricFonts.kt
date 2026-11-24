@@ -25,7 +25,7 @@ import java.util.Locale
  *  - "sys:<字体族>"        系统字体（英文族名）
  */
 object LyricFonts {
-    const val PREFERRED_LYRIC_FONT = "SoukouMincho.ttf"
+    const val DEFAULT_HUD_LYRIC_FONT = "sys:3ds Light"
 
     /** Register a font for mixed text and return the key used to measure and draw its glyphs. */
     internal fun bindStyles(id: String, styles: Pair<Int, Int>): String? {
@@ -33,7 +33,7 @@ object LyricFonts {
         if (font == null) return null
         val text = DangoClient.gfx.text
         text.font(styles.first, font, key)
-        text.font(styles.second, font, key)
+        if (styles.second != styles.first) text.font(styles.second, font, key)
         return key
     }
 

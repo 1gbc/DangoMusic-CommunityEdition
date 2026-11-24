@@ -43,7 +43,7 @@ object CjkFont {
     /** 驾驶舱歌词：先用玩家给驾驶舱选的字体，没有的字退回粗体 */
     const val SIDE = 4
     /** 样式槽位数（字形缓存的键 = 字符 × STYLES + 样式） */
-    private const val STYLES = CjkStyle.LYRICS_PAGE_BOLD + 1
+    private const val STYLES = CjkStyle.ISLAND_BOLD + 1
 
     /** 字形贴图里的字号（像素），屏幕上按需缩放 */
     private fun baseOf(style: Int) = if (style == DISPLAY) 96f else 48f
@@ -114,7 +114,7 @@ object CjkFont {
         }
         if (hasCustomFont(style)) {
             val bold = style == CjkStyle.MENU_BOLD || style == CjkStyle.REQUEST_HUD_BOLD ||
-                style == CjkStyle.ISLAND_BOLD || style == CjkStyle.LYRICS_PAGE_BOLD
+                style == CjkStyle.ISLAND_BOLD
             val weight = if (bold) Font.BOLD else Font.PLAIN
             val custom = customFonts[style]?.let { listOf(it.deriveFont(weight, baseOf(style))) }.orEmpty()
             val fallback = when (style) {
@@ -196,7 +196,7 @@ object CjkFont {
     private val customKeys = arrayOfNulls<String>(STYLES)
 
     private fun hasCustomFont(style: Int) =
-        style == LYRIC || style == SIDE || style in CjkStyle.MENU..CjkStyle.LYRICS_PAGE_BOLD
+        style == LYRIC || style == SIDE || style in CjkStyle.MENU..CjkStyle.ISLAND_BOLD
 
     /**
      * 换歌词或菜单槽位的字体（null = 默认）。[key] 是字体的版本标记（同一个文件被替换后会变）：
