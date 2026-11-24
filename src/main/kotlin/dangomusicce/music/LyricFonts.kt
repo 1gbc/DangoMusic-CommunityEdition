@@ -1,10 +1,12 @@
 package dangomusicce.music
 
+import dangomusicce.DangoClient
 import dangomusicce.DangoLogger
 import dangomusicce.DangoMusic
 import java.awt.Font
 import java.awt.GraphicsEnvironment
 import java.io.File
+import java.io.InputStream
 import java.util.Locale
 
 /**
@@ -23,6 +25,18 @@ import java.util.Locale
  *  - "sys:<字体族>"        系统字体（英文族名）
  */
 object LyricFonts {
+    const val PREFERRED_LYRIC_FONT = "SoukouMincho.ttf"
+
+    /** Register a font for mixed text and return the key used to measure and draw its glyphs. */
+    internal fun bindStyles(id: String, styles: Pair<Int, Int>): String? {
+        val (font, key) = load(id)
+        if (font == null) return null
+        val text = DangoClient.gfx.text
+        text.font(styles.first, font, key)
+        text.font(styles.second, font, key)
+        return key
+    }
+
     enum class Kind { OWN, MOD, SYSTEM }
 
     class Entry(val id: String, val label: String, val kind: Kind, val source: String, val file: File?)
@@ -139,12 +153,16 @@ object LyricFonts {
     }
 
     private fun createFont(file: File): Font? = try {
-        val fonts = try {
-            // .ttc 里有好几个字体：Java 9+ 才有 createFonts，用反射调（编译目标是 Java 8）
-            @Suppress("UNCHECKED_CAST")
-            (Font::class.java.getMethod("createFonts", File::class.java).invoke(null, file) as Array<Font>).toList()
-        } catch (_: NoSuchMethodException) {
-            listOf(Font.createFont(Font.TRUETYPE_FONT, file))
+        val fonts = file.inputStream().use { stream ->
+            // Keep the source file replaceable while AWT holds the loaded font on Windows.
+            try {
+                // Collections use the Java 9 overload when available.
+                val factory = Font::class.java.getMethod("createFonts", InputStream::class.java)
+                @Suppress("UNCHECKED_CAST")
+                (factory.invoke(null, stream) as Array<Font>).toList()
+            } catch (_: NoSuchMethodException) {
+                listOf(Font.createFont(Font.TRUETYPE_FONT, stream))
+            }
         }
         fonts.firstOrNull { it.canDisplay('中') } ?: fonts.firstOrNull()
     } catch (e: Throwable) {

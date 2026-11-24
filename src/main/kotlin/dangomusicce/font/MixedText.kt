@@ -31,6 +31,12 @@ class MixedText {
 
     var customFontStyles: Pair<Int, Int>? = null
 
+    internal inline fun <T> withFontStyles(styles: Pair<Int, Int>?, draw: () -> T): T {
+        val previous = customFontStyles
+        customFontStyles = styles
+        return try { draw() } finally { customFontStyles = previous }
+    }
+
     private fun fullFontStyle(font: String): Int? {
         val bold = bold(font)
         customFontStyles?.let { return if (bold) it.second else it.first }

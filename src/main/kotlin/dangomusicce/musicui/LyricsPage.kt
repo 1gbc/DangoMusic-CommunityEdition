@@ -1,10 +1,12 @@
 package dangomusicce.musicui
 
 import dangomusicce.client.ClientMusic
+import dangomusicce.gfx.CjkStyle
 import dangomusicce.i18n.I18n
 import dangomusicce.lyrics.LyricLine
 import dangomusicce.module.impls.music.NeteaseMusicModule
 import dangomusicce.music.CoverCache
+import dangomusicce.music.LyricFonts
 import dangomusicce.music.MusicPlayer
 import dangomusicce.music.MusicSource
 import dangomusicce.music.NeteaseTrack
@@ -41,6 +43,8 @@ internal class LyricsPage(
     private var layoutWidth = 0f
     private var layoutSize = 0f
     private var layoutAnnotationSize = 0f
+    private val pageFontStyles = CjkStyle.LYRICS_PAGE to CjkStyle.LYRICS_PAGE_BOLD
+    private var layoutFontKey: String? = null
 
     private var lyricOffsetMs = 0L
     private var offsetTrack: String? = null
@@ -449,24 +453,28 @@ internal class LyricsPage(
         val romanize = module.lyricsPageRomanization.get()
         val sameLayout = lines === newLines && layoutWidth == width && layoutSize == size &&
             layoutAnnotationSize == annotationSize
-        if (sameLayout && showTranslation == translate && showRomanization == romanize) return false
+        val fontKey = LyricFonts.bindStyles(LyricFonts.PREFERRED_LYRIC_FONT, pageFontStyles)
+        if (sameLayout && layoutFontKey == fontKey && showTranslation == translate && showRomanization == romanize) return false
         val previousRows = rows.takeIf { preserveAppleScroll && sameLayout && it.isNotEmpty() }
 
         lines = newLines
         layoutWidth = width
         layoutSize = size
         layoutAnnotationSize = annotationSize
+        layoutFontKey = fontKey
         showTranslation = translate
         showRomanization = romanize
         hasTranslation = lines.any { it.translation != null }
         hasRomanization = lines.any { it.romanization != null }
         var top = 0f
-        rows = lines.map { line ->
-            val original = ui.wrap2(line.text, width, size, Theme.FONT_SEMIBOLD)
-            val phonetic = line.annotations(romanize, false).flatMap { ui.wrap2(it, width, annotationSize) }
-            val translation = line.annotations(false, translate).flatMap { ui.wrap2(it, width, annotationSize) }
-            val height = original.size * size * 1.32f + (phonetic.size + translation.size) * size + 17f
-            Row(top, original, phonetic, translation, height).also { top += height }
+        rows = ui.mt.withFontStyles(pageFontStyles.takeIf { fontKey != null }) {
+            lines.map { line ->
+                val original = ui.wrap2(line.text, width, size, Theme.FONT_SEMIBOLD)
+                val phonetic = line.annotations(romanize, false).flatMap { ui.wrap2(it, width, annotationSize) }
+                val translation = line.annotations(false, translate).flatMap { ui.wrap2(it, width, annotationSize) }
+                val height = original.size * size * 1.32f + (phonetic.size + translation.size) * size + 17f
+                Row(top, original, phonetic, translation, height).also { top += height }
+            }
         }
 
         if (previousRows == null) return false
@@ -485,7 +493,7 @@ internal class LyricsPage(
     private fun drawLyrics(
         active: Int, size: Float, popup: LayoutBounds?, centered: Boolean = false,
         annotationSize: Float = size * ANNOTATION_RATIO,
-    ) {
+    ) = ui.mt.withFontStyles(pageFontStyles.takeIf { layoutFontKey != null }) {
         val a = lyricArea
         val baseline = a.y + a.height / 2f - scrollPosition
         val first = rows.binarySearchBy(a.y - baseline) { it.top + it.height }

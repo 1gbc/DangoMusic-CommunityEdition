@@ -332,7 +332,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                 val (ann, v) = left.remove(k) ?: return@mapNotNull null
                 val ctl = when {
                     k == "language" -> Ctl.LANGUAGE
-                    k == "lyricFont" || k == "sideFont" || k == "requestHudFont" || k.endsWith("MenuFont") -> Ctl.FONT
+                    k in setOf("lyricFont", "sideFont", "requestHudFont", "islandFont") || k.endsWith("MenuFont") -> Ctl.FONT
                     k in choiceLabels -> Ctl.CHOICE
                     v is BooleanValue -> Ctl.TOGGLE
                     k == "openKey" || (k.startsWith("key") && v is IntValue) -> Ctl.KEY
@@ -354,7 +354,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                         "sideFont" -> all.getValue("sideSmoothFont").second as BooleanValue
                         else -> null
                     }
-                    FontChoice(v as TextValue, smooth)
+                    FontChoice(v as TextValue, smooth, k == "islandFont")
                 } else v
                 val format = fmts[k] ?: if (k.endsWith("MenuTextSize") || k.endsWith("PlayerBarSize"))
                     ({ v: Any -> (v as IntValue).value.toString() + "%" }) else ::fmtValue
@@ -508,7 +508,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             Group("NetEase interface settings", "Player menu appearance", module, false, neteaseLooks, fullWidth = true),
             Group("Apple Music interface settings", "Player menu appearance", module, false, appleLooks, fullWidth = true),
             Group("Dynamic Island", "Overlay", islandModule, true, island.take(listOf(
-                "islandWhileHudHidden", "islandLayout", "islandAnimations", "islandBackground",
+                "islandWhileHudHidden", "islandLayout", "islandAnimations", "islandBackground", "islandFont",
                 "scale", "posX", "posY", "islandLocked",
             )) + island.take(), fullWidth = true),
             Group("Bilibili song requests", "Live danmaku and request queue", module, false, emptyList(),
@@ -1293,7 +1293,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
     }
 
     /** 字体这一行的值：字体 id（见 [LyricFonts]）+ 平滑字体开关（只有 3D 歌词有像素字体，驾驶舱是 null） */
-    private class FontChoice(val font: TextValue, val smooth: BooleanValue?)
+    private class FontChoice(val font: TextValue, val smooth: BooleanValue?, val island: Boolean)
 
     /** 字体弹出列表：哪一行打开的、贴着哪个按钮、列表滚到哪 */
     private var fontChoice: FontChoice? = null
@@ -1307,6 +1307,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
 
     private fun defaultFontName(choice: FontChoice): String = I18n.text(when {
         choice.font === module.requestHudFont -> "Default request HUD font"
+        choice.island -> "Default Island font"
         choice.smooth == null -> "Default menu font"
         choice.font === cockpitFont -> "Default bold"
         else -> "Smooth font"

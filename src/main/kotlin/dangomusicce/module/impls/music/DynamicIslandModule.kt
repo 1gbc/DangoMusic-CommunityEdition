@@ -8,6 +8,7 @@ import net.minecraft.client.Minecraft
 import dangomusicce.event.EventHandler
 import dangomusicce.events.HudRenderEvent
 import dangomusicce.font.MixedText
+import dangomusicce.gfx.CjkStyle
 import dangomusicce.gfx.GuiCanvas
 import dangomusicce.gfx.Texture
 import dangomusicce.module.Category
@@ -17,8 +18,10 @@ import dangomusicce.module.values.BooleanValue
 import dangomusicce.module.values.FloatValue
 import dangomusicce.module.values.IntValue
 import dangomusicce.module.values.ModuleValue
+import dangomusicce.module.values.TextValue
 import dangomusicce.music.CoverArt
 import dangomusicce.music.CoverCache
+import dangomusicce.music.LyricFonts
 import dangomusicce.music.PlaybackView
 import dangomusicce.musicui.AppleLyricsLayout
 import dangomusicce.musicui.HudBackdrop
@@ -47,10 +50,15 @@ import kotlin.math.sin
 class DynamicIslandModule : Module() {
 
     @ModuleValue("Island background", "Choose the Dynamic Island background material")
-    private val islandBackground = IntValue(0, HudBackground.entries.lastIndex, HudBackground.LIQUID.ordinal)
+    private val islandBackground = IntValue(0, HudBackground.entries.lastIndex, HudBackground.COVER.ordinal)
 
     @ModuleValue("Island layout", "Choose the Dynamic Island layout")
-    private val islandLayout = IntValue(STYLE_C, STYLE_PLAYER_CARD, STYLE_C)
+    private val islandLayout = IntValue(STYLE_C, STYLE_PLAYER_CARD, STYLE_A)
+
+    @ModuleValue("Island font", "Choose a font for the Dynamic Island from the fonts folder or your system")
+    private val islandFont = TextValue("")
+
+    private val islandFontStyles = CjkStyle.ISLAND to CjkStyle.ISLAND_BOLD
 
     internal val hasPlayerCardLayout get() = islandLayout.value == STYLE_PLAYER_CARD
 
@@ -348,6 +356,11 @@ class DynamicIslandModule : Module() {
         val extension = if (volumeReveal > 0.01f) 22f * volumeReveal else 0f
 
         val want = if (snap.track == null) Kind.IDLE else layout
+        val fontId = islandFont.value.ifEmpty {
+            if (want == Kind.PLAYER_CARD || shown == Kind.PLAYER_CARD) LyricFonts.PREFERRED_LYRIC_FONT else ""
+        }
+        val activeFontStyles = islandFontStyles.takeIf { LyricFonts.bindStyles(fontId, it) != null }
+        mt.customFontStyles = activeFontStyles.takeIf { islandFont.value.isNotEmpty() }
         val uiScale = min(platform.windowWidth / 1280f, platform.windowHeight / 800f).coerceAtLeast(0.5f)
         val requestedScale = uiScale * scale.value
         val titleSizePx = AppleLyricsLayout.titleSizeFor(platform.windowWidth.toFloat(), platform.windowHeight.toFloat()) * scale.value
@@ -441,7 +454,7 @@ class DynamicIslandModule : Module() {
                 shown == Kind.IDLE -> drawIdle(ctx, cb)
                 shown == Kind.MINI -> drawMini(ctx, cb, snap, titleSize, pill.x + pill.width / 2f)
                 shown == Kind.PLAYER_CARD -> playerCard.draw(ctx, mt, pill, k, expandedCard, platform.windowHeight / k, snap,
-                    DangoMusic.instance.moduleManager.get(LyricsModule::class.java), now, dt, islandLocked.get())
+                    DangoMusic.instance.moduleManager.get(LyricsModule::class.java), now, dt, islandLocked.get(), activeFontStyles)
                 else -> drawFull(ctx, cb, snap, shown, titleSize)
             }
             if (animations && (shown == Kind.SLIM || shown == Kind.CARD)) {

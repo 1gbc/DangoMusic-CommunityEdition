@@ -101,6 +101,9 @@ Lock Dynamic Island	锁定灵动岛
 Prevent moving the Dynamic Island with the mouse	锁定后无法用鼠标移动灵动岛，需在这里解锁
 Island background	灵动岛背景风格
 Choose the Dynamic Island background material	选择灵动岛使用的背景材质
+Island font	灵动岛字体
+Choose a font for the Dynamic Island from the fonts folder or your system	从字体目录或系统中选择灵动岛字体
+Default Island font	默认灵动岛字体
 Collapse settings on close	关闭时收起设置分组
 Fold settings groups when closing the settings page or the player	离开设置页或关闭播放器时收起分组
 Search settings	搜索设置

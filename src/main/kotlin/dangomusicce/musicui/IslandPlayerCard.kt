@@ -214,6 +214,7 @@ internal class IslandPlayerCard {
     fun draw(
         ctx: GuiCanvas, mt: MixedText, bounds: LayoutBounds, scale: Float, expanded: Boolean, viewportHeight: Float,
         snap: PlaybackView.Snapshot, lyricModule: LyricsModule, now: Long, dt: Float, locked: Boolean,
+        lyricStyles: Pair<Int, Int>?,
     ) {
         val song = snap.track ?: return hide()
         if (bounds.width < 126f || bounds.height < 29f) return hide()
@@ -261,8 +262,10 @@ internal class IslandPlayerCard {
                 8.5f, Theme.TEXT_SECONDARY, Theme.FONT_REGULAR)
             ctx.popOpacity()
         }
-        drawLine(ctx, mt, lyricLabel(song.name, line), layout.lyrics, layout.lyricSize, Theme.TEXT_PRIMARY,
-            Theme.FONT_SEMIBOLD, (now - lyricSince) / 1e9)
+        mt.withFontStyles(if (line == null) mt.customFontStyles else lyricStyles) {
+            drawLine(ctx, mt, lyricLabel(song.name, line), layout.lyrics, layout.lyricSize, Theme.TEXT_PRIMARY,
+                Theme.FONT_SEMIBOLD, (now - lyricSince) / 1e9)
+        }
         drawProgress(ctx, layout.progress, press?.progress ?: songProgress, interactive && enabled(Control.PROGRESS, snap))
         if (details > 0f) {
             ctx.pushOpacity(details)

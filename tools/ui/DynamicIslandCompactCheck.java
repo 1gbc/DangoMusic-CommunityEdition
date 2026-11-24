@@ -4,6 +4,8 @@ import java.util.*;
 import dangomusicce.*;
 import dangomusicce.gfx.*;
 import dangomusicce.module.impls.music.DynamicIslandModule;
+import dangomusicce.module.impls.music.LyricsModule;
+import dangomusicce.module.impls.music.NeteaseMusicModule;
 import dangomusicce.module.values.*;
 import dangomusicce.music.*;
 import dangomusicce.platform.Platform;
@@ -26,8 +28,27 @@ public class DynamicIslandCompactCheck {
         var island = new DynamicIslandModule();
         var layout = (IntValue)field(DynamicIslandModule.class,"islandLayout").get(island);
         var animations = (BooleanValue)field(DynamicIslandModule.class,"islandAnimations").get(island);
-        check(layout.getValue()==0 && layout.getDefault()==0 && !animations.getDefault(),
-            "Fresh installation uses style C and disables optional animations");
+        var background = (IntValue)field(DynamicIslandModule.class,"islandBackground").get(island);
+        var fontChoice = (TextValue)field(DynamicIslandModule.class,"islandFont").get(island);
+        check(layout.getValue()==1 && layout.getDefault()==1 && !animations.getDefault(),
+            "Fresh installation uses the mini capsule and disables optional animations");
+        check(background.getValue()==2 && background.getDefault()==2,
+            "Fresh installation uses flowing cover colors");
+        check(fontChoice.getDefault().isEmpty(), "An unset HUD font keeps default track typography");
+        var lyrics = new LyricsModule();
+        check(((BooleanValue)field(LyricsModule.class, "stayOnScreen").get(lyrics)).getDefault(),
+            "3D lyrics default to staying on screen");
+        for (var key : List.of("lyricFont", "sideFont")) {
+            check(((TextValue)field(LyricsModule.class, key).get(lyrics)).getDefault()
+                .equals(LyricFonts.PREFERRED_LYRIC_FONT), key + " defaults to Soukou Mincho");
+        }
+        var player = new NeteaseMusicModule();
+        check(((IntValue)field(NeteaseMusicModule.class, "neteaseInterfaceStyle").get(player)).getDefault() == 1 &&
+            ((IntValue)field(NeteaseMusicModule.class, "appleSidebarStyle").get(player)).getDefault() == 0,
+            "NetEase defaults to Apple layout and the sidebar to flowing cover colors");
+        // The layout recordings use the glass draw path and explicitly cover each shape.
+        background.setValue(0);
+        layout.setValue(0);
         var clipStack = new ArrayDeque<LayoutBounds>();
         var texts = new ArrayList<String>();
         var textXs = new ArrayList<Float>();
@@ -56,9 +77,15 @@ public class DynamicIslandCompactCheck {
             }
             return null;
         });
+        var configuredFonts = new HashMap<Integer, java.awt.Font>();
+        var textCanvas = proxy(TextCanvas.class, (p,m,a) -> {
+            if (m.getName().equals("font")) configuredFonts.put((Integer)a[0], (java.awt.Font)a[1]);
+            return null;
+        });
         field(DangoClient.class,"gfx").set(null,proxy(Gfx.class,(p,m,a)->{
             return switch(m.getName()) {
                 case "newCanvas" -> canvas;
+                case "getText" -> textCanvas;
                 case "drawCjkRuns" -> {
                     for (Object run : (List<?>)a[0]) { if (((CjkRun)run).getR() != 0f) cjkRuns.add((CjkRun)run); }
                     yield null;
@@ -140,6 +167,25 @@ public class DynamicIslandCompactCheck {
             "Chinese titles use the Apple lyrics page font fallback");
         check(Math.abs(cjkRuns.get(0).getSize()*renderScale[0] - 18f*800f/1292f*.96f)<.001f,
             "The title also matches the lyrics page in a height-limited viewport");
+        if (args.length > 1) {
+            var fontFile = Files.createDirectories(cfg.resolve("fonts")).resolve(LyricFonts.PREFERRED_LYRIC_FONT);
+            Files.copy(Path.of(args[1]), fontFile);
+            try {
+                fontChoice.setValue(LyricFonts.PREFERRED_LYRIC_FONT);
+                draw.run();
+                check(cjkRuns.size() == 1 && cjkRuns.get(0).getStyle() == CjkStyle.ISLAND_BOLD,
+                    "The selected Island font is used in title measurement and rendering");
+                var font = configuredFonts.get(CjkStyle.ISLAND_BOLD);
+                check(font != null && font.canDisplay('\u65e5') && font.canDisplay('A'),
+                    "The supplied font loads with both CJK and Latin glyphs");
+            } finally {
+                Files.delete(fontFile);
+            }
+            draw.run();
+            check(cjkRuns.size() == 1 && cjkRuns.get(0).getStyle() == CjkStyle.NOTO_SC_BOLD,
+                "A missing Island font falls back without a restart");
+            fontChoice.reset();
+        }
         animations.set(false);
         {
             width[0]=1920;
@@ -163,7 +209,8 @@ public class DynamicIslandCompactCheck {
             }
 
             layout.reset();
-            check(layout.getValue()==0, "Resetting the layout restores style C");
+            check(layout.getValue()==1, "Resetting the layout restores the mini capsule");
+            layout.setValue(0);
             for(int i=0;i<100;i++)draw.run();
             var full = shell.get(0);
             check(Math.abs(full.getWidth()-slim.getWidth())<.01f && Math.abs(full.getHeight()-slim.getHeight())<.01f,
@@ -190,6 +237,6 @@ public class DynamicIslandCompactCheck {
             check(shell.get(0).getWidth()<=174.01f,"The full island fits a narrow window");
             width[0]=1280;
         }
-        System.out.println("Island styles A, B and default C passed resizing, clipping and song-change checks");
+        System.out.println("Island defaults, font, resizing, clipping and song-change checks passed");
     }
 }

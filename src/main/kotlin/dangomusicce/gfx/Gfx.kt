@@ -78,6 +78,10 @@ object CjkStyle {
     const val MENU_BOLD = 8
     const val REQUEST_HUD = 9
     const val REQUEST_HUD_BOLD = 10
+    const val ISLAND = 11
+    const val ISLAND_BOLD = 12
+    const val LYRICS_PAGE = 13
+    const val LYRICS_PAGE_BOLD = 14
 }
 
 /** 一段要画的平滑字体文字。centered = (x, y) 是可见部分的中心；否则 y 是基线 */
