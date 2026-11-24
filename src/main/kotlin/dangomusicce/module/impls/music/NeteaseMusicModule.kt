@@ -187,9 +187,6 @@ class NeteaseMusicModule : Module() {
     @ModuleValue("Playback fades", "Brief fades when switching, pausing or resuming songs")
     private val playbackFades = BooleanValue(true)
 
-    @ModuleValue("Interface style", "Classic: rounded corners, capsule switches with round knobs. Continuous corners: smoother squircle corners everywhere")
-    private val uiStyle = IntValue(0, 1, 1)
-
     @ModuleValue("Apple Music sidebar style", "Choose between blue icons with flowing cover colors and red icons with dark glass. Also applies to NetEase in Apple style.")
     private val appleSidebarStyle = IntValue(0, 1, 0)
 
@@ -480,7 +477,6 @@ class NeteaseMusicModule : Module() {
     fun onTick(e: TickEvent) {
         // 即使播放器被关闭，也要初始化并保存界面语言。
         applyLanguage()
-        dangomusicce.ui.UiStyle.continuous = uiStyle.value == 1
         val source = MusicSource.fromConfig(musicSource.value)
         if (musicSource.value != source.configId) musicSource.setValue(source.configId)
         MusicSources.selected = source

@@ -130,7 +130,6 @@ class NearbyModule : Module() {
         } else {
             (0.03f * (distance / 8.0).coerceIn(0.6, 2.0)).toFloat()
         }
-        val count = style.maxLines.coerceIn(1, 8)
         val wiggleFps = style.wiggleFps.coerceIn(1, 24)
         // The server advances the host's frame to broadcast time; add the network
         // transit since receipt. Without a host frame, fall back to local time.
@@ -223,27 +222,19 @@ class NearbyModule : Module() {
             val (font, key) = if (style.smooth) LyricFonts.load(style.font) else (null to null)
             pen.font(CjkStyle.LYRIC, font, key)
             if (style.smooth) pen.beginSmooth()
-            val stride = when {
-                style.romanization -> 24f
-                style.translation -> 22f
-                else -> 14f
-            }
             try {
-                for (i in 0 until count) {
-                    val line = lines.getOrNull(index + i) ?: break
-                    val alpha = if (i == 0) 0.96f else 0.72f
-                    val y = i * stride
-                    drawLine(pen, line.text, y, 10f,
-                        if (style.ktv) style.ktvBaseColor else style.textColor, alpha, !glowPass, wiggleFrame, style.wiggle)
-                    if (style.translation) {
-                        line.translation?.takeIf { it.isNotBlank() }?.let {
-                            drawLine(pen, it, y + 12f, 8f, style.translationColor, alpha * 0.75f, !glowPass, wiggleFrame)
-                        }
+                val line = lines[index]
+                val alpha = 0.96f
+                drawLine(pen, line.text, 0f, 10f,
+                    if (style.ktv) style.ktvBaseColor else style.textColor, alpha, !glowPass, wiggleFrame, style.wiggle)
+                if (style.translation) {
+                    line.translation?.takeIf { it.isNotBlank() }?.let {
+                        drawLine(pen, it, 12f, 8f, style.translationColor, alpha * 0.75f, !glowPass, wiggleFrame)
                     }
-                    if (style.romanization) {
-                        line.romanization?.takeIf { it.isNotBlank() }?.let {
-                            drawLine(pen, it, y + 20f, 8f, style.translationColor, alpha * 0.62f, !glowPass, wiggleFrame)
-                        }
+                }
+                if (style.romanization) {
+                    line.romanization?.takeIf { it.isNotBlank() }?.let {
+                        drawLine(pen, it, 20f, 8f, style.translationColor, alpha * 0.62f, !glowPass, wiggleFrame)
                     }
                 }
             } finally {

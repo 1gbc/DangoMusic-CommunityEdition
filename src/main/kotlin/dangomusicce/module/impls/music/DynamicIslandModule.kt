@@ -145,6 +145,7 @@ class DynamicIslandModule : Module() {
 
     private data class Placement(val bounds: LayoutBounds, val scale: Float, val travelX: Float, val travelY: Float)
     private class Drag(val offset: Vec2, val fromChat: Boolean) {
+        var position: Vec2? = null
         var moved = false
     }
     private var placement: Placement? = null
@@ -234,10 +235,15 @@ class DynamicIslandModule : Module() {
             return
         }
         val frame = placement ?: return
+        val nx = if (frame.travelX > 0f) ((x / frame.scale - active.offset.x) / frame.travelX).coerceIn(0f, 1f)
+            else posX.value
+        val ny = if (frame.travelY > 0f) ((y / frame.scale - active.offset.y) / frame.travelY).coerceIn(0f, 1f)
+            else posY.value
+        active.position = Vec2(nx, ny)
         val beforeX = posX.value
         val beforeY = posY.value
-        if (frame.travelX > 0f) posX.setValue((x / frame.scale - active.offset.x) / frame.travelX)
-        if (frame.travelY > 0f) posY.setValue((y / frame.scale - active.offset.y) / frame.travelY)
+        posX.setValue(nx)
+        posY.setValue(ny)
         active.moved = active.moved || posX.value != beforeX || posY.value != beforeY
     }
 
@@ -399,15 +405,20 @@ class DynamicIslandModule : Module() {
         if (e != null) placement = Placement(initial, k, travelX, travelY)
         if (down && !chatWasDown) beginDrag(platform.mouseX, platform.mouseY, fromChat = true)
         chatWasDown = down
-        if (drag?.fromChat == true) moveDrag(platform.mouseX, platform.mouseY)
-        val pill = initial.copy(x = posX.value * travelX, y = posY.value * travelY)
+        if (drag != null && platform.isMouseDown(0)) moveDrag(platform.mouseX, platform.mouseY)
+        val dragPosition = drag?.position
+        val pill = initial.copy(x = (dragPosition?.x ?: posX.value) * travelX, y = (dragPosition?.y ?: posY.value) * travelY)
         if (e != null) placement = Placement(pill, k, travelX, travelY)
 
         val ctx = context ?: DangoClient.gfx.newCanvas().also { context = it }
         val background = HudBackground.entries[islandBackground.value]
         ctx.begin(background.capturesWorld, 0, 0)
         try {
-            val r = if (shown == Kind.PLAYER_CARD && !expandedCard) h / 2f else min(shown.cornerRadius, h / 2f)
+            val r = if (shown == Kind.PLAYER_CARD) {
+                val expansion = ((h - IslandPlayerCard.COMPACT_HEIGHT) /
+                    (IslandPlayerCard.HEIGHT - IslandPlayerCard.COMPACT_HEIGHT)).coerceIn(0f, 1f)
+                (IslandPlayerCard.COMPACT_HEIGHT / 2f) * (1f - expansion) + shown.cornerRadius * expansion
+            } else min(shown.cornerRadius, h / 2f)
 
             ctx.pushScale(k, k, 1f)
             val glass = Theme.GLASS_WINDOW.copy(radius = r,

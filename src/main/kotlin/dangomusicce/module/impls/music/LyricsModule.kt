@@ -8,8 +8,6 @@ import dangomusicce.events.HudRenderEvent
 import dangomusicce.events.WorldRenderEndEvent
 import dangomusicce.gfx.ViewAngles
 import dangomusicce.gfx.CjkStyle
-import dangomusicce.gfx.WorldLyricCamera
-import dangomusicce.gfx.WorldLyricPose
 import dangomusicce.lyrics.LyricLine
 import dangomusicce.lyrics.LyricSplit
 import dangomusicce.lyrics.Lyrics
@@ -30,7 +28,6 @@ import dangomusicce.music.Dance
 import dangomusicce.music.MusicPlayer
 import dangomusicce.music.NeteaseTrack
 import dangomusicce.music.PlaybackView
-import dangomusicce.musicui.Spring
 import dangomusicce.multiplayer.LyricsAnchor
 import dangomusicce.multiplayer.LyricsStyle
 import dangomusicce.multiplayer.SharedLyricLine
@@ -60,9 +57,7 @@ private const val BLOCK_MARGIN = 0.4
 /** 拉近的下限：设定距离的这个比例。小房间里允许贴墙，不为了避让把歌词缩得太小 */
 private const val MIN_REACH = 0.35
 private const val LYRIC_ROW_HEIGHT = 11f
-private const val LYRIC_ROW_GAP = 4f
 private const val ANNOTATION_GAP = 2.5f
-private const val SCROLL_NANOS = 380_000_000L
 
 /** Stay on screen 弹簧的快慢（越大跟得越紧；12 大约 0.3 秒回到位） */
 private const val SPRING = 12.0
@@ -284,27 +279,11 @@ class LyricsModule : Module() {
     @ModuleValue("Word pop", "Words pop in one by one as they are sung")
     private val wordPop = BooleanValue(true)
 
-    @ModuleValue("Simultaneous lyric lines", "Show the current lyric and upcoming lines")
-    internal val maxLyricLines = IntValue(1, 8, 1)
-
     @ModuleValue("Show instrumental sections", "Label the intro, interlude and outro in KTV mode")
     internal val ktvInstrumental = BooleanValue(true)
 
     @ModuleValue("Lyric colors", "Choose the color of the KTV highlight")
     internal val ktvLyricColors = IntValue(COLORS_CUSTOM, COLORS_RAINBOW, COLORS_CUSTOM)
-
-    private fun worldLyricBudget(): Float {
-        val platform = DangoClient.platform
-        val fov = platform.fov.coerceIn(30f, 110f)
-        val viewHeight = (2.0 * tan(Math.toRadians(fov / 2.0)) * 0.6 * 6.5 / 0.03).toFloat()
-        return viewHeight * 0.38f / scale.value * (platform.windowHeight / 480f).coerceIn(0.55f, 1f)
-    }
-
-    internal fun worldLyricLimit(): Int {
-        if (!adaptiveLyricLineLimit) return maxLyricLines.maxRange
-        return (worldLyricBudget() / (14f +
-            (if (romanization.get()) 8f else 0f) + (if (translation.get()) 8f else 0f))).toInt().coerceIn(1, maxLyricLines.maxRange)
-    }
 
     @ModuleValue("KTV mode", "Show the full line and highlight it as the song plays")
     internal val ktvMode = BooleanValue(false)
@@ -435,12 +414,7 @@ class LyricsModule : Module() {
         /** 这一句的翻译（已经按宽度换好行；没有就是空的），画在原文下面 */
         var translation: List<String> = emptyList()
         var phonetic: List<String> = emptyList()
-        var scrollIn = 0f
-        var scrollStartNanos = 0L
-        var scrollOut = 0f
         var lastWiggleFrame: Long? = null
-        var previousStackLift = 0f
-        var previousTail: LyricLine? = null
         /** Stay on screen 往回拉时的角速度（度 / 秒），用弹簧算，起步和停下都是平滑的 */
         var vYaw = 0.0
         var vPitch = 0.0
@@ -458,8 +432,6 @@ class LyricsModule : Module() {
 
     /** 最近一帧实际渲染的活动歌词世界姿态；附近共享用它复现位置/朝向/缩放 */
     @Volatile private var sharedPose: LyricsAnchor? = null
-    private var upcoming = emptyList<Floating>()
-    private data class StackRow(val lyric: Floating, val center: Float)
 
     private fun phoneticRows(f: Floating) = if (romanization.get()) f.phonetic else emptyList()
     private fun translationRows(f: Floating) = if (translation.get()) f.translation else emptyList()
@@ -470,19 +442,6 @@ class LyricsModule : Module() {
         return halfMain(f) + if (annotations == 0) 0f else ANNOTATION_GAP + annotations * LYRIC_ROW_HEIGHT * TRANSLATION_SCALE
     }
 
-    private fun layoutStack(first: Floating): List<StackRow> = buildList {
-        add(StackRow(first, 0f))
-        var bottom = rowBottom(first)
-        for (next in upcoming) {
-            val center = bottom + LYRIC_ROW_GAP + halfMain(next)
-            val nextBottom = center + rowBottom(next)
-            if (adaptiveLyricLineLimit && nextBottom + halfMain(first) > worldLyricBudget()) break
-            add(StackRow(next, center))
-            bottom = nextBottom
-        }
-    }
-
-    private var upcomingKey: Triple<Floating?, Int, Lyrics?>? = null
     /** 暂停期间（歌词先隐藏，恢复播放时再出现） */
     private var wasPaused = false
     private val flash = TextFlash()
@@ -550,7 +509,7 @@ class LyricsModule : Module() {
         translationColor = translationColor.value,
         scale = scale.value,
         distance = distance.value,
-        maxLines = maxLyricLines.value,
+        maxLines = 1,
         glow = glow.get(),
         glowStrength = glowStrength.value,
         glowRadius = glowRadius.value,
@@ -622,7 +581,6 @@ class LyricsModule : Module() {
         requestLyrics(s.track)
         val p = playbackPositionMs().toDouble()
         if (s.key != currentKey) {
-            fading.removeAll { it.scrollOut > 0f }
             currentKey = s.key
             songPos = p
             active?.let { startFade(it) }
@@ -695,8 +653,6 @@ class LyricsModule : Module() {
             } else if (idx != lastIndex || wasPaused || (sectionLabel != null && sectionLabel != active?.lyric?.text)) {
                 val resumed = wasPaused && idx == lastIndex
                 wasPaused = false
-                val anchor = active?.takeIf { maxLyricLines.value > 1 && lastIndex >= 0 && idx == lastIndex + 1 }
-                val previousStack = anchor?.let(::layoutStack).orEmpty()
                 lastIndex = idx
                 active?.let { startFade(it) }
                 active = null
@@ -708,69 +664,22 @@ class LyricsModule : Module() {
                         val next = lyrics.lines.getOrNull(idx + 1)?.timeMs ?: Long.MAX_VALUE
                         active = spawn(line, next).also { nextLine ->
                             if (resumed) nextLine.resumedAt = System.nanoTime()
-                            if (anchor != null) {
-                                val stride = rowBottom(anchor) + LYRIC_ROW_GAP + halfMain(nextLine)
-                                anchor.scrollOut = stride
-                                anchor.fadeStartNanos = frameNanos
-                                nextLine.previousStackLift = previousStack.lastOrNull()?.let {
-                                    it.center + rowBottom(it.lyric) - rowBottom(anchor)
-                                } ?: 0f
-                                nextLine.previousTail = previousStack.lastOrNull()?.lyric?.lyric
-                                nextLine.vYaw = anchor.vYaw
-                                nextLine.vPitch = anchor.vPitch
-                                nextLine.scrollIn = stride
-                                nextLine.scrollStartNanos = frameNanos
-                                nextLine.x = anchor.x; nextLine.y = anchor.y; nextLine.z = anchor.z
-                                nextLine.yaw = anchor.yaw; nextLine.pitch = anchor.pitch
-                                // 接着上一句已经避让好的距离，滚动换行时不在墙边跳一下
-                                nextLine.reach = anchor.reach
-                            }
                         }
                     }
                 }
             }
         }
 
-        val count = minOf(maxLyricLines.value, worldLyricLimit())
-        val nextKey = Triple(active, count, lyrics)
-        if (upcomingKey != nextKey) {
-            upcomingKey = nextKey
-            upcoming = if (active == null || lyrics == null || lastIndex < 0 || count == 1) emptyList()
-            else (lastIndex + 1 until lyrics.lines.size).asSequence()
-                .filter { lyrics.lines[it].text.isNotBlank() }
-                .take(count - 1)
-                .map { i ->
-                    val line = lyrics.lines[i]
-                    spawn(line, lyrics.lines.getOrNull(i + 1)?.timeMs ?: Long.MAX_VALUE)
-                }.toList()
-        }
-        val stack = active?.let(::layoutStack).orEmpty()
-        fading.removeAll { f ->
-            if (f.scrollOut > 0f) frameNanos - f.fadeStartNanos >= SCROLL_NANOS
-            else active != null || frameNanos - f.fadeStartNanos >= 400_000_000L
-        }
+        fading.removeAll { f -> active != null || frameNanos - f.fadeStartNanos >= 400_000_000L }
         if (!worldVisible() || !allowsWorldLyrics(platform.hudHidden)) return
 
-        val useFlash = textFlash.get() && !ktvMode.get() && count == 1
+        val useFlash = textFlash.get() && !ktvMode.get()
         val gfx = DangoClient.gfx
         val floor = e.playerEyeY?.minus(GROUND_MARGIN)?.takeIf { aboveGround.get() }
-        val motion = if (!useFlash) stackMotion(stack, frameNanos) else null
-        val keepFloatingVisible = stayOnScreen.get()
-        val camera = if (motion != null && (count > 1 || keepFloatingVisible)) gfx.world.lyricCamera() else null
-        val view = if (motion != null) {
-            camera?.angles ?: gfx.world.cameraAngles().takeIf { it.yaw.isFinite() && it.pitch.isFinite() }
-        } else null
-        val (lagX, lagY) = leftStackTurn(view.takeIf { count > 1 }, frameNanos)
-        val left = if (motion != null && count > 1) {
-            camera?.let { leftStack(it, stack, motion, floor, lagX, lagY) }
-        } else null
-        val floatingCamera = camera.takeIf { keepFloatingVisible && left == null }
-        if (left != null) {
-            lastCamX = Double.NaN
-            keepNanos = 0L
-        } else if (view != null) {
-            keepOnScreen(stack, view)
-            avoidBlocks(stack)
+        if (!useFlash) {
+            val view = gfx.world.cameraAngles()
+            if (view.yaw.isFinite() && view.pitch.isFinite()) keepOnScreen(view)
+            avoidBlocks()
         }
 
         val deepGlow = gfx.glow
@@ -787,7 +696,7 @@ class LyricsModule : Module() {
                         if (deepGlow.begin()) {
                             glowPass = true
                             try {
-                                drawWorld(songNow, stack, frameNanos, floor, view, count > 1, motion, left, floatingCamera)
+                                drawWorld(songNow, frameNanos, floor)
                             } finally {
                                 glowPass = false
                             }
@@ -807,7 +716,7 @@ class LyricsModule : Module() {
                 // 离屏画布上 alpha 要叠加：重新设一次文字的渲染状态（混合方式）
                 if (contrast) gfx.world.resync()
                 try {
-                    drawWorld(songNow, stack, frameNanos, floor, view, count > 1, motion, left, floatingCamera)
+                    drawWorld(songNow, frameNanos, floor)
                 } finally {
                     if (contrast) {
                         gfx.contrast.end()
@@ -1042,11 +951,8 @@ class LyricsModule : Module() {
         if (player == null) return Floating(lines, startMs, reveal, 0.0, 0.0, 0.0, 0f, 0f, ct, line, nextMs).also { it.translation = tr; it.phonetic = phonetic }
         val yaw = player.yaw + (random.nextFloat() * 2f - 1f) * spread.value
         val d = distance.value.toDouble()
-        val followScreen = stayOnScreen.get()
-        val spawnPitch = player.pitch - 3f - random.nextFloat() * 10f
-        var pitch = if (followScreen) spawnPitch.coerceIn(-89f, 89f) else spawnPitch.coerceIn(-60f, 30f)
-        // With screen following enabled, apply the floor at render time so a new line can start in view.
-        if (aboveGround.get() && !followScreen) pitch = min(pitch, maxPitch(d))
+        var pitch = (player.pitch - 3f - random.nextFloat() * 10f).coerceIn(-60f, 30f)
+        if (aboveGround.get()) pitch = min(pitch, maxPitch(d))
         val yr = Math.toRadians(yaw.toDouble())
         val pr = Math.toRadians(pitch.toDouble())
         val dx = -sin(yr) * cos(pr)
@@ -1462,7 +1368,7 @@ class LyricsModule : Module() {
      * 往回拉用的是"临界阻尼弹簧"：有速度、会慢慢加速和减速，不会一碰到边就突然开始动、一回来就突然停，
      * 离地高度在绘制时根据插值后的玩家眼睛高度单独计算。
      */
-    private fun keepOnScreen(stack: List<StackRow>, view: ViewAngles) {
+    private fun keepOnScreen(view: ViewAngles) {
         val now = System.nanoTime()
         val dt = if (keepNanos == 0L) 0.016 else ((now - keepNanos) / 1e9).coerceIn(0.0, 0.1)
         keepNanos = now
@@ -1499,7 +1405,6 @@ class LyricsModule : Module() {
         lastCamY = camY
         lastCamZ = camZ
         val maxDist = distance.value * 2.0
-        val minD = distance.value * 0.6
 
         val vHalf = platform.fov / 2.0
         val aspect = platform.windowWidth.toDouble() / platform.windowHeight.coerceAtLeast(1)
@@ -1524,39 +1429,13 @@ class LyricsModule : Module() {
                 f.y = world.cameraY + ry
                 f.z = world.cameraZ + rz
             }
-            // 走近歌词时，Keep away 画的时候会把它推到 minD 远，字在屏幕上的大小要按这个距离算。
-            // 以前这里用原来很近的距离算字的角度大小：越走越近，算出来字比视野还宽，
-            // 下面的可活动范围缩成 0，歌词就被弹簧拉到屏幕正中间；多行时下一句接着这一句的位置，
-            // 会一直卡在中间，只有后退拉开距离才恢复
-            val drawnLen = if (keepAway.get()) max(len, minD) else len
-            if (drawnLen > len) {
-                // 记的位置也一起推过去（像被推着走），之后不会一直贴着镜头来回甩；
-                // 但推过去的地方被方块挡着（正往墙走）就不写回，后退时还能回到墙前原来的位置
-                val k = drawnLen / len
-                val px = rx * k
-                val py = ry * k
-                val pz = rz * k
-                if (platform.clearFraction(world.cameraX, world.cameraY, world.cameraZ,
-                        world.cameraX + px, world.cameraY + py, world.cameraZ + pz) >= 1.0) {
-                    rx = px; ry = py; rz = pz
-                    len = drawnLen
-                    f.x = world.cameraX + rx
-                    f.y = world.cameraY + ry
-                    f.z = world.cameraZ + rz
-                }
-            }
 
-            // 字本身占的角度（按画出来的距离）：留出一半宽 / 高，再多留 2 度边距
+            // 字本身占的角度：留出一半宽 / 高，再多留 2 度边距
             // 翻译在原文下面多占一截：按整体高度算（偏保守，上下都留出来）
-            val visible = if (f === active) stack.map { it.lyric } else listOf(f)
-            val width = visible.maxOfOrNull(::rowWidth) ?: 0f
-            val halfW = Math.toDegrees(atan2(width * s / 2.0, drawnLen))
-            val extra = if (f === active) stack.lastOrNull()?.let { it.center + rowBottom(it.lyric) - rowBottom(f) } ?: 0f else f.previousStackLift
-            val halfH = Math.toDegrees(atan2(max(rowBottom(f), extra + halfMain(f)) * s, drawnLen))
-            // 字实在比视野还大（关了 Keep away 贴脸、字号很大）时也留一点活动范围，
-            // 不把歌词拉到正中间挡住准星；这时字会有一部分在屏幕外
-            val hLim = max(hHalf * 0.2, hHalf - halfW - 2.0)
-            val vLim = max(vHalf * 0.2, vHalf - halfH - 2.0)
+            val halfW = Math.toDegrees(atan2(rowWidth(f) * s / 2.0, len))
+            val halfH = Math.toDegrees(atan2(rowBottom(f) * s, len))
+            val hLim = max(0.0, hHalf - halfW - 2.0)
+            val vLim = max(0.0, vHalf - halfH - 2.0)
 
             val curYaw = Math.toDegrees(atan2(-rx, rz))
             val curPitch = Math.toDegrees(asin((-ry / len).coerceIn(-1.0, 1.0)))
@@ -1601,7 +1480,7 @@ class LyricsModule : Module() {
         }
 
         active?.let { follow(it) }
-        fading.forEach { if (it.scrollOut == 0f) follow(it) }
+        fading.forEach(::follow)
     }
 
     private var avoidNanos = 0L
@@ -1625,11 +1504,11 @@ class LyricsModule : Module() {
      * 就算出整组歌词要沿视线拉近多少才能停在方块前面（拉近时按比例缩小，屏幕上看起来一样大）。
      * 往近处拉得快，往回退得慢，免得在方块边上来回跳
      */
-    private fun avoidBlocks(stack: List<StackRow>) {
+    private fun avoidBlocks() {
         val dt = avoidanceStep()
         val targets = buildList {
             active?.let(::add)
-            fading.forEach { if (it.scrollOut == 0f) add(it) }
+            addAll(fading)
         }
         if (!avoidBlocks.get()) {
             targets.forEach { it.reach = 1.0 }
@@ -1654,10 +1533,8 @@ class LyricsModule : Module() {
                 val k = minD / len
                 rx *= k; ry *= k; rz *= k
             }
-            val visible = if (f === active) stack.map { it.lyric } else listOf(f)
-            val halfW = (visible.maxOfOrNull(::rowWidth) ?: 0f) / 2.0 * s
-            val extra = if (f === active) stack.lastOrNull()?.let { it.center + rowBottom(it.lyric) - rowBottom(f) } ?: 0f else 0f
-            val top = (extra + halfMain(f)) * s
+            val halfW = rowWidth(f) / 2.0 * s
+            val top = halfMain(f) * s
             val bottom = -rowBottom(f) * s
             val mid = (top + bottom) / 2.0
             val h = sqrt(rx * rx + rz * rz)
@@ -1688,330 +1565,73 @@ class LyricsModule : Module() {
         (phoneticRows(f) + translationRows(f)).maxOfOrNull { strW(it) * TRANSLATION_SCALE } ?: 0f,
     )
 
-    private data class StackMotion(
-        val lyric: Floating, val alpha: Float, val slide: Float, val lift: Float,
-        val tailAlpha: Float = 1f, val outgoing: Floating? = null, val outgoingProgress: Float = 0f,
-    )
-
-    private fun stackMotion(stack: List<StackRow>, frameNanos: Long): StackMotion? {
-        val f = active
-        if (f == null) {
-            val fadingRow = fading.lastOrNull { it.scrollOut == 0f } ?: return null
-            val age = (frameNanos - fadingRow.fadeStartNanos).coerceAtLeast(0L)
-            val progress = (age / 400_000_000f).coerceIn(0f, 1f)
-            return StackMotion(fadingRow, 1f - progress, -progress * 4f, 0f)
-        }
-        val outgoing = fading.lastOrNull()?.takeIf { it.scrollOut > 0f && it.fadeStartNanos == f.scrollStartNanos }
-        val progress = if (f.scrollIn > 0f) scrollProgress(frameNanos - f.scrollStartNanos) else 1f
-        val remaining = 1f - progress
-        val tail = stack.last()
-        val extra = tail.center + rowBottom(tail.lyric) - rowBottom(f)
-        val lift = extra + (f.previousStackLift - extra) * remaining
-        val tailAlpha = if (stack.size > 1 && f.previousTail !== tail.lyric.lyric) progress else 1f
-        return StackMotion(f, appearOf(f), f.scrollIn * remaining, lift, tailAlpha, outgoing, progress)
-    }
-
-    private data class LeftStack(val pose: WorldLyricPose, val reach: Float)
-
-    private val leftTurnX = Spring((SPRING * SPRING).toFloat(), (2 * SPRING).toFloat())
-    private val leftTurnY = Spring((SPRING * SPRING).toFloat(), (2 * SPRING).toFloat())
-    private var lastLeftView: ViewAngles? = null
-    private var lastLeftFrame = 0L
-
-    private fun leftStackTurn(view: ViewAngles?, frameNanos: Long): Pair<Float, Float> {
-        val previous = lastLeftView
-        val elapsed = (frameNanos - lastLeftFrame) / 1e9f
-        lastLeftFrame = frameNanos
-        lastLeftView = view
-        if (view == null || previous == null || elapsed !in 0f..0.25f) {
-            leftTurnX.x = 0f; leftTurnX.v = 0f
-            leftTurnY.x = 0f; leftTurnY.v = 0f
-            return 0f to 0f
-        }
-        // Briefly lag behind the camera, then settle back toward the resting left anchor.
-        // Suppress the yaw impulse as the camera turns toward the vertical pole.
-        val yawDelta = wrapDegrees((previous.yaw - view.yaw).toDouble()).toFloat()
-        leftTurnX.x = (leftTurnX.x + yawDelta * 0.012f * (1f - steepViewWeight(view.pitch))).coerceIn(-0.16f, 0.16f)
-        leftTurnY.x = (leftTurnY.x + (view.pitch - previous.pitch) * 0.014f).coerceIn(-0.20f, 0.20f)
-        leftTurnX.step(0f, elapsed)
-        leftTurnY.step(0f, elapsed)
-        return leftTurnX.x to leftTurnY.x
-    }
-
-    private fun leftStack(
-        camera: WorldLyricCamera, stack: List<StackRow>, motion: StackMotion, floor: Double?,
-        screenOffsetX: Float, screenOffsetY: Float,
-    ): LeftStack? {
-        val f = motion.lyric
-        val tail = stack.lastOrNull()
-        var width = stack.maxOfOrNull { rowWidth(it.lyric) } ?: rowWidth(f)
-        var top = motion.slide - halfMain(f)
-        var bottom = motion.slide + (tail?.let { it.center + rowBottom(it.lyric) } ?: rowBottom(f))
-        motion.outgoing?.let { outgoing ->
-            val center = outgoingRowCenter(motion.slide, outgoing.scrollOut, motion.outgoingProgress)
-            width = max(width, rowWidth(outgoing))
-            top = min(top, center - halfMain(outgoing))
-            bottom = max(bottom, center + rowBottom(outgoing))
-        }
-        val margin = 6f
-        val halfWidth = width / 2f + margin
-        top -= motion.lift + margin
-        bottom += margin - motion.lift
-
+    private fun pushFloating(f: Floating, floor: Double?, slide: Float) {
         val world = DangoClient.gfx.world
-        val relativeFloor = floor?.minus(world.cameraY)?.toFloat() ?: Float.NaN
-        val pose = camera.place(distance.value, 0.03f * scale.value * (distance.value / 6.5f),
-            halfWidth, top, bottom, relativeFloor, facePlayer.get(), screenOffsetX, screenOffsetY) ?: return null
-        val dt = avoidanceStep()
-        val platform = DangoClient.platform
-        val avoid = avoidBlocks.get()
-        val probeBlocks = avoid && platform.player != null
-        if (!avoid) f.reach = 1.0
-        if (!probeBlocks && !relativeFloor.isFinite()) return LeftStack(pose, 1f)
-        val eye = pose.eye
-        val cx = world.cameraX
-        val cy = world.cameraY
-        val cz = world.cameraZ
-        var target = 1.0
-        var lowest = Float.POSITIVE_INFINITY
-        fun probe(x: Float, y: Float) {
-            val p = pose.point(x, y, 1f)
-            lowest = min(lowest, p.y)
-            if (!probeBlocks) return
-            val dx = (p.x - eye.x).toDouble()
-            val dy = (p.y - eye.y).toDouble()
-            val dz = (p.z - eye.z).toDouble()
-            val len = sqrt(dx * dx + dy * dy + dz * dz)
-            val hit = platform.clearFraction(cx + eye.x, cy + eye.y, cz + eye.z, cx + p.x, cy + p.y, cz + p.z)
-            if (hit < 1.0 && len > 1e-4) target = min(target, hit - BLOCK_MARGIN / len)
-        }
-        probe(-halfWidth, top)
-        probe(halfWidth, top)
-        probe(-halfWidth, bottom)
-        probe(halfWidth, bottom)
-        probe(0f, (top + bottom) / 2f)
-        val blockReach = if (probeBlocks) easeBlockReach(f, target, dt).toFloat() else 1f
-        // When the screen does not have enough vertical room, move toward the eyes along
-        // the same rays if that helps the stack clear the floor without leaving the viewport.
-        val floorReach = if (relativeFloor.isFinite() && eye.y > relativeFloor && lowest < relativeFloor) {
-            ((eye.y - relativeFloor) / (eye.y - lowest)).coerceAtLeast(MIN_REACH.toFloat())
-        } else 1f
-        return LeftStack(pose, min(blockReach, floorReach))
-    }
-
-    private fun pushLeftStack(left: LeftStack, motion: StackMotion) {
-        val world = DangoClient.gfx.world
-        val pose = left.pose
-        if (motion.lyric === active) {
-            val shared = pose.point(0f, -motion.lift, 1f)
-            sharedPose = LyricsAnchor(
-                world.cameraX + shared.x, world.cameraY + shared.y, world.cameraZ + shared.z,
-                pose.yaw, pose.pitch, pose.scale, motion.lyric.lastWiggleFrame ?: -1L,
-            )
-        }
-        world.push(pose.transform(0f, -motion.lift, left.reach))
-    }
-
-    private fun pushFloatingStack(
-        stack: List<StackRow>, motion: StackMotion, floor: Double?, view: ViewAngles?, multiline: Boolean,
-        camera: WorldLyricCamera?,
-    ) {
-        val world = DangoClient.gfx.world
-        val f = motion.lyric
         var rx = f.x - world.cameraX
         var ry = f.y - world.cameraY
         var rz = f.z - world.cameraZ
         val len = sqrt(rx * rx + ry * ry + rz * rz)
-
-        // 离得太近（走过去 / 疾跑）就沿视线方向把歌词往后推，保持最小距离
-        val restingDistance = if (keepAway.get()) max(len, distance.value * 0.6) else len
-        if (len >= 1e-4 && restingDistance > len) {
-            val k = restingDistance / len
+        val minD = distance.value * 0.6
+        if (keepAway.get() && len in 1e-4..minD) {
+            val k = minD / len
             rx *= k; ry *= k; rz *= k
         }
 
-        // Avoid blocks：整组歌词沿视线拉近、同时等比缩小，屏幕上大小不变，只是停在方块前面
+        // Pull forward along the same ray and reduce world-space size proportionally.
         val reach = f.reach.takeUnless { it.isNaN() } ?: 1.0
         rx *= reach; ry *= reach; rz *= reach
         val s = 0.03f * scale.value * (distance.value / 6.5f) * reach.toFloat()
-        val bottom = if (f === active) stack.last().let { it.center + rowBottom(it.lyric) } else rowBottom(f)
-        fun liftFor(extra: Float, slide: Float): Double {
-            val lift = worldStackLift(extra, bottom, slide, s, world.cameraY + ry, floor)
-            val natural = extra.toDouble() * s
-            if (camera == null || lift <= natural) return lift
-            return natural + camera.limitUpwardLift(rx, ry + natural, rz, lift - natural)
-        }
-        val lift = liftFor(motion.lift, motion.slide)
+        val lift = if (floor == null) 0.0 else
+            max(0.0, floor - (world.cameraY + ry) + (rowBottom(f) + slide.coerceAtLeast(0f) + 6f) * s)
         val horizontal = sqrt(rx * rx + rz * rz)
-        val yaw = if (facePlayer.get() && horizontal > 1e-4) {
-            Math.toDegrees(atan2(-rx, rz)).toFloat()
-        } else f.yaw
-        // Face the settled anchor so the lyric slide itself cannot tilt the stack.
-        val facingLift = if (f === active && f.scrollIn > 0f) {
-            liftFor(bottom - rowBottom(f), 0f)
-        } else lift
-        val pitch = if (facePlayer.get() && len > 1e-4) {
-            Math.toDegrees(atan2(-(ry + facingLift), horizontal)).toFloat()
-        } else f.pitch
-        val safe = if (multiline && view != null) protectSteepView(view, rx, ry + lift, rz, yaw, pitch, reach) else null
+        val yaw = if (facePlayer.get() && horizontal > 1e-4) Math.toDegrees(atan2(-rx, rz)).toFloat() else f.yaw
+        val pitch = if (facePlayer.get() && len > 1e-4) Math.toDegrees(atan2(-(ry + lift), horizontal)).toFloat() else f.pitch
         if (f === active) {
-            // 共享给别人的仍是避让前的位置和大小（避让是按本机镜头算的，换到别人视角没有意义）
-            val inv = 1.0 / reach
-            sharedPose = LyricsAnchor(
-                world.cameraX + (safe?.x ?: rx) * inv,
-                world.cameraY + (safe?.y ?: (ry + lift)) * inv,
-                world.cameraZ + (safe?.z ?: rz) * inv,
-                safe?.yaw ?: yaw,
-                safe?.pitch ?: pitch,
-                (s / reach).toFloat(),
-                f.lastWiggleFrame ?: -1L,
-            )
+            // Broadcast the anchor before viewer-local block avoidance.
+            sharedPose = LyricsAnchor(world.cameraX + rx / reach, world.cameraY + (ry + lift) / reach,
+                world.cameraZ + rz / reach, yaw, pitch, (s / reach).toFloat(), f.lastWiggleFrame ?: -1L)
         }
-        val guard = if (!multiline && view != null) steepViewWeight(view.pitch) else 0f
-        if (camera != null && !multiline) {
-            val margin = 6f
-            val halfWidth = rowWidth(f) / 2f + margin
-            val top = motion.slide - halfMain(f) - margin
-            val fitted = camera.fitFloatingLine(rx, ry + lift, rz, yaw, pitch, s,
-                halfWidth, top, bottom + motion.slide + margin, (restingDistance * reach).toFloat(),
-                floor?.minus(world.cameraY)?.toFloat() ?: Float.NaN, guard)
-            if (fitted != null) {
-                world.push(fitted)
-                return
-            }
-        }
-        world.push(safe?.x ?: rx, safe?.y ?: (ry + lift), safe?.z ?: rz, safe?.yaw ?: yaw, safe?.pitch ?: pitch, s)
+        world.push(rx, ry + lift, rz, yaw, pitch, s)
     }
 
-    private fun drawWorld(
-        songNow: Long, stack: List<StackRow>, frameNanos: Long, floor: Double?, view: ViewAngles?, multiline: Boolean,
-        motion: StackMotion?, left: LeftStack?, floatingCamera: WorldLyricCamera?,
-    ) {
-        if (motion == null) return
+    private fun drawWorld(songNow: Long, frameNanos: Long, floor: Double?) {
+        val current = active
+        val f = current ?: fading.lastOrNull() ?: return
+        val fade = if (current != null) 0f else
+            ((frameNanos - f.fadeStartNanos).coerceAtLeast(0L) / 400_000_000f).coerceIn(0f, 1f)
+        val alpha = if (current != null) appearOf(f) else 1f - fade
+        val slide = -fade * 4f
         val world = DangoClient.gfx.world
-        world.begin()
-
         val pen = DangoClient.gfx.text
-
-        val frame = frameNanos / 1_000_000L * wiggleFps.value.coerceAtLeast(1) / 1000L
-
-        fun drawRow(f: Floating, alpha: Float, preview: Boolean, settled: Boolean) {
-            if (f === active) f.lastWiggleFrame = frame
-            // Freeze the last glyph positions when a row leaves, so it slides without snapping.
-            val wiggleFrame = if (preview) null else f.lastWiggleFrame
-            if (f.instrumental) {
-                drawKtvLines(f.lines, 0f, alpha, -halfMain(f), wiggleFrame = wiggleFrame)
-            } else if (ktvMode.get()) {
-                drawKtv(f, songNow, alpha, preview, wiggleFrame)
-            } else {
-                val elapsed = songNow - f.startMs
-                if (settled) drawKtvLines(f.lines, 0f, alpha, -halfMain(f), useKtvColors = false, wiggleFrame = wiggleFrame)
-                else drawAnimated(f.lines, elapsed, f.revealMs, alpha, if (wordPop.get()) f.charTimes else null, wiggleFrame)
-                drawTranslation(phoneticRows(f) + translationRows(f), elapsed, f.revealMs, alpha,
-                    halfMain(f) + ANNOTATION_GAP, TRANSLATION_SCALE, settled, wiggleFrame)
-            }
-        }
-
-        val f = motion.lyric
-        if (left != null) pushLeftStack(left, motion)
-        else pushFloatingStack(stack, motion, floor, view, multiline, floatingCamera)
+        world.begin()
+        if (current != null) f.lastWiggleFrame = frameNanos / 1_000_000L * wiggleFps.value / 1000L
+        val wiggleFrame = f.lastWiggleFrame
+        pushFloating(f, floor, slide)
         try {
-            if (f === active) {
-                val outgoing = motion.outgoing
-                if (outgoing != null) {
-                    val progress = motion.outgoingProgress
-                    pen.push()
-                    try {
-                        pen.translate(0f, outgoingRowCenter(motion.slide, outgoing.scrollOut, progress))
-                        drawRow(outgoing, motion.alpha * (1f - progress), false, true)
-                    } finally {
-                        pen.pop()
-                    }
+            pen.push()
+            try {
+                pen.translate(0f, slide)
+                if (f.instrumental) {
+                    drawKtvLines(f.lines, 0f, alpha, -halfMain(f), wiggleFrame = wiggleFrame)
+                } else if (ktvMode.get()) {
+                    drawKtv(f, songNow, alpha, false, wiggleFrame)
+                } else {
+                    val elapsed = songNow - f.startMs
+                    drawAnimated(f.lines, elapsed, f.revealMs, alpha, if (wordPop.get()) f.charTimes else null, wiggleFrame)
+                    drawTranslation(phoneticRows(f) + translationRows(f), elapsed, f.revealMs, alpha,
+                        halfMain(f) + ANNOTATION_GAP, TRANSLATION_SCALE, false, wiggleFrame)
                 }
-                for ((index, row) in stack.withIndex()) {
-                    pen.push()
-                    try {
-                        pen.translate(0f, motion.slide + row.center)
-                        val preview = index > 0
-                        val tailAlpha = if (index == stack.lastIndex) motion.tailAlpha else 1f
-                        val alpha = if (preview) motion.alpha * 0.78f * tailAlpha else motion.alpha
-                        drawRow(row.lyric, alpha, preview, preview || f.scrollIn > 0f)
-                    } finally {
-                        pen.pop()
-                    }
-                }
-            } else {
-                pen.push()
-                try {
-                    pen.translate(0f, motion.slide)
-                    drawRow(f, motion.alpha, false, f.scrollOut > 0f)
-                } finally {
-                    pen.pop()
-                }
+            } finally {
+                pen.pop()
             }
         } finally {
             world.pop()
         }
     }
 
-    private data class RenderPose(val x: Double, val y: Double, val z: Double, val yaw: Float, val pitch: Float)
-
-    private fun steepViewWeight(pitch: Float): Float {
-        val t = ((abs(pitch) - 60f) / 20f).coerceIn(0f, 1f)
-        return t * t * (3f - 2f * t)
-    }
-
-    private fun protectSteepView(view: ViewAngles, x: Double, y: Double, z: Double, yaw: Float, pitch: Float, reach: Double): RenderPose? {
-        val align = steepViewWeight(view.pitch)
-        if (align == 0f) return null
-        val yr = Math.toRadians(view.yaw.toDouble())
-        val pr = Math.toRadians(view.pitch.toDouble())
-        val dx = -sin(yr) * cos(pr)
-        val dy = -sin(pr)
-        val dz = cos(yr) * cos(pr)
-        // Raising a tall stack can put it right against the camera when looking down.
-        // Check the depth after applying that lift, and blend to a readable camera-facing plane at the poles.
-        val depth = x * dx + y * dy + z * dz
-        // 被方块拉近过的歌词不再往远处推，否则低头看地时又会推回地里
-        val push = (distance.value * 0.8 * reach - depth).coerceAtLeast(0.0) * align
-        return RenderPose(
-            x + dx * push, y + dy * push, z + dz * push,
-            (yaw + wrapDegrees((view.yaw - yaw).toDouble()) * align).toFloat(),
-            pitch + (view.pitch - pitch) * align,
-        )
-    }
-
-    // Keep a full row of separation even when the ground constraint limits the stack's upward travel.
-    private fun outgoingRowCenter(slide: Float, stride: Float, progress: Float): Float =
-        slide - stride * (1f + progress * 0.5f)
-
-    private fun worldStackLift(extra: Float, bottom: Float, slide: Float, scale: Float, anchorY: Double, floor: Double?): Double {
-        val lift = extra.toDouble() * scale
-        if (floor == null) return lift
-        // Reserve a little room for the animated glyphs.
-        return max(lift, floor - anchorY + (bottom + slide.coerceAtLeast(0f) + 6f) * scale)
-    }
-
-    private fun scrollProgress(age: Long): Float {
-        val t = (age.toFloat() / SCROLL_NANOS).coerceIn(0f, 1f)
-        // Start moving immediately at the lyric boundary and slow down at the end.
-        return t * (2f - t)
-    }
-
-    /**
-     * 左上角：
-     *   [封面]  ♪ 歌名
-     *           歌手
-     *           [时钟来源 进度]  歌词来源
-     */
-    /** 歌曲卡片 HUD 正在显示内置播放器的歌时，就不再画左上角的信息，免得重复 */
-
 }
 
 /** 歌词配色：自定义颜色 / 封面主色 / 封面渐变 / 彩虹 */
-// Keep the adaptive layout available without overriding the manual line count.
-internal val adaptiveLyricLineLimit = false
-
 private const val COLORS_CUSTOM = 0
 private const val COLORS_COVER = 1
 private const val COLORS_GRADIENT = 2

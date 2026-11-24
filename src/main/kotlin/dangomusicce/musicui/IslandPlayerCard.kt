@@ -21,19 +21,21 @@ import kotlin.math.exp
 internal class IslandPlayerCard {
     private enum class Control { PREVIOUS, PLAY_PAUSE, NEXT, VOLUME, PROGRESS, LOCK, VOLUME_SLIDER }
 
-    private class Layout(val card: LayoutBounds, val expanded: Boolean, viewportHeight: Float) {
-        private val coverSize = if (expanded) 39f else 22f
-        val cover = LayoutBounds(card.x + 8f, card.y + if (expanded) 10f else 5f, coverSize, coverSize)
-        private val textX = cover.right + 9f
+    private class Layout(val card: LayoutBounds, val expansion: Float, viewportHeight: Float) {
+        private fun between(compact: Float, full: Float) = compact + (full - compact) * expansion
+
+        private val coverSize = between(22f, 76f)
+        val cover = LayoutBounds(card.x + 10f, card.y + (card.height - coverSize) / 2f, coverSize, coverSize)
+        private val textX = cover.right + between(15f, 12f)
         private val textWidth = (card.right - 14f - textX).coerceAtLeast(0f)
-        val title = LayoutBounds(textX, card.y + 9f, textWidth - 20f, 13f)
+        val lyrics = LayoutBounds(textX, card.y + between(5f, 12f), textWidth - 20f * expansion, 13f)
+        val title = LayoutBounds(textX, card.y + 29f, textWidth, 13f)
         val subtitle = title.copy(y = title.bottom + 1f)
-        val lyrics = LayoutBounds(textX, card.y + if (expanded) 39f else 5f, textWidth, 13f)
-        val progress = LayoutBounds(textX + if (expanded) 29f else 0f,
-            card.y + if (expanded) 60f else 22f, (textWidth - if (expanded) 58f else 0f).coerceAtLeast(0f), 2.5f)
+        val progress = LayoutBounds(textX + 29f * expansion, card.y + between(22f, 60f),
+            (textWidth - 58f * expansion).coerceAtLeast(0f), 2.5f)
         val progressHit = progress.expand(0f, 5f)
         val lock = LayoutBounds(card.right - 32f, card.y + 4f, 23f, 22f)
-        private val controlsX = card.x + (card.width - BUTTON_SIZE * 4) / 2f
+        private val controlsX = progress.x + (progress.width - BUTTON_SIZE * 4) / 2f
         fun button(control: Control) = LayoutBounds(controlsX + control.ordinal * BUTTON_SIZE, card.y + 68f, BUTTON_SIZE, BUTTON_SIZE)
         private val volume = button(Control.VOLUME)
         val popup = LayoutBounds(
@@ -47,7 +49,7 @@ internal class IslandPlayerCard {
             maxOf(popup.bottom, volume.bottom) - minOf(popup.y, volume.y))
 
         fun controlAt(x: Float, y: Float, volumeOpen: Boolean): Control? {
-            if (!expanded) return null
+            if (expansion < 0.94f) return null
             if (volumeOpen && mute.has(x, y)) return Control.VOLUME
             if (volumeOpen && volumeTrack.expand(4f, 9f).has(x, y)) return Control.VOLUME_SLIDER
             if (!card.has(x, y)) return null
@@ -208,8 +210,10 @@ internal class IslandPlayerCard {
     ) {
         val song = snap.track ?: return hide()
         if (bounds.width < 126f || bounds.height < 29f) return hide()
-        val interactive = expanded && bounds.height >= 92f
-        val layout = Layout(bounds, interactive, viewportHeight)
+        val expansion = ((bounds.height - COMPACT_HEIGHT) / (HEIGHT - COMPACT_HEIGHT)).coerceIn(0f, 1f)
+        val interactive = expanded && expansion >= 0.94f
+        val layout = Layout(bounds, expansion, viewportHeight)
+        val details = ((expansion - 0.55f) / 0.39f).coerceIn(0f, 1f)
         val identity = Track(song.key, snap.remote)
         frame = if (interactive) Frame(layout, scale, identity) else null
         if (!interactive || press?.track != identity) press = null
@@ -221,11 +225,12 @@ internal class IslandPlayerCard {
 
         val cover = CoverCache.track(song)
         CoverCache.upload()
-        val radius = minOf(8f, layout.cover.width / 2f)
+        val radius = layout.cover.width * CoverCache.DEFAULT_CORNER_RATIO
         if (cover != null) ctx.drawRoundedImage(layout.cover, cover, radius)
         else ctx.drawShape(layout.cover, ShapeStyle(Theme.TRACK, radius))
 
-        if (interactive) {
+        if (details > 0f) {
+            ctx.pushOpacity(details)
             if (changed || title != song.name) {
                 title = song.name
                 titleSince = now
@@ -234,6 +239,7 @@ internal class IslandPlayerCard {
                 Theme.FONT_SEMIBOLD, (now - titleSince) / 1e9)
             val credits = (song.artists + listOfNotNull(song.albumName)).filter(String::isNotBlank).joinToString(" · ")
             drawLine(ctx, mt, credits, layout.subtitle, layout.subtitle.y, 9.5f, Theme.TEXT_SECONDARY, Theme.FONT_REGULAR)
+            ctx.popOpacity()
         }
 
         val sheet = lyricModule.playerLyrics(song)
@@ -254,14 +260,16 @@ internal class IslandPlayerCard {
             10.5f, if (line == null) Theme.TEXT_SECONDARY else Theme.TEXT_PRIMARY,
             Theme.FONT_SEMIBOLD, (now - lyricSince) / 1e9)
         drawProgress(ctx, layout.progress, press?.progress ?: songProgress, interactive && enabled(Control.PROGRESS, snap))
-        if (interactive) {
+        if (details > 0f) {
+            ctx.pushOpacity(details)
             val shownPosition = press?.progress?.let { (snap.durationMs * it.toDouble()).toLong() } ?: snap.positionMs
             val left = LayoutBounds(layout.progress.x - 29f, layout.progress.y - 5f, 27f, 11f)
             val right = left.copy(x = layout.progress.right + 4f)
             drawLine(ctx, mt, clock(shownPosition), left, left.y, 8.5f, Theme.TEXT_SECONDARY, Theme.FONT_REGULAR)
             drawLine(ctx, mt, clock(snap.durationMs), right, right.y, 8.5f, Theme.TEXT_SECONDARY, Theme.FONT_REGULAR)
             drawControls(ctx, layout, snap, dt)
-            if (pointer != null) drawIslandLock(ctx, layout.lock, locked, hovered(Control.LOCK))
+            if (interactive && pointer != null) drawIslandLock(ctx, layout.lock, locked, hovered(Control.LOCK))
+            ctx.popOpacity()
         }
     }
 
@@ -292,36 +300,20 @@ internal class IslandPlayerCard {
         if (text.isBlank() || bounds.width <= 0f || bounds.height <= 0f) return
         val overflow = (mt.width(text, size, font) - bounds.width).coerceAtLeast(0f)
         val offset = marquee(overflow, elapsed)
-        val fade = minOf(9f, bounds.width / 3f)
-        val leftFade = minOf(fade, offset)
-        val rightFade = minOf(fade, overflow - offset)
         val previousClip = mt.clip
+        val clip = previousClip?.intersect(bounds) ?: bounds
+        if (clip.width <= 0f || clip.height <= 0f) return
 
-        fun part(left: Float, right: Float, alpha: Float) {
-            val segment = LayoutBounds(left, bounds.y, right - left, bounds.height)
-            val clip = previousClip?.intersect(segment) ?: segment
-            if (clip.width <= 0f || clip.height <= 0f) return
-            ctx.pushClip(clip)
-            mt.clip = clip
-            try {
-                mt.text(ctx, text, bounds.x - offset, y, size, color.copy(a = color.a * alpha), font)
-            } finally {
-                mt.clip = previousClip
-                ctx.popClip()
-            }
+        // Use one scissor for the whole scrolling line. Adjacent fractional scissors
+        // can round onto the same screen column and draw the shadow there twice.
+        ctx.pushClip(clip)
+        mt.clip = clip
+        try {
+            mt.text(ctx, text, bounds.x - offset, y, size, color, font)
+        } finally {
+            mt.clip = previousClip
+            ctx.popClip()
         }
-
-        fun edge(start: Float, length: Float, rising: Boolean) {
-            if (length <= 0f) return
-            for (step in 0 until 4) {
-                val alpha = (step + 0.5f) / 4f
-                part(start + length * step / 4f, start + length * (step + 1) / 4f, if (rising) alpha else 1f - alpha)
-            }
-        }
-
-        edge(bounds.x, leftFade, true)
-        part(bounds.x + leftFade, bounds.right - rightFade, 1f)
-        edge(bounds.right - rightFade, rightFade, false)
     }
 
     private fun drawProgress(ctx: GuiCanvas, bar: LayoutBounds, fraction: Float, seekable: Boolean) {
@@ -346,12 +338,12 @@ internal class IslandPlayerCard {
             buttonDepth[i] = approach(buttonDepth[i], if (press?.control == control && hover == control) 1f else 0f, dt, 31f)
             if (buttonHover[i] > 0.01f) {
                 val tint = 0.11f * buttonHover[i] + 0.06f * buttonDepth[i]
-                ctx.drawShape(hit.expand(-2f, -2f), ShapeStyle(Theme.TEXT_PRIMARY.copy(a = tint), 8f))
+                ctx.drawShape(hit.scaled(0.8f).expand(-2f, -2f), ShapeStyle(Theme.TEXT_PRIMARY.copy(a = tint), 8f))
             }
             val x = hit.x + hit.width / 2f
             val y = hit.y + hit.height / 2f
             val color = if (enabled) Theme.TEXT_PRIMARY else Theme.TEXT_TERTIARY
-            val size = (if (control == Control.PLAY_PAUSE) 16f else 14f) * (1f - 0.13f * buttonDepth[i])
+            val size = (if (control == Control.PLAY_PAUSE) 16f else 14f) * 0.8f * (1f - 0.13f * buttonDepth[i])
             when (control) {
                 Control.PREVIOUS -> PlayerIcons.draw(ctx, PlayerIcons.cardPrevious, x, y, size, color)
                 Control.PLAY_PAUSE -> PlayerIcons.draw(ctx, if (snap.playing) PlayerIcons.cardPause else PlayerIcons.cardPlay, x, y, size, color)

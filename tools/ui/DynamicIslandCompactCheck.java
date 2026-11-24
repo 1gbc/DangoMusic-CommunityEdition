@@ -95,8 +95,7 @@ public class DynamicIslandCompactCheck {
         check(Math.abs(shell.get(0).getHeight()-29f/.6f)<.01f && radii.get(0)==10f,
             "The default style C keeps card corners at style B's height");
         layout.setValue(1);
-        for(boolean continuous:new boolean[]{false,true}) {
-            UiStyle.INSTANCE.setContinuous(continuous);
+        {
             for(int i=0;i<70;i++)draw.run();
             check(texts.equals(List.of("Short")),"Only title is displayed in compact: "+texts);
             check(shell.get(0).getWidth()>150 && shell.get(0).getWidth()<180,"Compact keeps a longer minimum width");
@@ -142,8 +141,7 @@ public class DynamicIslandCompactCheck {
         check(Math.abs(cjkRuns.get(0).getSize()*renderScale[0] - 18f*800f/1292f*.96f)<.001f,
             "The title also matches the lyrics page in a height-limited viewport");
         animations.set(false);
-        for (boolean continuous : new boolean[]{false, true}) {
-            UiStyle.INSTANCE.setContinuous(continuous);
+        {
             width[0]=1920;
             height[0]=1080;
             MusicPlayer.INSTANCE.acceptAppleState(track("5", "Blue Moon"),65000,false);

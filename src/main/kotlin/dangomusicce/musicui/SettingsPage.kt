@@ -87,7 +87,6 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         "ktvLyricColors" to listOf("Custom color", "Cover color", "Cover gradient", "Rainbow"),
         "audioOutput" to listOf("Auto", "Java Sound", "Game audio (OpenAL)"),
         "islandLayout" to listOf("Full card", "Mini capsule", "Slim bar", "Lyric capsule"),
-        "uiStyle" to listOf("Classic", "Continuous corners"),
         "appleSidebarStyle" to listOf("Flowing cover colors", "Dark glass"),
         "requestHudBackground" to HudBackground.entries.map { it.label },
         "islandBackground" to HudBackground.entries.map { it.label },
@@ -100,7 +99,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
 
     /** 显示成百分比的选项 */
     private val percentKeys = setOf(
-        "volume", "glowRadius", "posX", "posY",
+        "glowRadius", "posX", "posY",
         "sideOpacity", "sideTint", "sideBrightness", "sideOtherLines", "sideGlowStrength", "sideRefraction",
         "sideInertiaStrength",
     )
@@ -419,8 +418,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         val lyrics = mutableListOf(
             Group("Lyrics", "Style and translation", lm, false,
                 ly.take(listOf("lyricStyle", "translation", "romanization")), collapsible = false, fullWidth = true),
-            Group("Lyric details", "Style and translation", lm, false,
-                ly.take(listOf("autoContrast", "translationAnimation", "translationWiggle", "splitLines"))),
+            Group("Advanced / Debug", "Advanced lyric tuning", lm, false, ly.take(listOf("autoContrast", "splitLines"))),
             Group("Cockpit layout", "Position and tilt", lm, false, ly.take(listOf(
                 "sideWhileHudHidden", "sidePosition", "sideOffsetX", "sideOffsetY", "sideWidth", "sideLines", "sideTextSize", "sideLineSpacing",
                 "sideTilt", "sidePitch", "sideItalic", "sideGuide", "sideInertia", "sideInertiaStrength",
@@ -432,24 +430,25 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                 "sideGlow", "sideTextGlow", "sideGlowStrength", "sideGlass", "sideRefraction",
             )), show = side),
             Group("3D lyrics", "Font and colors", lm, false,
-                ly.take(listOf("worldWhileHudHidden", "scale", "maxLyricLines", "lyricFont", "lyricColors", "textColor", "translationColor", "rainbowSpeed")), show = world),
+                ly.take(listOf("worldWhileHudHidden", "scale", "lyricFont", "lyricColors", "textColor", "translationColor", "rainbowSpeed")), show = world),
             Group("3D position", "Where the lyrics float", lm, false,
                 ly.take(listOf("distance", "facePlayer", "keepAway", "stayOnScreen", "aboveGround", "avoidBlocks", "spread")), show = world),
             Group("Glow", "Deep Glow", lm, false, ly.take(listOf("glow", "glowNightOnly", "glowStrength", "glowRadius")), show = world),
-            Group("Motion", "Animation", lm, false, ly.take(listOf("wiggle", "wiggleAmount", "wordPop", "textFlash", "flashSize")), show = world),
-            Group("Advanced / Debug", "Advanced lyric tuning", lm, false, ly.take(listOf("wiggleFps")), show = world),
+            Group("Motion", "Animation", lm, false, ly.take(listOf("wiggle", "wiggleFps", "wiggleAmount", "wordPop", "textFlash", "flashSize",
+                "translationAnimation", "translationWiggle")), show = world),
             Group("KTV mode", "Line-by-line highlight", lm, false, ly.take(listOf(
                 "ktvMode", "ktvInstrumental", "ktvLyricColors", "ktvBaseColor", "ktvSungColor", "ktvBaseShadow", "ktvSungShadow",
             )), show = world),
-            Group("Dance", "Mobs on the beat", lm, false, ly.take(listOf("dance", "danceAuto", "danceTap", "danceSpin", "danceSpinSpeed", "danceAmount", "danceOffset"))),
+
         )
+        val dance = ly.take(listOf("dance", "danceAuto", "danceTap", "danceSpin", "danceSpinSpeed", "danceAmount", "danceOffset"))
         ly.take().let { if (it.isNotEmpty()) lyrics += Group("Other", "More", lm, false, it) }
 
         // ---------------------------------------------------------------- 音乐与 HUD
         val original = bool(module, "originalAudio")
         val player = Src(module,
             deps = mapOf("envRain" to "envAudio", "envStrength" to "envAudio", "envRays" to "envAudio"),
-            fmts = mapOf("volume" to ::percent, "envStrength" to ::percent,
+            fmts = mapOf("envStrength" to ::percent,
                 "requestPosX" to ::percent, "requestPosY" to ::percent,
                 "requestHudTextSize" to { (it as IntValue).value.toString() + "%" },
                 "requestNoticeSeconds" to { I18n.format("%s s", (it as IntValue).value) }),
@@ -468,9 +467,10 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         val island = Src(islandModule, fmts = mapOf("posX" to ::percent, "posY" to ::percent), shows = mapOf(
             "islandAnimations" to { !islandModule.hasPlayerCardLayout },
         ))
-        val playback = player.take(listOf("volume", "originalAudio", "normalize", "playbackFades", "resumeSession"))
+        player.left.remove("volume") // Volume remains on the controls and is still persisted.
+        val playback = player.take(listOf("originalAudio", "normalize", "playbackFades", "resumeSession"))
         val environment = player.take(listOf("envAudio", "envRain", "envStrength"))
-        val looks = player.take(listOf("uiStyle", "language", "collapseSettingsOnClose"))
+        val looks = player.take(listOf("language", "collapseSettingsOnClose"))
         val neteaseLooks = player.take(listOf(
             "neteaseInterfaceStyle", "neteaseMenuTextSize", "neteaseMenuFont", "neteasePlayerBarSize", "songCommentsEnabled",
         ))
@@ -482,6 +482,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         )
         val playbackGroups = listOf(
             Group("Player", "Playback", module, false, playback, collapsible = false, fullWidth = true),
+            Group("Dance", "Mobs on the beat", lm, false, dance),
             Group("Environment audio", "Sound around you", module, false, environment,
                 dim = { original.get() }, note = { if (original.get()) "Off while Original audio is on" else null }),
             Group("Advanced / Debug", "Output and buffering", module, false, advanced),
@@ -1204,14 +1205,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                 val v = r.value as BooleanValue
                 ui.toggleSwitch(LayoutBounds(cx, cy - 10f, ui.switchWidth, 20f), v.get(), clip, key = v) { v.toggle() }
             }
-            Ctl.SLIDER -> if (r.key == "maxLyricLines") {
-                val v = r.value as IntValue
-                val max = module.lyrics()?.worldLyricLimit() ?: 1
-                val current = v.value.coerceAtMost(max)
-                stepper(clip, cx, cy, current.toString(), max > 1) { delta ->
-                    v.setValue((current + delta).coerceIn(1, max))
-                }
-            } else drawSlider(b, r, clip, cx, cy)
+            Ctl.SLIDER -> drawSlider(b, r, clip, cx, cy)
             Ctl.CACHE -> drawCacheButton(r.value as CacheAction, LayoutBounds(cx, cy - 12f, ctlW, 24f), clip)
             Ctl.BILIBILI -> drawBilibiliButton(r.value as BilibiliAction, LayoutBounds(cx, cy - 12f, ctlW, 24f), clip)
             Ctl.KEY -> drawKeyButton(r.value as IntValue, clip, cx, cy, ctlW - 58f)

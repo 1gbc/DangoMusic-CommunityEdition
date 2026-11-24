@@ -6,7 +6,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
-import kotlin.Unit;
 import dangomusicce.DangoClient;
 import dangomusicce.DangoMusic;
 import dangomusicce.font.MixedText;
@@ -144,7 +143,7 @@ public class AppleLyricsMenuCheck {
         textSize.setValue(26);
         check(appleSize.invoke(module).equals(26), "Existing custom lyric size remains in effect");
         textSize.reset();
-        var screen = new MusicScreen(module, () -> Unit.INSTANCE);
+        var screen = new MusicScreen(module, () -> null);
         var menu = (AppleLyricsMenu)field(screen, "appleLyricsMenu").get(screen);
         var page = (LyricsPage)field(screen, "lyricsPage").get(screen);
         var ui = (Ui)field(screen, "ui").get(screen);
@@ -259,15 +258,14 @@ public class AppleLyricsMenuCheck {
         check(fitted.getWidth() == 226f && fitted.getBottom() == window.getBottom()
             && fitted.getRight() == window.getRight(), "Up Next is narrow and extends to the lower right edge");
 
-        for (boolean continuous : new boolean[]{false, true}) {
-            UiStyle.INSTANCE.setContinuous(continuous);
+        {
             for (float scale : new float[]{1f, .5f}) {
                 var viewport = new LayoutBounds(0f, 0f, 2464f * scale, 1292f * scale);
                 var lyricsFrame = new AppleLyricsLayout(viewport, true);
                 var centeredFrame = new AppleLyricsLayout(viewport, false);
-                float expectedRadius = (continuous ? 12f : 18f) * scale;
+                float expectedRadius = 12f * scale;
                 for (var layout : List.of(lyricsFrame, centeredFrame)) {
-                    page.drawApple(layout, new PlaybackView.Snapshot(), () -> Unit.INSTANCE, () -> Unit.INSTANCE);
+                    page.drawApple(layout, new PlaybackView.Snapshot(), () -> null, () -> null);
                     check(Math.abs(litRim.get().getClipRadius() - expectedRadius) < .001f
                             && litRim.get().getClipBounds().equals(layout.getArtwork()),
                         "Artwork and its rim use the Major 5 mask at both scales and in both layouts");

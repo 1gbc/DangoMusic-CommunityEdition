@@ -6,7 +6,7 @@ plugins {
     id("com.gtnewhorizons.gtnhconvention")
 }
 
-version = "0.6.3-dev.2"
+version = "0.6.3-dev.4"
 // Keep the generated Forge version tag in sync with the JAR version.
 extra["modVersion"] = version.toString()
 
