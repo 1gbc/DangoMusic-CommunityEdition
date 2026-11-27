@@ -84,6 +84,8 @@ Avoid blocks	避让方块
 Lyrics move in front of walls, leaves and the ground instead of going through them	歌词遇到墙、树叶或地面时停在方块前面，不再穿进去
 Spread	分布范围
 How far left or right each line can appear (degrees)	每句歌词的左右偏移范围（度）
+Simultaneous lyric lines	同时显示句数
+The current line plus the next line ahead; from 3 lines, the lines just sung stay too. Each floats on its own	正在唱的一句加上提前出现的下一句；设成 3 句起，刚唱过的句子也会留下。每句各自漂在世界里
 Split lines	自动拆句
 Split two lines written as one (NetEase often does this). The lyrics page uses it too, so it stays when lyrics are hidden	把网易云合在一行的两句歌词分开显示；播放器歌词页也会用到，歌词不显示时也保留
 Card size	歌曲卡片大小
@@ -717,8 +719,7 @@ Show lyrics when HUD is hidden	F1 隐藏界面时显示歌词
 Show when HUD is hidden	F1 隐藏界面时显示
 Keep the Dynamic Island visible when F1 hides the game HUD	按 F1 隐藏游戏界面时，仍显示灵动岛
 Keep the song request card visible when F1 hides the game HUD	按 F1 隐藏游戏界面时，仍显示点歌台卡片
-Keep 3D lyrics visible when F1 hides the game HUD	按 F1 隐藏游戏界面时，仍显示 3D 歌词
-Keep cockpit lyrics visible when F1 hides the game HUD	按 F1 隐藏游戏界面时，仍显示驾驶舱歌词
+Keep 3D and cockpit lyrics visible when F1 hides the game HUD	按 F1 隐藏游戏界面时，仍显示 3D 歌词和驾驶舱歌词
 3D world lyrics	3D 世界歌词
 Both	两者都显示
 Side position	位置

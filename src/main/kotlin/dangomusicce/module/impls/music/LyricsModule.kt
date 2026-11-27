@@ -71,6 +71,54 @@ private const val TRANSLATION_SCALE = 0.72f
 /** 翻译按多宽换行（原文是 200；字小了，按画出来差不多宽算） */
 private const val TRANSLATION_WRAP = 270
 
+/** 多句：当前句、上一句、上上句……的不透明度（越早唱完越淡；比下一句预告淡，眼睛先往后看） */
+private val TRAIL_ALPHA = floatArrayOf(1f, 0.42f, 0.26f, 0.16f)
+/** 多句：每往前一句缩小多少 */
+private const val TRAIL_SHRINK = 0.07f
+/** 多句：每往前一句往上浮多少（字的像素） */
+private const val TRAIL_LIFT = 4f
+/**
+ * 多句：下一句预告的不透明度。正在唱的那句还没唱到的字也是这么淡：
+ * 预告变成当前句时字不会先消失再逐字冒出来，而是从淡淡的一行按演唱进度逐字点亮
+ */
+private const val PREVIEW_ALPHA = 0.55f
+/** 多句：下一句预告小一点、低一点（字的像素），变成当前句时往上浮到原位、放大到原大小 */
+private const val PREVIEW_SHRINK = 0.06f
+private const val PREVIEW_DROP = 3f
+/** 多句：下一句最早提前多久出现（毫秒）。一般的句子一换句就出现；长句或间奏只在开始前 4 秒出现 */
+private const val PREVIEW_LEAD_MS = 4000L
+/** 多句：换句后等多久再出下一句预告，先让旧句子变淡、当前句到位，几件事不挤在同一刻 */
+private const val PREVIEW_DELAY_NANOS = 350_000_000L
+/** 多句：预告淡入用多久 */
+private const val PREVIEW_APPEAR_NANOS = 500_000_000L
+/** 多句：下一句预告离开视野这么久，就换到眼前空着的地方重新淡入 */
+private const val PREVIEW_REPLACE_NANOS = 300_000_000L
+/** 多句：玩家的视线比预告出现时转开超过这么多度，才算"转过头了" */
+private const val PREVIEW_TURN_DEGREES = 15.0
+/** 多句：发光层里没唱到的字（预告、当前句后半）只发这么一点光，唱到的字才亮起来 */
+private const val GHOST_GLOW = 0.35f
+/** 多句：换句时变淡、缩小用临界阻尼弹簧（起步和停下都是缓的）；10 大约 0.45 秒到位 */
+private const val RANK_SPRING = 10.0
+/** 多句：换句时每往前一句晚这么久才开始动，像波浪一样一句接一句挪 */
+private const val RANK_STAGGER_NANOS = 70_000_000L
+/** 淡出用多久：暂停、拖进度、切歌这类打断要快；多句里唱完退场的句子慢慢淡出 */
+private const val FADE_NANOS = 400_000_000L
+private const val RETIRE_FADE_NANOS = 900_000_000L
+/** 多句：退场的句子一边淡出一边再往上浮多少（字的像素） */
+private const val RETIRE_RISE = 6f
+/** 多句：间奏或空行超过这么久，唱过的句子也淡出 */
+private const val TRAIL_GAP_NANOS = 5_000_000_000L
+/** 多句：一帧里播放位置往回退超过这么多、或往前跳超过这么多（毫秒），就当成拖了进度 */
+private const val SEEK_BACK_MS = 500L
+private const val SEEK_AHEAD_MS = 2500L
+/** 多句：新的一句在多少个候选位置里挑最空的 */
+private const val PLACEMENT_TRIES = 24
+/** 多句：候选位置的上下范围（相对视线，度，向下为正），比单句的 -13..-3 宽，好错开；大多还在视线上方 */
+private const val PLACEMENT_PITCH_MIN = -20f
+private const val PLACEMENT_PITCH_MAX = 2f
+/** 多句：两句之间至少隔开多少度才算"不挤"，再远也不多加分 */
+private const val PLACEMENT_ROOM = 6.0
+
 /**
  * 歌词：内置播放器放歌时，从网易云取（逐字）歌词，一句句以动画漂浮在世界里。
  */
@@ -87,14 +135,15 @@ class LyricsModule : Module() {
     @ModuleValue("Lyric style", "Where lyrics appear: floating in the world, cockpit-style on the screen edge, both, or nowhere")
     internal val lyricStyle = IntValue(STYLE_WORLD, STYLE_OFF, STYLE_OFF)
 
-    @ModuleValue("Show lyrics when HUD is hidden", "Keep 3D lyrics visible when F1 hides the game HUD")
+    /**
+     * F1 隐藏游戏界面时还显示歌词：3D 歌词（连同附近共享的投影）和驾驶舱歌词共用这一个开关。
+     * 以前驾驶舱另有一个默认关着的开关，按 F1 驾驶舱歌词会消失；字段名保留旧的，存档里的值照常读出来
+     */
+    @ModuleValue("Show lyrics when HUD is hidden", "Keep 3D and cockpit lyrics visible when F1 hides the game HUD")
     private val worldWhileHudHidden = BooleanValue(true)
 
-    @ModuleValue("Show lyrics when HUD is hidden", "Keep cockpit lyrics visible when F1 hides the game HUD")
-    private val sideWhileHudHidden = BooleanValue(false)
-
     internal fun allowsWorldLyrics(hudHidden: Boolean): Boolean = !hudHidden || worldWhileHudHidden.get()
-    internal fun allowsCockpitLyrics(hudHidden: Boolean): Boolean = !hudHidden || sideWhileHudHidden.get()
+    internal fun allowsCockpitLyrics(hudHidden: Boolean): Boolean = allowsWorldLyrics(hudHidden)
 
     @ModuleValue("Side position", "Where the side lyric list sits")
     internal val sidePosition = IntValue(0, 2, 2)
@@ -321,6 +370,14 @@ class LyricsModule : Module() {
     @ModuleValue("Spread", "How far left or right each line can appear (degrees)")
     private val spread = FloatValue(0f, 60f, 30f, 0)
 
+    /**
+     * 3D 歌词同时漂着几句：正在唱的一句，加上刚唱过的几句。每句留在自己出现的地方，慢慢变淡、变小、往上浮，
+     * 新的一句挑空着的地方出现。只显示唱过的：后面的词不提前露出来，逐字出现和 KTV 高亮只在正在唱的那句上，
+     * 一眼就能看出唱到哪里。1 = 只有当前句（原来的样子）
+     */
+    @ModuleValue("Simultaneous lyric lines", "The current line plus the next line ahead; from 3 lines, the lines just sung stay too. Each floats on its own")
+    private val worldLyricLines = IntValue(1, 4, 1)
+
     @ModuleValue("Split lines", "Split two lines written as one (NetEase often does this). The lyrics page uses it too, so it stays when lyrics are hidden")
     private val splitLines = BooleanValue(true)
 
@@ -392,6 +449,10 @@ class LyricsModule : Module() {
     private var songPos = 0.0                 // 毫秒，本地平滑时钟
     private var lastSeenNanos = 0L
     private var lastIndex = -1
+    /** 最近一句真正的歌词（下标 >= 0）；KTV 两句之间的长空当下标是 -1，靠它认出下一句是顺着唱下来的 */
+    private var lastLyricIndex = -1
+    /** 上一帧算歌词用的播放位置（毫秒），-1 = 没有；位置突然跳了就是拖进度，不算顺着唱 */
+    private var lastLyricPos = -1L
     /** [lastIndex] 是按哪种拆句算的：拆句开关变了，下标就对不上了，要重新找 */
     private var indexedSplit = LyricSplit.enabled
 
@@ -422,6 +483,27 @@ class LyricsModule : Module() {
         var resumedAt = 0L
         /** Avoid blocks：沿视线拉近到方块前面的比例（1 = 原位），NaN = 还没测过 */
         var reach = Double.NaN
+        /**
+         * 多句：现在显示成第几句（-1 = 下一句预告，0 = 正在唱，1 = 上一句……），
+         * 换句时用弹簧朝 [targetRank] 过渡（[rankVel] 是速度，[rankDelayNanos] 之前先不动）
+         */
+        var rank = 0f
+        var targetRank = 0
+        var rankVel = 0f
+        var rankDelayNanos = 0L
+        /** 多句：作为下一句预告出现的时刻（0 = 不是预告出来的），预告从这一刻起淡入 */
+        var previewSinceNanos = 0L
+        /** 出现时玩家朝哪看：预告只在玩家转过头以后才换位置，原地看不见（比如低头时被"离地"抬到视野上面）不会反复重来 */
+        var placedYaw = Float.NaN
+        var placedPitch = Float.NaN
+        /** 开始淡出那一刻的样子：淡出从这里接着变，不会先跳回当前句的样子 */
+        var fadeAlpha = 1f
+        var fadeScale = 1f
+        var fadeLift = 0f
+        var fadeGhost = 0f
+        var fadeNanos = FADE_NANOS
+        /** 开始淡出时的播放位置：多句里淡出的句子停在那一刻的样子，拖回进度时不会突然变回没唱到的样子 */
+        var fadeSongMs = -1L
     }
 
     /** 恢复播放后重新出现的那句歌词，0.3 秒淡入 */
@@ -449,15 +531,223 @@ class LyricsModule : Module() {
     private var glowPass = false
     private val fading = mutableListOf<Floating>()
 
+    /** 多句：刚唱过的几句（最新的在前），各自留在原来的位置，按 [Floating.rank] 变淡变小 */
+    private val trail = mutableListOf<Floating>()
+    /**
+     * 多句：下一句预告。提前出现在眼前空着的地方，淡淡的一行；唱到这句时它直接变成当前句（[promote]），
+     * 不换位置、不重新出现，只是变亮、放大，字按演唱进度逐个点亮
+     */
+    private var upcoming: Floating? = null
+    /** 多句：当前句最近一次换掉的时刻；下一句预告等一会儿再出，免得几件事挤在同一刻 */
+    private var changedNanos = 0L
+    /** 下一句预告从什么时候起不在视野里（0 = 在） */
+    private var upcomingAwaySince = 0L
+    /** 多句：从什么时候起没有正在唱的句子（间奏、空行）；0 = 现在有 */
+    private var gapSinceNanos = 0L
+    private var trailNanos = 0L
+
+    /** 同时漂着几句。文闪模式自己排版，只用一句 */
+    private fun lyricLines(): Int = if (textFlash.get() && !ktvMode.get()) 1 else worldLyricLines.value
+
+    /** 多句：除了当前句，还留几句唱过的。2 句 = 当前 + 下一句；3 句 = 上一句 + 当前 + 下一句；4 句再多留一句 */
+    private fun pastLines(): Int = (lyricLines() - 2).coerceAtLeast(0)
+
+    /** 多句：要不要提前显示下一句 */
+    private fun previewsNext(): Boolean = lyricLines() >= 2
+
+    /** [r] < 0 是下一句预告（-1 = 完全是预告的样子），0 是当前句，往后是唱过的 */
+    private fun rankAlpha(r: Float): Float {
+        if (r < 0f) return 1f + (PREVIEW_ALPHA - 1f) * (-r).coerceAtMost(1f)
+        val c = r.coerceIn(0f, TRAIL_ALPHA.size - 1f)
+        val i = c.toInt().coerceAtMost(TRAIL_ALPHA.size - 2)
+        return TRAIL_ALPHA[i] + (TRAIL_ALPHA[i + 1] - TRAIL_ALPHA[i]) * (c - i)
+    }
+
+    private fun rankScale(r: Float): Float =
+        if (r < 0f) 1f - PREVIEW_SHRINK * (-r).coerceAtMost(1f) else 1f - TRAIL_SHRINK * r.coerceAtMost(3f)
+    private fun rankLift(r: Float): Float =
+        if (r < 0f) PREVIEW_DROP * (-r).coerceAtMost(1f) else -TRAIL_LIFT * r.coerceAtMost(3f)
+
+    private fun smoothstep(t: Float): Float = t.coerceIn(0f, 1f).let { it * it * (3f - 2f * it) }
+
+    /** 下一句预告淡入的进度（不是预告出来的句子一直是 1） */
+    private fun previewAppear(f: Floating, now: Long = System.nanoTime()): Float =
+        if (f.previewSinceNanos == 0L) 1f else smoothstep((now - f.previewSinceNanos).toFloat() / PREVIEW_APPEAR_NANOS)
+
+    /** 一句整体的不透明度（唱到的字就是这么亮） */
+    private fun lineAlpha(f: Floating, now: Long = System.nanoTime()): Float =
+        rankAlpha(f.rank) * appearOf(f) * previewAppear(f, now)
+
+    /**
+     * 还没唱到的字有多亮：多句时预告和当前句没唱到的字淡淡地显示出来（单句照旧不显示，逐字冒出来）。
+     * 当前句退成"上一句"时跟着降到 0：唱过的句子都是完整的，不需要它
+     */
+    private fun ghostOf(f: Floating, now: Long = System.nanoTime()): Float {
+        if (!previewsNext() || f.instrumental) return 0f
+        return PREVIEW_ALPHA * appearOf(f) * previewAppear(f, now) * (1f - f.rank.coerceIn(0f, 1f))
+    }
+
+    /** 唱完的这句：多句时留下来当"上一句"，挤出去的最老一句慢慢淡出；单句（或只留预告的两句）时直接淡出 */
+    private fun retire(f: Floating) {
+        val keep = pastLines()
+        val multi = lyricLines() > 1
+        if (keep <= 0 || f.instrumental) {
+            startFade(f, slow = multi && !f.instrumental)
+            return
+        }
+        val now = System.nanoTime()
+        trail.add(0, f)
+        while (trail.size > keep) startFade(trail.removeAt(trail.size - 1), slow = true, delayNanos = keep * RANK_STAGGER_NANOS)
+        trail.forEachIndexed { i, t ->
+            t.targetRank = i + 1
+            t.rankDelayNanos = now + i * RANK_STAGGER_NANOS
+        }
+    }
+
+    /** 唱到预告的这句：它直接变成当前句，原地变亮、放大 */
+    private fun promote(f: Floating) {
+        upcoming = null
+        upcomingAwaySince = 0L
+        f.targetRank = 0
+        f.rankDelayNanos = 0L
+        active = f
+    }
+
+    private fun dropUpcoming() {
+        upcoming?.let { startFade(it) }
+        upcoming = null
+        upcomingAwaySince = 0L
+    }
+
+    private fun clearTrail(slow: Boolean = false) {
+        trail.forEach { startFade(it, slow = slow) }
+        trail.clear()
+        gapSinceNanos = 0L
+    }
+
+    /**
+     * 多句：下一句预告是哪一句——正在唱的这句（没有的话是最近开始的一句）后面第一句有字的；-1 = 没有。
+     * KTV 两句之间会提前切到下一句（[Lyrics.ktvIndexAt]），所以取两者里靠后的
+     */
+    private fun upcomingIndex(lyrics: Lyrics, idx: Int, pos: Long): Int {
+        val lines = lyrics.lines
+        var j = max(idx, lyrics.indexAt(pos)) + 1
+        while (j < lines.size && lines[j].text.isBlank()) j++
+        return if (j < lines.size) j else -1
+    }
+
+    /** 每帧一次：该预告的句子变了就换掉；到了时间（离开始不到 [PREVIEW_LEAD_MS]、换句后过了一会儿）就让它出现 */
+    /**
+     * 是不是同一句：按时间和文字比（不比对象），歌词重新加载、补上翻译换了一批新对象时预告照样认得出来。
+     * 拆句开关变了文字不一样，认不出来正好
+     */
+    private fun sameLine(a: LyricLine?, b: LyricLine?): Boolean =
+        a != null && b != null && a.timeMs == b.timeMs && a.text == b.text
+
+    private fun updateUpcoming(lyrics: Lyrics, idx: Int, pos: Long, now: Long) {
+        val j = upcomingIndex(lyrics, idx, pos)
+        val line = lyrics.lines.getOrNull(j)
+        if (upcoming != null && !sameLine(upcoming?.lyric, line)) dropUpcoming()
+        if (upcoming != null || line == null) return
+        if (line.timeMs - pos > PREVIEW_LEAD_MS || now - changedNanos < PREVIEW_DELAY_NANOS) return
+        upcoming = spawn(line, lyrics.lines.getOrNull(j + 1)?.timeMs ?: Long.MAX_VALUE, preview = true)
+    }
+
+    /**
+     * 下一句预告不在视野里（转头了）超过一会儿：它还没开始唱，没必要守在原地，换到眼前空着的地方重新淡入。
+     * 当前句和唱过的句子不这么做：它们照旧固定在世界里（当前句由 Stay on screen 拉回）
+     */
+    private fun keepUpcomingInView(now: Long) {
+        val f = upcoming
+        val platform = DangoClient.platform
+        val player = platform.player
+        if (f == null || player == null) {
+            upcomingAwaySince = 0L
+            return
+        }
+        // 和 spawn 一样按玩家自己的视线算（不是镜头）：第三人称正面视角时也不会刚换完位置又判成看不见，来回闪
+        val rx = f.x - player.eyeX
+        val ry = f.y - player.eyeY
+        val rz = f.z - player.eyeZ
+        val len = sqrt(rx * rx + ry * ry + rz * rz)
+        if (len < 1e-4) return
+        val vHalf = platform.fov / 2.0
+        val aspect = platform.windowWidth.toDouble() / platform.windowHeight.coerceAtLeast(1)
+        val hHalf = Math.toDegrees(atan(tan(Math.toRadians(vHalf)) * aspect))
+        val dYaw = abs(wrapDegrees(Math.toDegrees(atan2(-rx, rz)) - player.yaw))
+        val dPitch = abs(Math.toDegrees(asin((-ry / len).coerceIn(-1.0, 1.0))) - player.pitch)
+        // 没转头就看不见（视野很窄、低头时被"离地"抬上去）：换个地方也一样看不见，不重来
+        val turned = f.placedYaw.isNaN() ||
+            abs(wrapDegrees((player.yaw - f.placedYaw).toDouble())) > PREVIEW_TURN_DEGREES ||
+            abs(player.pitch - f.placedPitch) > PREVIEW_TURN_DEGREES
+        if ((dYaw <= hHalf && dPitch <= vHalf) || !turned) {
+            upcomingAwaySince = 0L
+            return
+        }
+        if (upcomingAwaySince == 0L) {
+            upcomingAwaySince = now
+            return
+        }
+        if (now - upcomingAwaySince < PREVIEW_REPLACE_NANOS) return
+        dropUpcoming()
+        upcoming = spawn(f.lyric, f.nextMs, preview = true)
+    }
+
+    /**
+     * 每帧一次（发光和正常两遍绘制之前）：句数设置变小时挤掉多的，间奏太久清掉，
+     * 每句的名次用临界阻尼弹簧朝目标走（起步、停下都是缓的，按 [Floating.rankDelayNanos] 一句接一句开始）
+     */
+    private fun updateLines(now: Long) {
+        val dt = if (trailNanos == 0L) 0.016 else ((now - trailNanos) / 1e9).coerceIn(0.0, 0.1)
+        trailNanos = now
+        val keep = pastLines()
+        while (trail.size > keep) startFade(trail.removeAt(trail.size - 1), slow = true)
+        if (active == null && trail.isNotEmpty()) {
+            if (gapSinceNanos == 0L) gapSinceNanos = now
+            else if (now - gapSinceNanos > TRAIL_GAP_NANOS) clearTrail(slow = true)
+        } else {
+            gapSinceNanos = 0L
+        }
+        trail.forEach { stepRank(it, now, dt) }
+        active?.let { stepRank(it, now, dt) }
+        upcoming?.let { stepRank(it, now, dt) }
+    }
+
+    private fun stepRank(f: Floating, now: Long, dt: Double) {
+        if (now < f.rankDelayNanos) return
+        val target = f.targetRank.toDouble()
+        var x = f.rank.toDouble()
+        var v = f.rankVel.toDouble()
+        var left = dt
+        while (left > 1e-6) {
+            val h = min(left, 1.0 / 240.0)
+            left -= h
+            v += (-RANK_SPRING * RANK_SPRING * (x - target) - 2.0 * RANK_SPRING * v) * h
+            x += v * h
+        }
+        if (abs(x - target) < 1e-3 && abs(v) < 1e-2) {
+            x = target
+            v = 0.0
+        }
+        f.rank = x.toFloat()
+        f.rankVel = v.toFloat()
+    }
+
     override fun onDisable() {
         cover.clear()
         current = null
         currentKey = null
         active = null
+        upcoming = null
+        upcomingAwaySince = 0L
         sharedPose = null
         fading.clear()
+        trail.clear()
+        gapSinceNanos = 0L
         flash.reset()
         lastIndex = -1
+        lastLyricIndex = -1
+        lastLyricPos = -1L
     }
 
     // ---------------------------------------------------------------- 当前歌曲 / 时钟
@@ -572,8 +862,12 @@ class LyricsModule : Module() {
                 currentKey = null
                 active?.let { startFade(it) }
                 active = null
+                clearTrail()
+                dropUpcoming()
                 sharedPose = null
                 lastIndex = -1
+                lastLyricIndex = -1
+                lastLyricPos = -1L
             }
             return
         }
@@ -585,8 +879,12 @@ class LyricsModule : Module() {
             songPos = p
             active?.let { startFade(it) }
             active = null
+            clearTrail()
+            dropUpcoming()
             sharedPose = null
             lastIndex = -1
+            lastLyricIndex = -1
+            lastLyricPos = -1L
         } else {
             // Browser telemetry arrives in batches, not every rendered frame.
             // The lyric index below handles real seeks; a clock correction within
@@ -633,10 +931,13 @@ class LyricsModule : Module() {
         if (indexedSplit != LyricSplit.enabled) {
             indexedSplit = LyricSplit.enabled
             lastIndex = -1
+            lastLyricIndex = -1
+            lastLyricPos = -1L
         }
         val lyrics = currentKey?.let { lyricsFor(it) }
         val paused = s != null && !s.playing
         val frameNanos = System.nanoTime()
+        var previewing = false
         if (s != null && lyrics != null) {
             val pos = songPos.toLong()
             val ktv = ktvMode.get()
@@ -644,20 +945,42 @@ class LyricsModule : Module() {
             val section = if (ktv && ktvInstrumental.get() && lyricIndex < 0) lyrics.instrumentalAt(pos.coerceAtLeast(0L), playbackDurationMs()) else null
             val idx = if (section != null) -2 - section.ordinal else lyricIndex
             val sectionLabel = section?.displayLabel()
+            // 播放位置一帧里往回退、或者往前跳了一大截：拖了进度条，跳过去 / 退回去的句子都不算唱过
+            val jumped = lastLyricPos >= 0 && (pos < lastLyricPos - SEEK_BACK_MS || pos > lastLyricPos + SEEK_AHEAD_MS)
+            lastLyricPos = pos
             if (paused) {
-                // 暂停：当前这句淡出消失，恢复播放时再出现
+                // 暂停：当前这句（多句时连同唱过的几句和下一句预告）淡出消失，恢复播放时先重新出现当前句
                 active?.let { startFade(it) }
                 active = null
+                clearTrail()
                 lastIndex = idx
                 wasPaused = true
             } else if (idx != lastIndex || wasPaused || (sectionLabel != null && sectionLabel != active?.lyric?.text)) {
                 val resumed = wasPaused && idx == lastIndex
+                // 顺着往下唱（不是拖进度、切换拆句、从暂停恢复、进间奏）：唱完的这句留下来当"上一句"。
+                // KTV 两句之间空得久时下标先变成 -1（breath），这也是顺着唱，唱完的句子照样留着等下一句
+                val forward = !wasPaused && !jumped && idx >= 0 && lastLyricIndex >= 0 &&
+                    idx > lastLyricIndex && idx - lastLyricIndex <= 2
+                val breath = !wasPaused && !jumped && idx == -1 && lastIndex >= 0
+                // 没有被打断（暂停、拖进度）的换句，比如唱着唱着进了间奏：多句时句子照样慢慢飘走，不是一下子收掉
+                val calm = !wasPaused && !jumped && lyricLines() > 1
                 wasPaused = false
                 lastIndex = idx
-                active?.let { startFade(it) }
+                if (idx >= 0) lastLyricIndex = idx
+                if (forward || breath) {
+                    active?.let(::retire)
+                } else {
+                    active?.let { startFade(it, slow = calm && !it.instrumental) }
+                    clearTrail(slow = calm)
+                }
                 active = null
+                changedNanos = frameNanos
+                val ahead = upcoming
                 if (sectionLabel != null) {
                     active = spawn(LyricLine(pos, sectionLabel), pos + 3500L).also { it.instrumental = true }
+                } else if (idx >= 0 && ahead != null && sameLine(ahead.lyric, lyrics.lines[idx])) {
+                    // 唱到了预告的这句：原地变成当前句（拖进度刚好拖到这句也一样，免得同一句出现两次）
+                    promote(ahead)
                 } else if (idx >= 0) {
                     val line = lyrics.lines[idx]
                     if (line.text.isNotBlank()) {
@@ -668,9 +991,17 @@ class LyricsModule : Module() {
                     }
                 }
             }
+            if (!paused && previewsNext()) {
+                previewing = true
+                updateUpcoming(lyrics, idx, pos, frameNanos)
+            }
         }
+        // 暂停、没歌词、只显示一句：不要预告
+        if (!previewing) dropUpcoming()
 
-        fading.removeAll { f -> active != null || frameNanos - f.fadeStartNanos >= 400_000_000L }
+        // 单句：新的一句一出来，淡出中的旧句马上消失（只在没有当前句时画淡出）。多句：淡出的和当前句一起画到淡完
+        fading.removeAll { f -> (active != null && lyricLines() <= 1) || frameNanos - f.fadeStartNanos >= f.fadeNanos }
+        updateLines(frameNanos)
         if (!worldVisible() || !allowsWorldLyrics(platform.hudHidden)) return
 
         val useFlash = textFlash.get() && !ktvMode.get()
@@ -679,6 +1010,7 @@ class LyricsModule : Module() {
         if (!useFlash) {
             val view = gfx.world.cameraAngles()
             if (view.yaw.isFinite() && view.pitch.isFinite()) keepOnScreen(view)
+            keepUpcomingInView(frameNanos)
             avoidBlocks()
         }
 
@@ -691,7 +1023,7 @@ class LyricsModule : Module() {
             } else {
                 // 先把歌词画到发光画布上做出光晕，再正常画一遍清晰的字
                 val glowAmount = glowStrength.value * nightGlow()
-                if (glow.get() && glowAmount > 0.01f && deepGlow.available && (active != null || fading.isNotEmpty())) {
+                if (glow.get() && glowAmount > 0.01f && deepGlow.available && anyFloating()) {
                     try {
                         if (deepGlow.begin()) {
                             glowPass = true
@@ -712,7 +1044,7 @@ class LyricsModule : Module() {
                     gfx.world.resync()
                 }
                 // 近似色反色：字先画进离屏画布，合成时和后面的景色比较；做不了就照常直接画
-                val contrast = autoContrast.get() && (active != null || fading.isNotEmpty()) && gfx.contrast.begin()
+                val contrast = autoContrast.get() && anyFloating() && gfx.contrast.begin()
                 // 离屏画布上 alpha 要叠加：重新设一次文字的渲染状态（混合方式）
                 if (contrast) gfx.world.resync()
                 try {
@@ -870,8 +1202,21 @@ class LyricsModule : Module() {
         hud.end()
     }
 
-    private fun startFade(f: Floating) {
-        f.fadeStartNanos = System.nanoTime()
+    private fun anyFloating(): Boolean = active != null || upcoming != null || trail.isNotEmpty() || fading.isNotEmpty()
+
+    /**
+     * 开始淡出：[slow] = 多句里唱完退场的句子（挤出去的最老一句、间奏太久清掉的），慢慢淡出、边淡边往上浮；
+     * 暂停、拖进度、切歌这类打断用短的。[delayNanos] 之后才开始变（换句时排在别的句子后面动）
+     */
+    private fun startFade(f: Floating, slow: Boolean = false, delayNanos: Long = 0L) {
+        val now = System.nanoTime()
+        f.fadeAlpha = lineAlpha(f, now)
+        f.fadeScale = rankScale(f.rank)
+        f.fadeLift = rankLift(f.rank)
+        f.fadeGhost = ghostOf(f, now)
+        f.fadeNanos = if (slow) RETIRE_FADE_NANOS else FADE_NANOS
+        f.fadeSongMs = songPos.toLong()
+        f.fadeStartNanos = now + delayNanos
         fading.add(f)
     }
 
@@ -932,7 +1277,8 @@ class LyricsModule : Module() {
     private fun maxPitch(d: Double): Float =
         Math.toDegrees(asin((GROUND_MARGIN / d).coerceIn(0.0, 1.0))).toFloat()
 
-    private fun spawn(line: LyricLine, nextMs: Long): Floating {
+    /** [preview] = 作为下一句预告提前出现：躲开当前句和唱过的句子，倾向和当前句分在左右两边 */
+    private fun spawn(line: LyricLine, nextMs: Long, preview: Boolean = false): Floating {
         val text = line.text
         val startMs = line.timeMs
         val animationEnd = if (nextMs == Long.MAX_VALUE) {
@@ -947,21 +1293,124 @@ class LyricsModule : Module() {
 
         val phonetic = line.romanization?.takeIf { it.isNotBlank() }?.let { wrap(it, TRANSLATION_WRAP) }.orEmpty()
         val tr = line.translation?.takeIf { it.isNotBlank() }?.let { wrap(it, TRANSLATION_WRAP) }.orEmpty()
-        val player = DangoClient.platform.player
-        if (player == null) return Floating(lines, startMs, reveal, 0.0, 0.0, 0.0, 0f, 0f, ct, line, nextMs).also { it.translation = tr; it.phonetic = phonetic }
-        val yaw = player.yaw + (random.nextFloat() * 2f - 1f) * spread.value
+        val f = Floating(lines, startMs, reveal, 0.0, 0.0, 0.0, 0f, 0f, ct, line, nextMs).also { it.translation = tr; it.phonetic = phonetic }
+        if (preview) {
+            f.rank = -1f
+            f.targetRank = -1
+            f.previewSinceNanos = System.nanoTime()
+        }
+        val player = DangoClient.platform.player ?: return f
+        f.placedYaw = player.yaw
+        f.placedPitch = player.pitch
         val d = distance.value.toDouble()
-        var pitch = (player.pitch - 3f - random.nextFloat() * 10f).coerceIn(-60f, 30f)
-        if (aboveGround.get()) pitch = min(pitch, maxPitch(d))
-        val yr = Math.toRadians(yaw.toDouble())
-        val pr = Math.toRadians(pitch.toDouble())
-        val dx = -sin(yr) * cos(pr)
-        val dy = -sin(pr)
-        val dz = cos(yr) * cos(pr)
         val ex = player.eyeX
         val ey = player.eyeY
         val ez = player.eyeZ
-        return Floating(lines, startMs, reveal, ex + dx * d, ey + dy * d, ez + dz * d, yaw, pitch, ct, line, nextMs).also { it.translation = tr; it.phonetic = phonetic }
+        // 第一个是"上一句"（左右错开时和它分在两边）：预告的上一句是当前句，当前句的上一句是刚唱完的
+        // 慢慢飘走的句子还要再显示将近一秒，也躲开
+        val drifting = fading.filter { it.fadeNanos == RETIRE_FADE_NANOS }
+        val others = when {
+            lyricLines() <= 1 -> emptyList()
+            preview -> listOfNotNull(active) + trail + drifting
+            else -> trail + listOfNotNull(upcoming) + drifting
+        }
+        var yaw: Float
+        var pitch: Float
+        if (others.isEmpty()) {
+            yaw = player.yaw + (random.nextFloat() * 2f - 1f) * spread.value
+            pitch = (player.pitch - 3f - random.nextFloat() * 10f).coerceIn(-60f, 30f)
+            if (aboveGround.get()) pitch = min(pitch, maxPitch(d))
+        } else {
+            val spot = freeSpot(f, others, player.yaw, player.pitch, ex, ey, ez, d)
+            yaw = spot.first
+            pitch = spot.second
+        }
+        val yr = Math.toRadians(yaw.toDouble())
+        val pr = Math.toRadians(pitch.toDouble())
+        f.x = ex - sin(yr) * cos(pr) * d
+        f.y = ey - sin(pr) * d
+        f.z = ez + cos(yr) * cos(pr) * d
+        f.yaw = yaw
+        f.pitch = pitch
+        return f
+    }
+
+    /** 一句歌词在镜头里占的角度范围（度）：中心的偏角、左右半宽、上下边（向下为正） */
+    private class LyricBox(val yaw: Double, val halfWidth: Double, val top: Double, val bottom: Double)
+
+    /** [o] 现在在哪、多大（按它变淡变小后的样子；Keep away 推远时按推远后的距离） */
+    private fun boxOf(o: Floating, ex: Double, ey: Double, ez: Double): LyricBox? {
+        val rx = o.x - ex
+        val ry = o.y - ey
+        val rz = o.z - ez
+        var len = sqrt(rx * rx + ry * ry + rz * rz)
+        if (len < 1e-4) return null
+        val centerPitch = Math.toDegrees(asin((-ry / len).coerceIn(-1.0, 1.0)))
+        if (keepAway.get()) len = max(len, distance.value * 0.6)
+        val s = 0.03 * scale.value * (distance.value / 6.5) * rankScale(o.targetRank.toFloat())
+        val lift = rankLift(o.targetRank.toFloat())
+        return LyricBox(
+            Math.toDegrees(atan2(-rx, rz)),
+            Math.toDegrees(atan2(rowWidth(o) * s / 2.0, len)),
+            centerPitch + Math.toDegrees(atan2((-halfMain(o) + lift) * s, len)),
+            centerPitch + Math.toDegrees(atan2((rowBottom(o) + lift) * s, len)),
+        )
+    }
+
+    /** 两句之间隔开多少度：左右或上下错开一个就行，取大的；负数 = 叠在一起 */
+    private fun separation(a: LyricBox, b: LyricBox): Double {
+        val gx = abs(wrapDegrees(a.yaw - b.yaw)) - (a.halfWidth + b.halfWidth)
+        val gy = if (a.top < b.top) b.top - a.bottom else a.top - b.bottom
+        return max(gx, gy)
+    }
+
+    /**
+     * 多句：新的一句在视线附近挑一个空着的地方，不压在还漂着的句子上。
+     * 在"分布范围"和比单句宽一点的上下范围里试几个候选位置：离别的句子越远越好（够远就不再加分），
+     * 其次离视线中间近，和上一句分在左右两边的略占优势，最后加一点随机，免得每次都落在同一处。
+     * 句子很长时左右放不下，自然会上下错开。
+     */
+    private fun freeSpot(
+        f: Floating, others: List<Floating>, viewYaw: Float, viewPitch: Float,
+        ex: Double, ey: Double, ez: Double, d: Double,
+    ): Pair<Float, Float> {
+        val boxes = others.mapNotNull { boxOf(it, ex, ey, ez) }
+        val s = 0.03 * scale.value * (distance.value / 6.5)
+        val halfWidth = Math.toDegrees(atan2(rowWidth(f) * s / 2.0, d))
+        val up = Math.toDegrees(atan2(-halfMain(f) * s, d))
+        val down = Math.toDegrees(atan2(rowBottom(f) * s, d))
+        val lastSide = boxes.firstOrNull()?.let { Math.signum(wrapDegrees(it.yaw - viewYaw)) } ?: 0.0
+        val preferredPitch = viewPitch - 8f
+        // 左右不超出屏幕：分布范围调得很大时，新的一句（尤其是要提前看的下一句）也落在看得见的地方
+        val platform = DangoClient.platform
+        val vHalf = platform.fov / 2.0
+        val aspect = platform.windowWidth.toDouble() / platform.windowHeight.coerceAtLeast(1)
+        val hHalf = Math.toDegrees(atan(tan(Math.toRadians(vHalf)) * aspect))
+        val yawRange = min(spread.value.toDouble(), max(0.0, hHalf - halfWidth - 2.0)).toFloat()
+        // 上下也不超出屏幕（视野调得很窄、或者开了缩放时）
+        val pitchRange = max(0.0, vHalf - max(-up, down) - 2.0).toFloat()
+        var bestYaw = viewYaw
+        var bestPitch = preferredPitch
+        var bestScore = Double.NEGATIVE_INFINITY
+        repeat(PLACEMENT_TRIES) {
+            val offset = (random.nextFloat() * 2f - 1f) * yawRange
+            var pitch = (viewPitch + PLACEMENT_PITCH_MIN + random.nextFloat() * (PLACEMENT_PITCH_MAX - PLACEMENT_PITCH_MIN))
+                .coerceIn(viewPitch - pitchRange, viewPitch + pitchRange).coerceIn(-60f, 30f)
+            if (aboveGround.get()) pitch = min(pitch, maxPitch(d))
+            val yaw = viewYaw + offset
+            val box = LyricBox(yaw.toDouble(), halfWidth, pitch + up, pitch + down)
+            val room = boxes.minOfOrNull { separation(box, it) } ?: PLACEMENT_ROOM
+            var score = min(room, PLACEMENT_ROOM) * 1.0
+            score -= 0.03 * abs(offset) + 0.05 * abs(pitch - preferredPitch)
+            if (lastSide != 0.0 && Math.signum(offset.toDouble()) == -lastSide) score += 0.5
+            score += random.nextDouble() * 0.3
+            if (score > bestScore) {
+                bestScore = score
+                bestYaw = yaw
+                bestPitch = pitch
+            }
+        }
+        return bestYaw to bestPitch
     }
 
 
@@ -1195,7 +1644,11 @@ class LyricsModule : Module() {
         if (smooth) DangoClient.gfx.text.endSmooth()
     }
 
-    private fun drawAnimated(lines: List<String>, elapsedMs: Long, revealMs: Long, alphaMul: Float, charTimes: LongArray?, wiggleFrame: Long?) {
+    /**
+     * [ghost] > 0（多句）：还没出现的字不是不画，而是画成这么淡；到了时间从淡变亮，轻轻跳一下（按词闪出时鼓一下）。
+     * 这样预告变成当前句时不会先消失，唱到哪里就亮到哪里
+     */
+    private fun drawAnimated(lines: List<String>, elapsedMs: Long, revealMs: Long, alphaMul: Float, charTimes: LongArray?, wiggleFrame: Long?, ghost: Float = 0f) {
         val smooth = smoothFont.get()
         val flashMode = charTimes != null && charTimes.isNotEmpty()
         var n = 0   // 非空白字符序号
@@ -1214,7 +1667,12 @@ class LyricsModule : Module() {
                     val at = charTimes!![min(n, charTimes.size - 1)]
                     n++
                     val t = (elapsedMs - at) / 160f
-                    if (t >= 0f) {
+                    if (ghost > 0f) {
+                        // 从淡淡的样子亮起来：大小鼓一下再回去（两头都是原大小，不会一下子跳大）
+                        val a = max((t * 3f).coerceIn(0f, 1f) * alphaMul, ghost)
+                        val pop = if (t > 0f && t < 1f) 1f + 0.3f * sin(Math.PI * t).toFloat() else 1f
+                        if (a > 0.02f) glyphs += Glyph(c, x, y, a, k, rgb, pop)
+                    } else if (t >= 0f) {
                         val a = (t * 3f).coerceIn(0f, 1f) * alphaMul
                         val back = (1f - t).coerceIn(0f, 1f)
                         val pop = 1f + 0.55f * back * back
@@ -1224,8 +1682,15 @@ class LyricsModule : Module() {
                     val appearAt = k.toFloat() / total * revealMs
                     var a = ((elapsedMs - appearAt) / 180f).coerceIn(0f, 1f)
                     a = a * a * (3f - 2f * a)                 // smoothstep
-                    val alpha = a * alphaMul
-                    if (alpha > 0.02f && !c.isWhitespace()) glyphs += Glyph(c, x, y + (1f - a) * 5f, alpha, k, rgb)
+                    if (ghost > 0f) {
+                        // 从淡淡的样子亮起来，顺便往上轻轻跳一下（起点终点都在原位）
+                        val alpha = max(a * alphaMul, ghost)
+                        val hop = -sin(Math.PI * a).toFloat() * 1.5f
+                        if (alpha > 0.02f && !c.isWhitespace()) glyphs += Glyph(c, x, y + hop, alpha, k, rgb)
+                    } else {
+                        val alpha = a * alphaMul
+                        if (alpha > 0.02f && !c.isWhitespace()) glyphs += Glyph(c, x, y + (1f - a) * 5f, alpha, k, rgb)
+                    }
                 }
                 x += charW(c)
                 k++
@@ -1411,7 +1876,11 @@ class LyricsModule : Module() {
         val hHalf = Math.toDegrees(atan(tan(Math.toRadians(vHalf)) * aspect))
         val s = 0.03 * scale.value * (distance.value / 6.5)
 
-        fun follow(f: Floating) {
+        /**
+         * [spring] = false：只跟着快速移动走、不离太远，不往屏幕里拉。多句时唱过的句子这样处理：
+         * 它们留在世界里原来的位置，转头时可以留在身后；要是也往屏幕边上拉，几句会挤在边上叠成一团
+         */
+        fun follow(f: Floating, spring: Boolean) {
             f.x += carryX
             f.y += carryY
             f.z += carryZ
@@ -1429,6 +1898,7 @@ class LyricsModule : Module() {
                 f.y = world.cameraY + ry
                 f.z = world.cameraZ + rz
             }
+            if (!spring) return
 
             // 字本身占的角度：留出一半宽 / 高，再多留 2 度边距
             // 翻译在原文下面多占一截：按整体高度算（偏保守，上下都留出来）
@@ -1479,8 +1949,12 @@ class LyricsModule : Module() {
             f.pitch = (f.pitch + (newPitch - curPitch)).toFloat().coerceIn(-90f, 90f)
         }
 
-        active?.let { follow(it) }
-        fading.forEach(::follow)
+        val single = lyricLines() <= 1
+        active?.let { follow(it, true) }
+        // 预告不往屏幕里拉（会和当前句挤在屏幕边上），离开视野久了由 keepUpcomingInView 换个地方重新出现
+        upcoming?.let { follow(it, false) }
+        trail.forEach { follow(it, false) }
+        fading.forEach { follow(it, single) }
     }
 
     private var avoidNanos = 0L
@@ -1508,6 +1982,8 @@ class LyricsModule : Module() {
         val dt = avoidanceStep()
         val targets = buildList {
             active?.let(::add)
+            upcoming?.let(::add)
+            addAll(trail)
             addAll(fading)
         }
         if (!avoidBlocks.get()) {
@@ -1565,7 +2041,7 @@ class LyricsModule : Module() {
         (phoneticRows(f) + translationRows(f)).maxOfOrNull { strW(it) * TRANSLATION_SCALE } ?: 0f,
     )
 
-    private fun pushFloating(f: Floating, floor: Double?, slide: Float) {
+    private fun pushFloating(f: Floating, floor: Double?, slide: Float, scaleMul: Float = 1f) {
         val world = DangoClient.gfx.world
         var rx = f.x - world.cameraX
         var ry = f.y - world.cameraY
@@ -1580,45 +2056,89 @@ class LyricsModule : Module() {
         // Pull forward along the same ray and reduce world-space size proportionally.
         val reach = f.reach.takeUnless { it.isNaN() } ?: 1.0
         rx *= reach; ry *= reach; rz *= reach
-        val s = 0.03f * scale.value * (distance.value / 6.5f) * reach.toFloat()
+        val s = 0.03f * scale.value * (distance.value / 6.5f) * reach.toFloat() * scaleMul
         val lift = if (floor == null) 0.0 else
             max(0.0, floor - (world.cameraY + ry) + (rowBottom(f) + slide.coerceAtLeast(0f) + 6f) * s)
         val horizontal = sqrt(rx * rx + rz * rz)
         val yaw = if (facePlayer.get() && horizontal > 1e-4) Math.toDegrees(atan2(-rx, rz)).toFloat() else f.yaw
         val pitch = if (facePlayer.get() && len > 1e-4) Math.toDegrees(atan2(-(ry + lift), horizontal)).toFloat() else f.pitch
         if (f === active) {
-            // Broadcast the anchor before viewer-local block avoidance.
+            // Broadcast the anchor before viewer-local block avoidance. 多句时预告刚变成当前句那一下的缩放只是本地的过渡，不广播出去
             sharedPose = LyricsAnchor(world.cameraX + rx / reach, world.cameraY + (ry + lift) / reach,
-                world.cameraZ + rz / reach, yaw, pitch, (s / reach).toFloat(), f.lastWiggleFrame ?: -1L)
+                world.cameraZ + rz / reach, yaw, pitch, (s / reach / scaleMul).toFloat(), f.lastWiggleFrame ?: -1L)
         }
         world.push(rx, ry + lift, rz, yaw, pitch, s)
     }
 
+    private fun fadeOf(f: Floating, frameNanos: Long): Float =
+        ((frameNanos - f.fadeStartNanos).coerceAtLeast(0L).toFloat() / f.fadeNanos).coerceIn(0f, 1f)
+
     private fun drawWorld(songNow: Long, frameNanos: Long, floor: Double?) {
         val current = active
-        val f = current ?: fading.lastOrNull() ?: return
-        val fade = if (current != null) 0f else
-            ((frameNanos - f.fadeStartNanos).coerceAtLeast(0L) / 400_000_000f).coerceIn(0f, 1f)
-        val alpha = if (current != null) appearOf(f) else 1f - fade
-        val slide = -fade * 4f
+        val world = DangoClient.gfx.world
+        if (lyricLines() <= 1) {
+            // 单句：只画当前句；没有当前句时画最后一句淡出的
+            val f = current ?: fading.lastOrNull() ?: return
+            val fade = if (current != null) 0f else fadeOf(f, frameNanos)
+            world.begin()
+            // 淡出从开始淡出那一刻的亮度接着变（平常就是 1；刚从多句切回一句时，唱过的淡句不会先闪亮一下）
+            drawFloating(f, songNow, frameNanos, floor, if (current != null) appearOf(f) else f.fadeAlpha * (1f - fade), -fade * 4f, 1f, current != null)
+            return
+        }
+        // 多句：先画淡出的，再从最早唱完的往新的画，然后是下一句预告，正在唱的最后画，叠在最上面
+        if (!anyFloating()) return
+        world.begin()
+        for (f in fading) {
+            // 先缓后快再缓地淡掉，同时继续往上浮、略微缩小：退场的句子是飘走的，不是一下子没了
+            val e = smoothstep(fadeOf(f, frameNanos))
+            val rise = if (f.fadeNanos == RETIRE_FADE_NANOS) RETIRE_RISE else 4f
+            val frozen = if (f.fadeSongMs >= 0L) f.fadeSongMs else songNow
+            drawFloating(f, frozen, frameNanos, floor, f.fadeAlpha * (1f - e), f.fadeLift - e * rise,
+                f.fadeScale * (1f - 0.04f * e), false, f.fadeGhost * (1f - e))
+        }
+        for (i in trail.indices.reversed()) drawRanked(trail[i], songNow, frameNanos, floor)
+        upcoming?.let { drawRanked(it, songNow, frameNanos, floor) }
+        current?.let { drawRanked(it, songNow, frameNanos, floor) }
+    }
+
+    /** 多句：按这句现在的名次画（预告、当前、唱过的都用这一个，名次在中间过渡时样子也是连续的） */
+    private fun drawRanked(f: Floating, songNow: Long, frameNanos: Long, floor: Double?) {
+        drawFloating(f, songNow, frameNanos, floor, lineAlpha(f, frameNanos), rankLift(f.rank), rankScale(f.rank), true, ghostOf(f, frameNanos))
+    }
+
+    /**
+     * 画一句。[live] = 还在动的句子（当前句、预告和唱过还留着的句子）：抖动继续走；淡出中的句子停在最后一帧的抖动上。
+     * 唱过的句子用同一套画法：逐字出现、KTV 高亮按播放位置算出来都是唱完的样子，所以整句完整显示。
+     * [ghost] = 还没唱到的字画多亮（0 = 不画，单句的逐字冒出）；预告整句都没唱到，所以整句是这么亮
+     */
+    private fun drawFloating(
+        f: Floating, songNow: Long, frameNanos: Long, floor: Double?,
+        alpha: Float, slide: Float, scaleMul: Float, live: Boolean, ghost: Float = 0f,
+    ) {
+        // 当前句照常走完（附近共享的位置在 pushFloating 里更新，恢复播放淡入的第一帧也要更新）
+        if (alpha <= 0.01f && ghost <= 0.01f && f !== active) return
+        // 发光层：没唱到的字（预告、当前句后半）只发一点光，唱到的字才亮起来
+        val dim = if (glowPass) 1f + (GHOST_GLOW - 1f) * (-f.rank).coerceIn(0f, 1f) else 1f
+        val shownAlpha = alpha * dim
+        val shownGhost = if (glowPass) ghost * GHOST_GLOW else ghost
         val world = DangoClient.gfx.world
         val pen = DangoClient.gfx.text
-        world.begin()
-        if (current != null) f.lastWiggleFrame = frameNanos / 1_000_000L * wiggleFps.value / 1000L
+        if (live) f.lastWiggleFrame = frameNanos / 1_000_000L * wiggleFps.value / 1000L
         val wiggleFrame = f.lastWiggleFrame
-        pushFloating(f, floor, slide)
+        pushFloating(f, floor, slide, scaleMul)
         try {
             pen.push()
             try {
                 pen.translate(0f, slide)
                 if (f.instrumental) {
-                    drawKtvLines(f.lines, 0f, alpha, -halfMain(f), wiggleFrame = wiggleFrame)
+                    drawKtvLines(f.lines, 0f, shownAlpha, -halfMain(f), wiggleFrame = wiggleFrame)
                 } else if (ktvMode.get()) {
-                    drawKtv(f, songNow, alpha, false, wiggleFrame)
+                    // KTV 本来就整句显示、按进度高亮：预告就是还没开始唱的一句，只是淡一点
+                    drawKtv(f, songNow, shownAlpha, false, wiggleFrame)
                 } else {
                     val elapsed = songNow - f.startMs
-                    drawAnimated(f.lines, elapsed, f.revealMs, alpha, if (wordPop.get()) f.charTimes else null, wiggleFrame)
-                    drawTranslation(phoneticRows(f) + translationRows(f), elapsed, f.revealMs, alpha,
+                    drawAnimated(f.lines, elapsed, f.revealMs, shownAlpha, if (wordPop.get()) f.charTimes else null, wiggleFrame, shownGhost)
+                    drawTranslation(phoneticRows(f) + translationRows(f), elapsed, f.revealMs, shownAlpha,
                         halfMain(f) + ANNOTATION_GAP, TRANSLATION_SCALE, false, wiggleFrame)
                 }
             } finally {
