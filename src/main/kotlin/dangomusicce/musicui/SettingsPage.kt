@@ -505,7 +505,11 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         val appleLooks = player.take(listOf("appleSidebarStyle", "appleMenuTextSize", "appleMenuFont", "applePlayerBarSize"))
         val islandF1 = island.take(listOf("islandWhileHudHidden"))
         val requestF1 = player.take(listOf("requestHudWhileHidden"))
-        val f1Rows = worldF1 + sideF1 + islandF1 + requestF1
+        fun Row.withLabel(newLabel: String) = Row(newLabel, desc, value, ctl, dep, fmt, scale, key, show)
+        val f1Rows = worldF1.map { it.withLabel("3D world lyrics") } +
+            sideF1.map { it.withLabel("Cockpit lyrics") } +
+            islandF1.map { it.withLabel("Dynamic Island") } +
+            requestF1.map { it.withLabel("Bilibili song requests") }
         val advanced = player.take(listOf("audioOutput", "audioBuffer", "envRays")) + listOf(
             Row("Cache usage", "NetEase audio stored on disk", CacheAction.USAGE, Ctl.CACHE, null, { "" }),
             Row("Open cache folder", "Open the NetEase audio cache location", CacheAction.OPEN, Ctl.CACHE, null, { "" }),
@@ -552,8 +556,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                 )),
         )
         val hotkeys = listOf(Group("Hotkeys", "Click, then press a key · Backspace clears",
-            module, false, player.take(), collapsible = false,
-            tip = "Click any numeric slider value to type an exact number · Press Ctrl+F to search settings"))
+            module, false, player.take(), collapsible = false))
 
         // ---------------------------------------------------------------- 多人
         val nearbyModule = mm.get(NearbyModule::class.java)
