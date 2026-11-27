@@ -4,6 +4,13 @@
 
 ## 未发布
 
+### 安全加固、稳定性与性能优化（0.6.4-dev.1）
+
+- **多人联机安全与内存修复**：修复 `DangoPacket` 解包时未释放 Netty `ByteBuf` 导致的内存泄漏；加固服务端 `PREFS` / `GROUP_ACTION` / `LYRICS` 反序列化空值校验并为听歌房操作增加异常兜底，防止畸形数据包引发服务端主线程崩溃；L3 中转不再信任听众传入的 URL 且按 `(trackKey, url)` 隔离缓存，防止缓存投毒；为 `PREFS` / `NOW_PLAYING` / `LYRICS` 补充独立限流。
+- **配置与客户端稳定性**：修复 `settings.json` 损坏时导致所有模块永久禁用并写回覆盖的问题（改为备份 `.corrupt` 并恢复默认启用）；配置写入改用原子替换与后台线程落盘并缓存反射字段；`EventManager` 单个监听器异常不再导致客户端直接崩溃；`PlaybackView` 与音源切换改为异步派发到音频控制线程，避免主线程等待 `MusicPlayer` 锁；`NeteaseApi` 移除红心/歌单接口在 HTTP 阻塞期间持有的全局锁，避免点击退出登录卡死界面；`AppleMusicSource` 补充缺失 JSON 字段防护；浏览器外链跳转校验协议并改为后台启动。
+- **OpenGL 渲染与帧率优化**：`CjkFont` 增加贴图页上限（16 页）并在重置时释放显存纹理，复用字形上传缓冲区并消除绘制时的临时列表分配；`LyricFonts` 将磁盘检查与字体解析移至后台线程并节流，避免每帧在渲染线程同步 I/O；`GlStateSnapshot` 复用静态缓冲区并补齐裁剪区/纹理环境/混合方程状态恢复；`DeepGlow` / `ContrastLayer` / `GlassText` 补齐 `try/finally`、FBO 完整性回退（`RGBA16F` 失败退回 `RGBA8`）、uniform 缓存及链接失败清理；`DanceRenderHook` 帧末兜底切回 `GL_MODELVIEW`；消除 `LyricsModule.mixRgb`、`DynamicIslandModule` 时钟与 `Dance.fit` 节拍搜索中的逐帧热点开销；修复 `CoverArt` 并发发布竞态与封面下载体积/重定向限制，修复 `CoverCache` 异常残留队列键。
+- **音频引擎与磁盘缓存**：`NeteaseDiskCache` 将临时文件写入与校验移出全局锁，单文件删除失败不再中断淘汰/清理，自动回收孤立 `.tmp` 文件；`NearbyAudioPlayer` 修复 EOF 状态滞留与暂停竞态、停止主线程 20 Hz 重复调音量、支持中断旧下载并复用音频输出选择（兼容安卓 OpenAL）；`MusicPlayer` 修复预取取消竞态、复用 PCM 字节缓冲并忽略中段声道/采样率突变帧；`EnvironmentAudio` 复用混响临时数组并优化环形缓冲索引；`ResumeStore` 改用独立临时文件避免退出落盘冲突；`NeteaseApi` 按 `Content-Length` 预分配下载缓冲减少大文件扩容开销。
+
 ## 0.6.3 · 歌词胶囊与 HUD 改进
 
 ### 灵动岛、点歌台和播放控制

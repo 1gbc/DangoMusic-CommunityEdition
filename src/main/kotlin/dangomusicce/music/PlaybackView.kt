@@ -1,5 +1,6 @@
 package dangomusicce.music
 
+import dangomusicce.client.ClientMusic
 import dangomusicce.i18n.I18n
 import dangomusicce.musicui.Library
 import dangomusicce.network.NearbyClient
@@ -69,20 +70,20 @@ object PlaybackView {
     }
 
     fun togglePause() {
-        if (remoteActive()) NearbyAudioPlayer.togglePause() else MusicPlayer.togglePause()
+        if (remoteActive()) NearbyAudioPlayer.togglePause() else ClientMusic.control { MusicPlayer.togglePause() }
     }
 
     fun previous() {
-        if (!remoteActive()) MusicPlayer.prev()
+        if (!remoteActive()) ClientMusic.control { MusicPlayer.prev() }
     }
 
     fun next() {
-        if (!remoteActive()) MusicPlayer.next()
+        if (!remoteActive()) ClientMusic.control { MusicPlayer.next() }
     }
 
     /** The listener cannot seek a host's stream; only local playback is seekable. */
     fun seek(positionMs: Long) {
-        if (!remoteActive()) MusicPlayer.seek(positionMs)
+        if (!remoteActive()) ClientMusic.control { MusicPlayer.seek(positionMs) }
     }
 
     fun setVolume(volume: Float) {

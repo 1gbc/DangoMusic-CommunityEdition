@@ -29,10 +29,12 @@ object NearbyMedia {
         connectMs: Int = 8000,
         readMs: Int = 20000,
         allowed: ((URL) -> Boolean)? = null,
+        active: () -> Boolean = { true },
     ): ByteArray? {
         if (url.isBlank() || url.length > 2048) return null
         var current: URL = try { URL(url) } catch (_: Exception) { return null }
         repeat(6) {
+            if (!active()) return null
             if (current.protocol != "https" && current.protocol != "http") return null
             if (allowed != null && !allowed(current)) return null
             val conn = current.openConnection() as? HttpURLConnection ?: return null
@@ -56,6 +58,7 @@ object NearbyMedia {
                     val out = ByteArrayOutputStream(if (declared in 1..maxBytes) declared.toInt() else 16384)
                     val buffer = ByteArray(16 * 1024)
                     while (true) {
+                        if (!active()) return null
                         val read = input.read(buffer)
                         if (read < 0) break
                         if (out.size() + read > maxBytes) return null

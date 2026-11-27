@@ -333,31 +333,45 @@ object NeteaseApi {
     @Volatile private var liked: Set<Long>? = null
     @Volatile private var likedAt = 0L
 
+    private val likedLock = Any()
+    private val loadingLiked = java.util.concurrent.atomic.AtomicBoolean(false)
+
     /** 这首歌是不是红心（按缓存的列表，过期了在后台重新拉） */
     fun isLiked(id: Long): Boolean = liked?.contains(id) ?: false
 
     /** 拉一次红心列表（10 分钟内不重复拉） */
-    @Synchronized fun loadLiked() {
-        if (System.currentTimeMillis() - likedAt < 10 * 60_000L && liked != null) return
-        likedAt = System.currentTimeMillis()
-        val uid = resolveUser()
-        if (uid == 0L) return
-        val o = account("https://music.163.com/weapi/song/like/get", JsonObject().apply { addProperty("uid", uid.toString()) }) ?: return
-        liked = o.getAsJsonArray("ids")?.mapNotNull { el -> el.takeIf { it.isJsonPrimitive }?.asString?.toLongOrNull() }?.toHashSet() ?: emptySet()
+    fun loadLiked() {
+        val now = System.currentTimeMillis()
+        if (now - likedAt < 10 * 60_000L && liked != null) return
+        if (!loadingLiked.compareAndSet(false, true)) return
+        try {
+            val uid = resolveUser()
+            if (uid == 0L) return
+            val o = account("https://music.163.com/weapi/song/like/get", JsonObject().apply { addProperty("uid", uid.toString()) }) ?: return
+            val fetched = o.getAsJsonArray("ids")?.mapNotNull { el -> el.takeIf { it.isJsonPrimitive }?.asString?.toLongOrNull() }?.toHashSet() ?: emptySet()
+            synchronized(likedLock) {
+                liked = fetched
+                likedAt = System.currentTimeMillis()
+            }
+        } finally {
+            loadingLiked.set(false)
+        }
     }
 
     /** 加 / 取消红心；成功返回 true */
-    @Synchronized fun setLiked(id: Long, like: Boolean): Boolean {
+    fun setLiked(id: Long, like: Boolean): Boolean {
         val o = account("https://music.163.com/weapi/radio/like?alg=itembased&trackId=$id&time=3",
             JsonObject().apply { addProperty("trackId", id.toString()); addProperty("like", like) }) ?: return false
         if (o.get("code")?.asInt != 200) return false
-        val now = HashSet(liked ?: emptySet())
-        if (like) now.add(id) else now.remove(id)
-        liked = now
+        synchronized(likedLock) {
+            val now = HashSet(liked ?: emptySet())
+            if (like) now.add(id) else now.remove(id)
+            liked = now
+        }
         return true
     }
 
-    @Synchronized fun addToPlaylist(playlist: NeteasePlaylist, track: NeteaseTrack): PlaylistAddResult {
+    fun addToPlaylist(playlist: NeteasePlaylist, track: NeteaseTrack): PlaylistAddResult {
         if (!loggedIn || !playlist.owned || playlist.id <= 0 || track.source != MusicSource.NETEASE)
             throw SourceAccessException("This playlist cannot be edited")
         val detail = getJson("https://music.163.com/api/v6/playlist/detail?id=${playlist.id}&n=1&s=0")
@@ -772,7 +786,8 @@ object NeteaseApi {
     private class AudioTransfer(val active: () -> Boolean, val progress: (Int) -> Unit, timeoutSeconds: Long = 75L) {
         private val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(timeoutSeconds)
         private var lastPercent = -1
-        val buffer = ByteArrayOutputStream()
+        var buffer = ByteArrayOutputStream(64 * 1024)
+            private set
         private var total = -1L
         private var validator: String? = null
 
@@ -794,11 +809,12 @@ object NeteaseApi {
                     throw SourceAccessException("网易云音源返回的续传范围不一致，请重试。")
                 }
             } else {
-                buffer.reset()
                 lastPercent = -1
                 total = connection.contentLengthLong
                 validator = connection.getHeaderField("ETag")?.takeUnless { it.startsWith("W/") }
                     ?: connection.getHeaderField("Last-Modified")
+                if (total > maxBytes) throw SourceAccessException("网易云音源超过下载大小限制。")
+                buffer = ByteArrayOutputStream(if (total in 1..maxBytes) total.toInt() else 64 * 1024)
             }
             if (total > maxBytes) throw SourceAccessException("网易云音源超过下载大小限制。")
         }

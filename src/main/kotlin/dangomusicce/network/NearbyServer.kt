@@ -62,6 +62,9 @@ object NearbyServer {
         @Volatile var lyricsVersion = 0
         @Volatile var capable = false
         @Volatile var lastActionAt = 0L
+        @Volatile var lastPrefsAt = 0L
+        @Volatile var lastNowPlayingAt = 0L
+        @Volatile var lastLyricsAt = 0L
 
         /** Host UUID -> lyrics version already sent to this listener. */
         val sentLyrics = ConcurrentHashMap<UUID, Int>()
@@ -85,15 +88,30 @@ object NearbyServer {
             return
         }
         if (!ServerConfig.enabled) return
-        if (type == NearbyProtocol.C2S.GROUP_ACTION || type == NearbyProtocol.C2S.RELAY_REQUEST) {
-            val now = System.currentTimeMillis()
-            if (now - state.lastActionAt < 100L) return
-            state.lastActionAt = now
+        val nowMs = System.currentTimeMillis()
+        when (type) {
+            NearbyProtocol.C2S.GROUP_ACTION, NearbyProtocol.C2S.RELAY_REQUEST -> {
+                if (nowMs - state.lastActionAt < 100L) return
+                state.lastActionAt = nowMs
+            }
+            NearbyProtocol.C2S.PREFS -> {
+                if (nowMs - state.lastPrefsAt < 50L) return
+                state.lastPrefsAt = nowMs
+            }
+            NearbyProtocol.C2S.NOW_PLAYING -> {
+                if (nowMs - state.lastNowPlayingAt < 50L) return
+                state.lastNowPlayingAt = nowMs
+            }
+            NearbyProtocol.C2S.LYRICS -> {
+                if (nowMs - state.lastLyricsAt < 250L) return
+                state.lastLyricsAt = nowMs
+            }
         }
         try {
             when (type) {
                 NearbyProtocol.C2S.PREFS -> {
-                    val prefs = NetworkBootstrap.gson.fromJson(json, Prefs::class.java) ?: return
+                    val raw = NetworkBootstrap.gson.fromJson(json, Prefs::class.java) ?: return
+                    val prefs = raw.copy(activeGroup = (raw.activeGroup as String?).orEmpty().take(128))
                     val wasSharingGroup = state.prefs.shareGroup
                     val previousGroup = state.prefs.activeGroup
                     state.prefs = prefs
@@ -153,15 +171,17 @@ object NearbyServer {
                         state.lyricsTrack = ""
                         state.lyricsStyle = null
                     } else {
-                        state.lyrics = data.lines.take(NearbyProtocol.MAX_LYRICS_LINES).map {
+                        val lines = (data.lines as List<SharedLyricLine>?).orEmpty()
+                        state.lyrics = lines.take(NearbyProtocol.MAX_LYRICS_LINES).mapNotNull { line ->
+                            if (line == null) return@mapNotNull null
                             SharedLyricLine(
-                                timeMs = it.timeMs.coerceAtLeast(0L),
-                                text = it.text.take(NearbyProtocol.MAX_LYRIC_CHARS),
-                                translation = it.translation?.take(NearbyProtocol.MAX_LYRIC_CHARS)?.takeIf { value -> value.isNotBlank() },
-                                romanization = it.romanization?.take(NearbyProtocol.MAX_LYRIC_CHARS)?.takeIf { value -> value.isNotBlank() },
+                                timeMs = line.timeMs.coerceAtLeast(0L),
+                                text = (line.text as String?).orEmpty().take(NearbyProtocol.MAX_LYRIC_CHARS),
+                                translation = line.translation?.take(NearbyProtocol.MAX_LYRIC_CHARS)?.takeIf { value -> value.isNotBlank() },
+                                romanization = line.romanization?.take(NearbyProtocol.MAX_LYRIC_CHARS)?.takeIf { value -> value.isNotBlank() },
                             )
                         }
-                        state.lyricsTrack = data.trackKey.take(200)
+                        state.lyricsTrack = (data.trackKey as String?).orEmpty().take(200)
                         state.lyricsStyle = data.style?.sanitized()
                     }
                     state.lyricsVersion++
@@ -175,7 +195,12 @@ object NearbyServer {
                     Relay.cancel(player.uniqueID, request.transferId)
                 }
                 NearbyProtocol.C2S.GROUP_ACTION -> {
-                    val action = NetworkBootstrap.gson.fromJson(json, GroupAction::class.java) ?: return
+                    val raw = NetworkBootstrap.gson.fromJson(json, GroupAction::class.java) ?: return
+                    val action = GroupAction(
+                        action = (raw.action as String?).orEmpty().take(32),
+                        name = (raw.name as String?).orEmpty().take(128),
+                        target = (raw.target as String?).orEmpty().take(128),
+                    )
                     groupActions.add(player to action)
                 }
             }
@@ -190,7 +215,11 @@ object NearbyServer {
         val players = server.configurationManager.playerEntityList
         while (true) {
             val (player, action) = groupActions.poll() ?: break
-            handleGroupAction(player, action)
+            try {
+                handleGroupAction(player, action)
+            } catch (e: Exception) {
+                DangoLogger.warn("DangoMusic group action failed: {}", e.javaClass.simpleName)
+            }
         }
         Relay.tick(players)
         if (++ticks % 10 != 0) return
@@ -626,7 +655,7 @@ object NearbyServer {
                 return
             }
             val track = host.now.track
-            val url = request.url?.takeIf { it.isNotBlank() } ?: host.now.url
+            val url = host.now.url
             if (url.isNullOrBlank()) {
                 error(listener, request.transferId, "主机没有可用的共享地址")
                 return
@@ -635,7 +664,8 @@ object NearbyServer {
                 error(listener, request.transferId, "共享地址不在允许的域名内")
                 return
             }
-            val cached = synchronized(cache) { cache[request.trackKey] }
+            val cacheKey = "${request.trackKey}\u0000$url"
+            val cached = synchronized(cache) { cache[cacheKey] }
             if (cached != null) {
                 accept(listener, request.transferId, request.trackKey, cached)
                 return
@@ -658,7 +688,7 @@ object NearbyServer {
                         return@Thread
                     }
                     synchronized(cache) {
-                        cache[request.trackKey] = bytes
+                        cache[cacheKey] = bytes
                         while (cache.size > 2) cache.remove(cache.keys.first())
                     }
                     accept(listener, request.transferId, request.trackKey, bytes)

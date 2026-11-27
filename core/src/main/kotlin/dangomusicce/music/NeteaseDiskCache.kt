@@ -73,11 +73,15 @@ object NeteaseDiskCache {
             if (Files.isDirectory(directory)) {
                 Files.newDirectoryStream(directory, "*.audio").use { files ->
                     for (file in files) {
-                        if (cacheName.matches(file.fileName.toString())) Files.deleteIfExists(file)
+                        if (cacheName.matches(file.fileName.toString())) {
+                            runCatching { Files.deleteIfExists(file) }
+                        }
                     }
                 }
+                sweepTempFiles(0L)
             }
-            lastUsage = Usage(0, 0)
+            val remaining = cacheFiles()
+            lastUsage = Usage(remaining.sumOf { it.bytes }, remaining.size)
         } finally {
             usageScanAt = System.nanoTime()
         }
@@ -119,7 +123,6 @@ object NeteaseDiskCache {
         }
     }
 
-    @Synchronized
     internal fun write(key: String, url: NeteaseApi.SongUrl, bytes: ByteArray, downloadGeneration: Long) {
         if (downloadGeneration != generation) return
         val stream = url.neteaseStream ?: return
@@ -128,6 +131,7 @@ object NeteaseDiskCache {
         Files.createDirectories(directory)
         val temp = Files.createTempFile(directory, "audio-", ".tmp")
         try {
+            val sum = checksum(bytes)
             DataOutputStream(Files.newOutputStream(temp).buffered()).use { out ->
                 out.writeInt(MAGIC)
                 out.writeUTF(stream.quality?.id.orEmpty())
@@ -136,37 +140,58 @@ object NeteaseDiskCache {
                 out.writeFloat(url.gainDb)
                 out.writeFloat(url.peak)
                 out.writeInt(bytes.size)
-                out.writeLong(checksum(bytes))
+                out.writeLong(sum)
                 out.write(bytes)
             }
-            val target = directory.resolve("$key.audio")
-            try {
-                Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
-            } catch (_: AtomicMoveNotSupportedException) {
-                Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING)
+            synchronized(this) {
+                if (downloadGeneration != generation) return
+                val target = directory.resolve("$key.audio")
+                try {
+                    Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+                } catch (_: AtomicMoveNotSupportedException) {
+                    Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING)
+                }
+                prune()
             }
-            prune()
         } finally {
-            Files.deleteIfExists(temp)
+            runCatching { Files.deleteIfExists(temp) }
         }
     }
 
     private fun checksum(bytes: ByteArray): Long = CRC32().apply { update(bytes) }.value
 
     private fun prune() {
+        sweepTempFiles(TimeUnit.MINUTES.toMillis(10))
         val entries = cacheFiles()
         var total = entries.sumOf { it.bytes }
         var count = entries.size
         if (total > LIMIT) {
             for ((file, size) in entries.sortedBy { it.modified }) {
                 if (total <= LIMIT) break
-                if (Files.deleteIfExists(file) || !Files.exists(file)) {
+                val deleted = runCatching { Files.deleteIfExists(file) || !Files.exists(file) }.getOrDefault(false)
+                if (deleted) {
                     total -= size
                     count--
                 }
             }
         }
         lastUsage = Usage(total, count)
+    }
+
+    private fun sweepTempFiles(minAgeMs: Long) {
+        if (!Files.isDirectory(directory)) return
+        val cutoff = System.currentTimeMillis() - minAgeMs
+        runCatching {
+            Files.newDirectoryStream(directory, "audio-*.tmp").use { files ->
+                for (file in files) {
+                    runCatching {
+                        if (minAgeMs <= 0L || Files.getLastModifiedTime(file).toMillis() < cutoff) {
+                            Files.deleteIfExists(file)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private fun cacheFiles(): List<CacheFile> =

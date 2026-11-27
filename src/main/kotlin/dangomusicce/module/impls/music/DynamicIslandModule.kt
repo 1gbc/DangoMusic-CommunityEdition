@@ -275,6 +275,18 @@ class DynamicIslandModule : Module() {
 
     private fun widthLimit(kind: Kind, available: Float): Float = min(kind.maxWidth, available)
 
+    private var lastClockMinute = -1L
+    private var cachedClockText = ""
+
+    private fun clockText(): String {
+        val minute = System.currentTimeMillis() / 60_000L
+        if (minute != lastClockMinute) {
+            lastClockMinute = minute
+            cachedClockText = clock.format(Date(minute * 60_000L))
+        }
+        return cachedClockText
+    }
+
     private fun idleParts(): List<Pair<String, Color>> {
         val parts = mutableListOf<Pair<String, Color>>()
         val platform = DangoClient.platform
@@ -282,7 +294,7 @@ class DynamicIslandModule : Module() {
         parts += "${platform.fps} fps" to Theme.TEXT_SECONDARY
         val ping = platform.pingMs
         if (ping > 0) parts += "$ping ms" to Theme.TEXT_SECONDARY
-        parts += clock.format(Date()) to Theme.TEXT_SECONDARY
+        parts += clockText() to Theme.TEXT_SECONDARY
         return parts
     }
 

@@ -47,7 +47,6 @@ object NearbyAudioPlayer {
     @Volatile var volume: Float = 0.2f
         set(value) {
             field = value.coerceIn(0f, 1f)
-            applyVolume()
         }
 
     @Volatile private var distanceGain = 1f
@@ -63,7 +62,7 @@ object NearbyAudioPlayer {
     @Volatile private var active: RemoteHost? = null
 
     private var bytes: ByteArray? = null
-    private var output: AudioOutput? = null
+    @Volatile private var output: AudioOutput? = null
 
     private val loader = Executors.newSingleThreadExecutor { r ->
         Thread(r, "Dango-NearbyLoad").apply { isDaemon = true }
@@ -115,7 +114,6 @@ object NearbyAudioPlayer {
             return
         }
         active = host
-        applyVolume()
         if (suppressedNow) {
             if (state == State.PLAYING) setPaused(true)
             currentPlaying = false
@@ -203,7 +201,7 @@ object NearbyAudioPlayer {
             setMessage(gen, "正在下载（本机账号）")
             val url = MusicSources.api(track.source).sharingUrl(track, 1)
             if (url != null && !url.trialOnly) {
-                val data = NearbyMedia.download(url.url, referer, 64 * 1024 * 1024)
+                val data = NearbyMedia.download(url.url, referer, 64 * 1024 * 1024, active = { gen == generation })
                 if (gen != generation) return
                 if (NearbyMedia.isPlayable(data)) {
                     play(gen, host, data!!, "L1")
@@ -224,6 +222,7 @@ object NearbyAudioPlayer {
             val data = NearbyMedia.download(
                 hostUrl, referer, 64 * 1024 * 1024,
                 allowed = { candidate -> NearbyMedia.isAllowedRelayHost(candidate.toString(), false) },
+                active = { gen == generation },
             )
             if (gen != generation) return
             if (NearbyMedia.isPlayable(data)) {
@@ -282,15 +281,25 @@ object NearbyAudioPlayer {
             decoder = started.decoder
             var pending = started.first
             var appliedVolume = -1f
+            var pcmBytes = ByteArray(0)
 
             while (gen == generation) {
                 val frame = pending ?: decoder.read()
                 pending = null
-                if (frame == null) break
+                if (frame == null) {
+                    try { out?.drain() } catch (_: Exception) {}
+                    synchronized(this) {
+                        if (gen == generation && state == State.PLAYING) {
+                            pausedAtMs = positionMs
+                            state = State.PAUSED
+                        }
+                    }
+                    break
+                }
 
                 if (out == null) {
                     val format = AudioFormat(frame.rate.toFloat(), 16, frame.channels, true, false)
-                    val opened = JavaSoundOutput(openLine(format, MusicPlayer.lineBufferBytes(frame.rate, frame.channels)))  // 跟本地播放用同一个音频缓冲设置
+                    val opened = MusicPlayer.openOutput(format, MusicPlayer.lineBufferBytes(frame.rate, frame.channels))
                     synchronized(this) {
                         if (gen != generation) {
                             opened.close()
@@ -311,14 +320,22 @@ object NearbyAudioPlayer {
                 }
 
                 if (state == State.PAUSED || suppressed) {
-                    out?.let { if (it.isRunning) it.stop() }
+                    synchronized(this) {
+                        if (state == State.PAUSED || suppressed) {
+                            out?.let { if (it.isRunning) it.stop() }
+                        }
+                    }
                     while (gen == generation && (state == State.PAUSED || suppressed)) Thread.sleep(15)
                     if (gen != generation) break
-                    out?.let {
-                        baseMs = pausedAtMs
-                        clockStartNanos = System.nanoTime()
-                        if (state != State.PAUSED) state = State.PLAYING
-                        if (!it.isRunning) it.start()
+                    synchronized(this) {
+                        if (gen == generation && state != State.PAUSED && !suppressed) {
+                            out?.let {
+                                baseMs = pausedAtMs
+                                clockStartNanos = System.nanoTime()
+                                state = State.PLAYING
+                                if (!it.isRunning) it.start()
+                            }
+                        }
                     }
                 }
 
@@ -330,14 +347,15 @@ object NearbyAudioPlayer {
 
                 val pcm = frame.samples
                 val length = frame.length
-                val pcmBytes = ByteArray(length * 2)
+                val byteCount = length * 2
+                if (pcmBytes.size < byteCount) pcmBytes = ByteArray(byteCount)
                 for (i in 0 until length) {
                     val value = pcm[i].toInt()
                     pcmBytes[i * 2] = (value and 0xFF).toByte()
                     pcmBytes[i * 2 + 1] = ((value shr 8) and 0xFF).toByte()
                 }
                 try {
-                    out?.write(pcmBytes, 0, pcmBytes.size)
+                    out?.write(pcmBytes, 0, byteCount)
                 } catch (e: Throwable) {
                     if (gen == generation) throw e
                 }

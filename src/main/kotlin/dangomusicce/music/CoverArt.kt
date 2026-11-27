@@ -18,11 +18,16 @@ import kotlin.math.min
  */
 class CoverArt {
 
+    private class PendingCover(
+        val key: String,
+        val image: BufferedImage,
+        val palette: List<Int>,
+    )
+
     private val worker = Executors.newSingleThreadExecutor { r -> Thread(r, "Dango-Cover").apply { isDaemon = true } }
 
-    @Volatile private var pendingKey: String? = null
-    @Volatile private var pendingImage: BufferedImage? = null
-    private var requestedKey: String? = null
+    @Volatile private var pending: PendingCover? = null
+    @Volatile private var requestedKey: String? = null
 
     var location: Texture? = null
         private set
@@ -122,25 +127,23 @@ class CoverArt {
                 null
             }
             if (img != null && requestedKey == key) {
-                pendingImage = img
-                pendingKey = key
+                val colors = try { paletteOf(img) } catch (_: Exception) { emptyList() }
+                pending = PendingCover(key, img, colors)
             }
         }
     }
 
     /** 渲染线程：把后台准备好的图片上传成纹理 */
     fun upload() {
-        val img = pendingImage ?: return
-        val key = pendingKey
-        pendingImage = null
+        val next = pending ?: return
+        pending = null
         val textures = DangoClient.gfx.textures
         location?.let { textures.delete(it) }
-        location = textures.upload("dango_cover", img)
-        shownKey = key
+        location = textures.upload("dango_cover", next.image)
+        shownKey = next.key
         shownAtNanos = System.nanoTime()
-        val colors = try { paletteOf(img) } catch (_: Exception) { emptyList() }
-        accent = colors.firstOrNull() ?: DEFAULT_ACCENT
-        palette = colors
+        accent = next.palette.firstOrNull() ?: DEFAULT_ACCENT
+        palette = next.palette
     }
 
     fun clear() {
@@ -148,7 +151,7 @@ class CoverArt {
         location = null
         shownKey = null
         requestedKey = null
-        pendingImage = null
+        pending = null
         palette = emptyList()
     }
 
@@ -175,16 +178,47 @@ class CoverArt {
     }
 
     private fun httpGet(url: String): ByteArray? {
-        val conn = URL(url).openConnection() as HttpURLConnection
-        try {
-            conn.connectTimeout = 6000
-            conn.readTimeout = 8000
-            conn.instanceFollowRedirects = true
-            conn.setRequestProperty("User-Agent", "Mozilla/5.0 DangoMusic")
-            if (conn.responseCode !in 200..299) return null
-            return conn.inputStream.use { it.readBytes() }
-        } finally {
-            conn.disconnect()
+        val maxBytes = 8 * 1024 * 1024
+        var current = URL(url)
+        repeat(4) {
+            val scheme = current.protocol.lowercase()
+            if (scheme != "http" && scheme != "https") return null
+            val conn = current.openConnection() as HttpURLConnection
+            try {
+                conn.connectTimeout = 6000
+                conn.readTimeout = 8000
+                conn.instanceFollowRedirects = false
+                conn.setRequestProperty("User-Agent", "Mozilla/5.0 DangoMusic")
+                val code = conn.responseCode
+                if (code in 300..399) {
+                    val loc = conn.getHeaderField("Location") ?: return null
+                    val next = URL(current, loc)
+                    val nextScheme = next.protocol.lowercase()
+                    if (nextScheme != "http" && nextScheme != "https") return null
+                    if (current.host != next.host && !NearbyMedia.isAllowedRelayHost(next.toString(), false)) return null
+                    current = next
+                    return@repeat
+                }
+                if (code !in 200..299) return null
+                val expected = conn.contentLengthLong
+                if (expected > maxBytes) return null
+                val out = java.io.ByteArrayOutputStream(if (expected in 1..maxBytes) expected.toInt() else 65536)
+                conn.inputStream.use { input ->
+                    val buf = ByteArray(16384)
+                    var total = 0
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n < 0) break
+                        total += n
+                        if (total > maxBytes) return null
+                        out.write(buf, 0, n)
+                    }
+                }
+                return out.toByteArray()
+            } finally {
+                conn.disconnect()
+            }
         }
+        return null
     }
 }

@@ -337,8 +337,30 @@ class MusicScreen(
     }
 
     internal fun openAppleWebsite(url: String) {
-        runCatching { java.awt.Desktop.getDesktop().browse(java.net.URI(url)) }
-            .onFailure { Library.showStatus(I18n.text("Could not open the browser")) }
+        val uri = runCatching { java.net.URI(url) }.getOrNull()
+        val scheme = uri?.scheme?.lowercase()
+        if (uri == null || (scheme != "http" && scheme != "https")) {
+            Library.showStatus(I18n.text("Could not open the browser"))
+            return
+        }
+        Thread({
+            val opened = runCatching {
+                if (java.awt.Desktop.isDesktopSupported() && java.awt.Desktop.getDesktop().isSupported(java.awt.Desktop.Action.BROWSE)) {
+                    java.awt.Desktop.getDesktop().browse(uri)
+                    true
+                } else {
+                    val os = System.getProperty("os.name").orEmpty().lowercase()
+                    val cmd = when {
+                        "win" in os -> arrayOf("rundll32", "url.dll,FileProtocolHandler", uri.toString())
+                        "mac" in os -> arrayOf("open", uri.toString())
+                        else -> arrayOf("xdg-open", uri.toString())
+                    }
+                    ProcessBuilder(*cmd).start()
+                    true
+                }
+            }.getOrDefault(false)
+            if (!opened) Library.showStatus(I18n.text("Could not open the browser"))
+        }, "Dango-OpenUrl").apply { isDaemon = true }.start()
     }
 
     internal fun toggleSettings() {

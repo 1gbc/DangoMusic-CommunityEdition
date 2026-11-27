@@ -81,6 +81,7 @@ object MusicPlayer {
     @Volatile private var prepared: Prepared? = null
     /** 正在预取的曲目；换成别的值（或 null）就让进行中的预取停下 */
     @Volatile private var prefetchKey: String? = null
+    @Volatile private var prefetchGen: Long = 0L
     private val decoderWorker = ThreadPoolExecutor(
         1, 1, 0, TimeUnit.MILLISECONDS, ArrayBlockingQueue(1),
         // 解码线程优先级略高于游戏的后台线程：GTNH 负载重时少断音
@@ -1045,8 +1046,9 @@ object MusicPlayer {
         if (held != null) prepared = null  // 不再是下一首了，释放内存
         if (prefetchKey == key) return
         prefetchKey = key
+        val myGen = ++prefetchGen
         prefetcher.execute {
-            val alive = { prefetchKey == key }
+            val alive = { prefetchGen == myGen && prefetchKey == key }
             try {
                 // 让当前这首先稳定播放几秒，再开始占带宽
                 Thread.sleep(5_000L)
@@ -1063,7 +1065,7 @@ object MusicPlayer {
             } catch (e: Throwable) {
                 if (alive()) DangoLogger.info("Prefetch skipped: {}", e.javaClass.simpleName)
             } finally {
-                if (prefetchKey == key) prefetchKey = null
+                if (prefetchGen == myGen && prefetchKey == key) prefetchKey = null
             }
         }
     }
@@ -1149,7 +1151,7 @@ object MusicPlayer {
         return (rate.toLong() * channels * 2 * ms / 1000).toInt() / (channels * 2) * (channels * 2)
     }
 
-    private fun openOutput(format: AudioFormat, bufferBytes: Int): AudioOutput {
+    internal fun openOutput(format: AudioFormat, bufferBytes: Int): AudioOutput {
         if (preferGameAudio()) platformOutput(format)?.let { return it }
         return try {
             JavaSoundOutput(openLine(format, bufferBytes)).also { logOutput("Java Sound") }
@@ -1291,6 +1293,9 @@ object MusicPlayer {
             // 音量均衡和环境音效用浮点算，最后统一软限幅再变回 16 位：中间不会被截断
             val limiter = SoftLimiter()
             var mix = FloatArray(0)
+            var pcmBytes = ByteArray(0)
+            var openedRate = 0
+            var openedChannels = 0
 
             var appliedVolume = -1f
             var pending = first
@@ -1312,6 +1317,8 @@ object MusicPlayer {
                         }
                         val fading = fadingOutput(opened, gen, frame.rate, frame.channels, fadeIn || state == State.PAUSED)
                         out = fading
+                        openedRate = frame.rate
+                        openedChannels = frame.channels
                         seekBaseMs = skipped.toLong()
                         line = fading
                         outputInfo = OutputInfo(frame.rate, format.sampleSizeInBits, frame.sourceBits, opened is JavaSoundOutput)
@@ -1325,6 +1332,9 @@ object MusicPlayer {
                         }
                         fading
                     }
+                }
+                if (frame.rate != openedRate || frame.channels != openedChannels) {
+                    continue
                 }
                 // 暂停：不再往声卡写数据，原地等待。
                 // （Java Sound 在输出停止时被写数据会自动重新开始或直接返回，
@@ -1376,14 +1386,15 @@ object MusicPlayer {
                     EnvironmentAudio.process(mix, len, ch, frame.rate, frameMs)
                     limiter.process(mix, len, ch, frame.rate, pcm)
                 }
-                val data = ByteArray(len * 2)
+                val byteCount = len * 2
+                if (pcmBytes.size < byteCount) pcmBytes = ByteArray(byteCount)
                 for (k in 0 until len) {
                     val v = pcm[k].toInt()
-                    data[k * 2] = (v and 0xFF).toByte()
-                    data[k * 2 + 1] = ((v shr 8) and 0xFF).toByte()
+                    pcmBytes[k * 2] = (v and 0xFF).toByte()
+                    pcmBytes[k * 2 + 1] = ((v shr 8) and 0xFF).toByte()
                 }
                 try {
-                    output.write(data, 0, data.size)
+                    output.write(pcmBytes, 0, byteCount)
                 } catch (e: Throwable) {
                     if (!output.lost || gen != generation) throw e
                     // 游戏重启了声音系统：换一个新的输出，从这一块接着放（缓冲里没放完的零点几秒丢掉）
@@ -1392,7 +1403,7 @@ object MusicPlayer {
                     if (reopened.lost) throw e
                     reopened.setVolume(volume)
                     appliedVolume = volume
-                    reopened.write(data, 0, data.size)
+                    reopened.write(pcmBytes, 0, byteCount)
                 }
             }
         } catch (e: Throwable) {

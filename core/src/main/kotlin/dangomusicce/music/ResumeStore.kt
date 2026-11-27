@@ -120,9 +120,10 @@ object ResumeStore {
     private fun write(target: Path?, json: String, sync: Boolean = false) {
         target ?: return
         val task = Runnable {
+            var tmp: Path? = null
             try {
                 Files.createDirectories(target.parent)
-                val tmp = target.resolveSibling(target.fileName.toString() + ".tmp")
+                tmp = Files.createTempFile(target.parent, target.fileName.toString() + ".", ".tmp")
                 Files.write(tmp, json.toByteArray(StandardCharsets.UTF_8))
                 try {
                     Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
@@ -131,6 +132,8 @@ object ResumeStore {
                 }
             } catch (e: Exception) {
                 DangoLogger.warn("Resume state not saved: {}", e.javaClass.simpleName)
+            } finally {
+                tmp?.let { runCatching { Files.deleteIfExists(it) } }
             }
         }
         if (!sync) {

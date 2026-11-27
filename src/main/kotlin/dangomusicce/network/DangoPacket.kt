@@ -15,8 +15,10 @@ abstract class DangoMessage : IMessage {
     override fun fromBytes(buf: ByteBuf) {
         type = buf.readInt()
         val length = buf.readInt()
-        require(length in 0..NearbyProtocol.MAX_PACKET_BYTES) { "DangoMusic packet too large" }
-        json = buf.readBytes(length).toString(Charsets.UTF_8)
+        require(length in 0..NearbyProtocol.MAX_PACKET_BYTES && length <= buf.readableBytes()) { "DangoMusic packet invalid" }
+        val bytes = ByteArray(length)
+        buf.readBytes(bytes)
+        json = String(bytes, Charsets.UTF_8)
     }
 
     override fun toBytes(buf: ByteBuf) {

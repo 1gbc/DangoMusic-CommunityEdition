@@ -203,6 +203,7 @@ object CoverCache {
                 try {
                     ready.add(rk to roundCorners(src, ratio, continuous))
                 } catch (_: Exception) {
+                    roundQueued.remove(rk)
                 }
             }
         }
@@ -229,7 +230,7 @@ object CoverCache {
                 try {
                     ready.add(rk to roundCorners(src, ratio, continuous))
                 } catch (_: Exception) {
-                    // 做不出来就继续用小图；下次纹理被删时会再试
+                    roundQueued.remove(rk)
                 }
             }
         }

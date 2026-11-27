@@ -51,7 +51,9 @@ object AppleMusicSource : MusicSourceApi {
 
     fun editorial(section: Section): List<EditorialSection> {
         val op = if (section == Section.DISCOVER) "webDiscover" else "webRadio"
-        val editorial = rows(op).groupBy { it.get("sectionIndex").asInt }.map { (index, items) ->
+        val editorial = rows(op).groupBy {
+            it.get("sectionIndex")?.takeIf { el -> el.isJsonPrimitive }?.asInt ?: 0
+        }.map { (index, items) ->
             EditorialSection(str(items.first(), "sectionTitle"), str(items.first(), "layout"), items.map { row ->
                 val kind = str(row, "kind")
                 val id = MusicSources.stableId(source, "$op:$index:$kind:${str(row, "id")}")
@@ -170,7 +172,9 @@ object AppleMusicSource : MusicSourceApi {
             val response = AppleWebPlayer.request(op, value, offset)
             val error = response.get("error")?.asString.orEmpty()
             if (error.isNotEmpty()) throw SourceAccessException(error)
-            val batch = response.getAsJsonArray("items").map { it.asJsonObject }
+            val itemsArray = response.getAsJsonArray("items")
+                ?: throw SourceAccessException("Apple Music returned an invalid response")
+            val batch = itemsArray.mapNotNull { el -> el.takeIf { it.isJsonObject }?.asJsonObject }
             result.addAll(batch)
             if (response.get("hasMore")?.asBoolean != true) return result
             val next = response.get("nextOffset")?.asInt ?: (offset + batch.size)

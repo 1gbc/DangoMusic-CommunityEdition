@@ -91,6 +91,7 @@ object LyricFonts {
     fun refresh() {
         scannedAt = 0L
         loaded.clear()
+        fileStates.clear()
         systemQueried = false
     }
 
@@ -110,10 +111,22 @@ object LyricFonts {
 
     private val loaded = HashMap<String, Font?>()
 
+    private class FileFontState(
+        @Volatile var checkedAt: Long = 0L,
+        @Volatile var key: String? = null,
+        @Volatile var font: Font? = null,
+        @Volatile var loading: Boolean = false,
+    )
+
+    private val fileStates = java.util.concurrent.ConcurrentHashMap<String, FileFontState>()
+    private val fontLoader = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread(r, "Dango-FontLoader").apply { isDaemon = true }
+    }
+
     /**
      * 加载字体，返回 (字体, 版本标记)。字体为 null = 用默认字体。
      * 版本标记包含文件的修改时间和大小：文件被替换后标记变了，画字那边就会重新生成字形（热重载）。
-     * 只在渲染线程调用。
+     * 磁盘 stat 与字体解析放到后台线程并按 2.5 秒节流，避免在渲染线程上每帧同步 I/O。
      */
     fun load(id: String): Pair<Font?, String?> {
         if (id.isEmpty()) return null to null
@@ -126,10 +139,31 @@ object LyricFonts {
                 if (font.family.equals(family, ignoreCase = true) || font.getFamily(Locale.ENGLISH).equals(family, ignoreCase = true)) font else null
             } to key
         }
-        val file = resolveFile(id) ?: return null to null
-        if (!file.isFile) return null to null
-        val key = "${file.absolutePath}|${file.lastModified()}|${file.length()}"
-        return cached(key) { createFont(file) } to key
+        val state = fileStates.computeIfAbsent(id) { FileFontState() }
+        val now = System.currentTimeMillis()
+        if (!state.loading && now - state.checkedAt > 2500L) {
+            state.loading = true
+            state.checkedAt = now
+            fontLoader.execute {
+                try {
+                    val file = resolveFile(id)
+                    if (file == null || !file.isFile) {
+                        state.font = null
+                        state.key = null
+                    } else {
+                        val key = "${file.absolutePath}|${file.lastModified()}|${file.length()}"
+                        if (key != state.key) {
+                            state.font = createFont(file)
+                            state.key = key
+                        }
+                    }
+                } finally {
+                    state.checkedAt = System.currentTimeMillis()
+                    state.loading = false
+                }
+            }
+        }
+        return state.font to state.key
     }
 
     /** 加载过的字体（失败的也记下来，是 null），不会每帧重复读文件 */

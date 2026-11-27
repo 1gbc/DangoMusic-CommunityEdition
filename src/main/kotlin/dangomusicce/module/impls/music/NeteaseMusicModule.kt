@@ -48,7 +48,9 @@ class NeteaseMusicModule : Module() {
 
     fun selectSource(source: MusicSource) {
         if (source !in MusicSource.selectable) return
-        if (source != MusicSources.selected && (source == MusicSource.APPLE || MusicSources.selected == MusicSource.APPLE)) MusicPlayer.stop(clearResume = false)
+        if (source != MusicSources.selected && (source == MusicSource.APPLE || MusicSources.selected == MusicSource.APPLE)) {
+            ClientMusic.control { MusicPlayer.stop(clearResume = false) }
+        }
         musicSource.setValue(source.configId)
         MusicSources.selected = source
     }

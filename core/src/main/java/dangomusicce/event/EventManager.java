@@ -79,8 +79,10 @@ public class EventManager {
         public void call(Event event) {
             try {
                 method.invoke(event);
+            } catch (Error e) {
+                throw e;
             } catch (Throwable e) {
-                throw new RuntimeException(e);
+                DangoLogger.error("Event listener error ({}): {}", event.getClass().getSimpleName(), e);
             }
         }
     }

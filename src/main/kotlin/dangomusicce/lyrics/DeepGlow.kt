@@ -151,10 +151,21 @@ void main() {
         GL20.glDeleteShader(vs)
         GL20.glDeleteShader(fs)
         if (GL20.glGetProgrami(p, GL20.GL_LINK_STATUS) == GL11.GL_FALSE) {
-            error("DeepGlow shader link failed: " + GL20.glGetProgramInfoLog(p, 4096))
+            val log = GL20.glGetProgramInfoLog(p, 4096)
+            GL20.glDeleteProgram(p)
+            error("DeepGlow shader link failed: $log")
         }
         return p
     }
+
+    private var uDownTex = -1
+    private var uDownTexel = -1
+    private var uUpTex = -1
+    private var uUpTexel = -1
+    private var uUpIntensity = -1
+    private var uCompTex = -1
+    private var uCompTint = -1
+    private var uCompExposure = -1
 
     private fun ensurePrograms(): Boolean {
         if (failed) return false
@@ -163,6 +174,14 @@ void main() {
             progDown = program(DOWN)
             progUp = program(UP)
             progComp = program(COMPOSITE)
+            uDownTex = GL20.glGetUniformLocation(progDown, "tex")
+            uDownTexel = GL20.glGetUniformLocation(progDown, "texel")
+            uUpTex = GL20.glGetUniformLocation(progUp, "tex")
+            uUpTexel = GL20.glGetUniformLocation(progUp, "texel")
+            uUpIntensity = GL20.glGetUniformLocation(progUp, "intensity")
+            uCompTex = GL20.glGetUniformLocation(progComp, "tex")
+            uCompTint = GL20.glGetUniformLocation(progComp, "tint")
+            uCompExposure = GL20.glGetUniformLocation(progComp, "exposure")
             true
         } catch (e: Throwable) {
             DangoLogger.warn("DeepGlow disabled: {}", e.toString())
@@ -172,10 +191,12 @@ void main() {
     }
 
     /** 半精度浮点贴图光晕更细腻（没有色带）；显卡不支持就退回 8 位 */
-    private val floatFormat: Boolean by lazy {
+    private var floatFormatDisabled = false
+    private val floatFormatCapable: Boolean by lazy {
         val caps = GLContext.getCapabilities()
         caps.OpenGL30 || caps.GL_ARB_texture_float
     }
+    private val floatFormat: Boolean get() = floatFormatCapable && !floatFormatDisabled
 
     private fun newTexture(w: Int, h: Int, hdr: Boolean): Int {
         val id = GL11.glGenTextures()
@@ -195,6 +216,9 @@ void main() {
         OpenGlHelper.func_153188_a(OpenGlHelper.field_153198_e, OpenGlHelper.field_153200_g, GL11.GL_TEXTURE_2D, tex, 0)
         return fbo
     }
+
+    private fun isFboComplete(): Boolean =
+        OpenGlHelper.func_153167_i(OpenGlHelper.field_153198_e) == OpenGlHelper.field_153202_i
 
     private fun release() {
         if (maskTex != 0) GL11.glDeleteTextures(maskTex)
@@ -225,6 +249,15 @@ void main() {
             levelH[i] = lh
             levelTex[i] = newTexture(lw, lh, true)
             levelFbo[i] = newFbo(levelTex[i])
+            if (i == 0 && floatFormat && !isFboComplete()) {
+                // 部分驱动支持 ARB_texture_float 但不支持渲染到 RGBA16F，退回 RGBA8
+                DangoLogger.warn("DeepGlow RGBA16F FBO incomplete, falling back to RGBA8")
+                floatFormatDisabled = true
+                GL11.glDeleteTextures(levelTex[0])
+                OpenGlHelper.func_153174_h(levelFbo[0])
+                levelTex[0] = newTexture(lw, lh, false)
+                levelFbo[0] = newFbo(levelTex[0])
+            }
         }
     }
 
@@ -286,59 +319,61 @@ void main() {
         GL11.glPushMatrix()
         GL11.glLoadIdentity()
 
-        // 逐级缩小
-        GL11.glDisable(GL11.GL_BLEND)
-        GL20.glUseProgram(progDown)
-        GL20.glUniform1i(GL20.glGetUniformLocation(progDown, "tex"), 0)
-        val texelDown = GL20.glGetUniformLocation(progDown, "texel")
-        var srcTex = maskTex
-        var srcW = width
-        var srcH = height
-        for (i in 0 until LEVELS) {
-            OpenGlHelper.func_153171_g(OpenGlHelper.field_153198_e, levelFbo[i])
-            GL11.glViewport(0, 0, levelW[i], levelH[i])
-            GL11.glBindTexture(GL11.GL_TEXTURE_2D, srcTex)
-            GL20.glUniform2f(texelDown, 1f / srcW, 1f / srcH)
+        try {
+            // 逐级缩小
+            GL11.glDisable(GL11.GL_BLEND)
+            GL20.glUseProgram(progDown)
+            GL20.glUniform1i(uDownTex, 0)
+            var srcTex = maskTex
+            var srcW = width
+            var srcH = height
+            for (i in 0 until LEVELS) {
+                OpenGlHelper.func_153171_g(OpenGlHelper.field_153198_e, levelFbo[i])
+                GL11.glViewport(0, 0, levelW[i], levelH[i])
+                GL11.glBindTexture(GL11.GL_TEXTURE_2D, srcTex)
+                GL20.glUniform2f(uDownTexel, 1f / srcW, 1f / srcH)
+                quad()
+                srcTex = levelTex[i]
+                srcW = levelW[i]
+                srcH = levelH[i]
+            }
+
+            // 逐级放大并叠加（加法混合）
+            GL11.glEnable(GL11.GL_BLEND)
+            GL11.glBlendFunc(GL11.GL_ONE, GL11.GL_ONE)
+            GL20.glUseProgram(progUp)
+            GL20.glUniform1i(uUpTex, 0)
+            GL20.glUniform1f(uUpIntensity, 0.55f + spread.coerceIn(0f, 1f) * 0.6f)
+            for (i in LEVELS - 2 downTo 0) {
+                OpenGlHelper.func_153171_g(OpenGlHelper.field_153198_e, levelFbo[i])
+                GL11.glViewport(0, 0, levelW[i], levelH[i])
+                GL11.glBindTexture(GL11.GL_TEXTURE_2D, levelTex[i + 1])
+                GL20.glUniform2f(uUpTexel, 1f / levelW[i + 1], 1f / levelH[i + 1])
+                quad()
+            }
+
+            // 合成到原来的画面上（加法混合）
+            OpenGlHelper.func_153171_g(OpenGlHelper.field_153198_e, savedFbo)
+            GL11.glViewport(savedViewport.get(0), savedViewport.get(1), savedViewport.get(2), savedViewport.get(3))
+            GL20.glUseProgram(progComp)
+            GL20.glUniform1i(uCompTex, 0)
+            GL20.glUniform3f(uCompTint, r, g, b)
+            GL20.glUniform1f(uCompExposure, exposure)
+            GL11.glBlendFunc(GL11.GL_ONE, GL11.GL_ONE)
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, levelTex[0])
             quad()
-            srcTex = levelTex[i]
-            srcW = levelW[i]
-            srcH = levelH[i]
+        } finally {
+            OpenGlHelper.func_153171_g(OpenGlHelper.field_153198_e, savedFbo)
+            GL11.glViewport(savedViewport.get(0), savedViewport.get(1), savedViewport.get(2), savedViewport.get(3))
+            GL20.glUseProgram(0)
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, 0)
+            GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA)
+            GL11.glMatrixMode(GL11.GL_PROJECTION)
+            GL11.glPopMatrix()
+            GL11.glMatrixMode(GL11.GL_MODELVIEW)
+            GL11.glPopMatrix()
+            GlCaps.restore(caps)   // 原样恢复雾等开关，否则天边会露出黑底
         }
-
-        // 逐级放大并叠加（加法混合）
-        GL11.glEnable(GL11.GL_BLEND)
-        GL11.glBlendFunc(GL11.GL_ONE, GL11.GL_ONE)
-        GL20.glUseProgram(progUp)
-        GL20.glUniform1i(GL20.glGetUniformLocation(progUp, "tex"), 0)
-        val texelUp = GL20.glGetUniformLocation(progUp, "texel")
-        GL20.glUniform1f(GL20.glGetUniformLocation(progUp, "intensity"), 0.55f + spread.coerceIn(0f, 1f) * 0.6f)
-        for (i in LEVELS - 2 downTo 0) {
-            OpenGlHelper.func_153171_g(OpenGlHelper.field_153198_e, levelFbo[i])
-            GL11.glViewport(0, 0, levelW[i], levelH[i])
-            GL11.glBindTexture(GL11.GL_TEXTURE_2D, levelTex[i + 1])
-            GL20.glUniform2f(texelUp, 1f / levelW[i + 1], 1f / levelH[i + 1])
-            quad()
-        }
-
-        // 合成到原来的画面上（加法混合）
-        OpenGlHelper.func_153171_g(OpenGlHelper.field_153198_e, savedFbo)
-        GL11.glViewport(savedViewport.get(0), savedViewport.get(1), savedViewport.get(2), savedViewport.get(3))
-        GL20.glUseProgram(progComp)
-        GL20.glUniform1i(GL20.glGetUniformLocation(progComp, "tex"), 0)
-        GL20.glUniform3f(GL20.glGetUniformLocation(progComp, "tint"), r, g, b)
-        GL20.glUniform1f(GL20.glGetUniformLocation(progComp, "exposure"), exposure)
-        GL11.glBlendFunc(GL11.GL_ONE, GL11.GL_ONE)
-        GL11.glBindTexture(GL11.GL_TEXTURE_2D, levelTex[0])
-        quad()
-
-        GL20.glUseProgram(0)
-        GL11.glBindTexture(GL11.GL_TEXTURE_2D, 0)
-        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA)
-        GL11.glMatrixMode(GL11.GL_PROJECTION)
-        GL11.glPopMatrix()
-        GL11.glMatrixMode(GL11.GL_MODELVIEW)
-        GL11.glPopMatrix()
-        GlCaps.restore(caps)   // 原样恢复雾等开关，否则天边会露出黑底
     }
 
     /** 中途出错时保证切回原来的帧缓冲 */

@@ -1041,13 +1041,13 @@ class LyricsModule : Module() {
 
     /** 两个颜色按 [t]（0..1）混合，分通道线性插值 */
     private fun mixRgb(from: Int, to: Int, t: Float): Int {
-        var out = 0
-        for (shift in intArrayOf(16, 8, 0)) {
-            val a = (from shr shift) and 0xFF
-            val b = (to shr shift) and 0xFF
-            out = out or ((a + (b - a) * t).roundToInt().coerceIn(0, 255) shl shift)
-        }
-        return out
+        val r0 = (from shr 16) and 0xFF
+        val g0 = (from shr 8) and 0xFF
+        val b0 = from and 0xFF
+        val r = (r0 + (((to shr 16) and 0xFF) - r0) * t).roundToInt().coerceIn(0, 255)
+        val g = (g0 + (((to shr 8) and 0xFF) - g0) * t).roundToInt().coerceIn(0, 255)
+        val b = (b0 + ((to and 0xFF) - b0) * t).roundToInt().coerceIn(0, 255)
+        return (r shl 16) or (g shl 8) or b
     }
 
     // ---------------------------------------------------------------- 歌词文字（平滑字体 / MC 字体 + 发光）

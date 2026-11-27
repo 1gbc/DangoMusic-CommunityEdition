@@ -29,17 +29,28 @@ class GlStateSnapshot {
     private var alphaTest = false
     private var fog = false
     private var lighting = false
+    private var scissorTest = false
+    private var scissorX = 0
+    private var scissorY = 0
+    private var scissorW = 0
+    private var scissorH = 0
     private var depthMask = true
     private var srcRgb = GL11.GL_ONE
     private var dstRgb = GL11.GL_ZERO
     private var srcAlpha = GL11.GL_ONE
     private var dstAlpha = GL11.GL_ZERO
+    private var blendEquation = GL14.GL_FUNC_ADD
+    private var texEnvMode = GL11.GL_MODULATE
     private var shadeModel = GL11.GL_SMOOTH
     private var matrixMode = GL11.GL_MODELVIEW
     private val color = FloatArray(4)
 
+    companion object {
+        private val colorBuf = BufferUtils.createFloatBuffer(16)
+        private val scissorBuf = BufferUtils.createIntBuffer(16)
+    }
+
     init {
-        val buf = BufferUtils.createFloatBuffer(16)
         program = GL11.glGetInteger(GL20.GL_CURRENT_PROGRAM)
         activeTex = GL11.glGetInteger(GL13.GL_ACTIVE_TEXTURE)
         for (i in 0..1) {
@@ -55,17 +66,28 @@ class GlStateSnapshot {
         alphaTest = GL11.glIsEnabled(GL11.GL_ALPHA_TEST)
         fog = GL11.glIsEnabled(GL11.GL_FOG)
         lighting = GL11.glIsEnabled(GL11.GL_LIGHTING)
+        scissorTest = GL11.glIsEnabled(GL11.GL_SCISSOR_TEST)
+        if (scissorTest) {
+            scissorBuf.clear()
+            GL11.glGetInteger(GL11.GL_SCISSOR_BOX, scissorBuf)
+            scissorX = scissorBuf.get(0)
+            scissorY = scissorBuf.get(1)
+            scissorW = scissorBuf.get(2)
+            scissorH = scissorBuf.get(3)
+        }
         depthMask = GL11.glGetBoolean(GL11.GL_DEPTH_WRITEMASK)
         srcRgb = GL11.glGetInteger(GL14.GL_BLEND_SRC_RGB)
         dstRgb = GL11.glGetInteger(GL14.GL_BLEND_DST_RGB)
         srcAlpha = GL11.glGetInteger(GL14.GL_BLEND_SRC_ALPHA)
         dstAlpha = GL11.glGetInteger(GL14.GL_BLEND_DST_ALPHA)
+        blendEquation = GL11.glGetInteger(GL14.GL_BLEND_EQUATION)
+        texEnvMode = GL11.glGetTexEnvi(GL11.GL_TEXTURE_ENV, GL11.GL_TEXTURE_ENV_MODE)
         shadeModel = GL11.glGetInteger(GL11.GL_SHADE_MODEL)
         matrixMode = GL11.glGetInteger(GL11.GL_MATRIX_MODE)
 
-        buf.clear()
-        GL11.glGetFloat(GL11.GL_CURRENT_COLOR, buf)
-        for (k in 0..3) color[k] = buf.get(k)
+        colorBuf.clear()
+        GL11.glGetFloat(GL11.GL_CURRENT_COLOR, colorBuf)
+        for (k in 0..3) color[k] = colorBuf.get(k)
     }
 
     private inline fun cap(on: Boolean, cap: Int, enable: () -> Unit, disable: () -> Unit) {
@@ -101,11 +123,19 @@ class GlStateSnapshot {
         cap(alphaTest, GL11.GL_ALPHA_TEST, { GlStateManager.enableAlpha() }, { GlStateManager.disableAlpha() })
         cap(fog, GL11.GL_FOG, { GlStateManager.enableFog() }, { GlStateManager.disableFog() })
         cap(lighting, GL11.GL_LIGHTING, { GlStateManager.enableLighting() }, { GlStateManager.disableLighting() })
+        if (scissorTest) {
+            GL11.glEnable(GL11.GL_SCISSOR_TEST)
+            GL11.glScissor(scissorX, scissorY, scissorW, scissorH)
+        } else {
+            GL11.glDisable(GL11.GL_SCISSOR_TEST)
+        }
 
         GlStateManager.depthMask(depthMask)
         GL11.glDepthMask(depthMask)
         GlStateManager.tryBlendFuncSeparate(srcRgb, dstRgb, srcAlpha, dstAlpha)
         GL14.glBlendFuncSeparate(srcRgb, dstRgb, srcAlpha, dstAlpha)
+        GL14.glBlendEquation(blendEquation)
+        GL11.glTexEnvi(GL11.GL_TEXTURE_ENV, GL11.GL_TEXTURE_ENV_MODE, texEnvMode)
         GlStateManager.shadeModel(shadeModel)
         GL11.glShadeModel(shadeModel)
         GlStateManager.color(color[0], color[1], color[2], color[3])

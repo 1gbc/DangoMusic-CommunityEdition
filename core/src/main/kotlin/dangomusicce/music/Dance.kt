@@ -182,9 +182,23 @@ object Dance {
         val rough = intervals[intervals.size / 2]
         var best = rough
         var bestScore = -1.0
-        var p = rough * 0.97
-        while (p <= rough * 1.03) {
-            val score = hypot(alignment(p)[0], alignment(p)[1])
+        val lo = rough * 0.97
+        val hi = rough * 1.03
+        // 两阶段粗→细搜索，大幅减少渲染线程上的三角函数计算
+        var p = lo
+        while (p <= hi) {
+            val score = alignmentScore(p)
+            if (score > bestScore) {
+                bestScore = score
+                best = p
+            }
+            p += 0.5
+        }
+        val fineLo = (best - 0.5).coerceAtLeast(lo)
+        val fineHi = (best + 0.5).coerceAtMost(hi)
+        p = fineLo
+        while (p <= fineHi) {
+            val score = alignmentScore(p)
             if (score > bestScore) {
                 bestScore = score
                 best = p
@@ -193,6 +207,19 @@ object Dance {
         }
         val a = alignment(best)
         return doubleArrayOf(best, ((atan2(a[1], a[0]) / (2.0 * PI) * best) + best) % best)
+    }
+
+    private fun alignmentScore(period: Double): Double {
+        var sx = 0.0
+        var sy = 0.0
+        val inv = 2.0 * PI / period
+        for (i in times.indices) {
+            val w = strengths[i] * strengths[i]
+            val a = (times[i] % period) * inv
+            sx += cos(a) * w
+            sy += sin(a) * w
+        }
+        return hypot(sx, sy)
     }
 
     /** 拍长为 [period] 时每个鼓点在一拍里的位置，加权（强度平方）圆周求和；长度越大越整齐 */

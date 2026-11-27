@@ -41,6 +41,17 @@ object EnvironmentAudio {
     @Volatile private var targetPan = 0f
     @Volatile private var targetGain = 1f
 
+    private val tapLeft = FloatArray(TAP_TIMES.size)
+    private val tapRight = FloatArray(TAP_TIMES.size)
+    private val reverbOut = FloatArray(2)
+
+    private inline fun wrapIndex(index: Int, size: Int): Int {
+        var i = index
+        while (i < 0) i += size
+        while (i >= size) i -= size
+        return i
+    }
+
     /** 游戏线程：根据玩家周围的环境和测出来的空间算出要过渡到的效果 */
     fun update(env: ListenerEnvironment?, room: RoomAcoustics.Room?) {
         if (!enabled || env == null) {
@@ -150,8 +161,6 @@ object EnvironmentAudio {
         if (reverb) updateFeedback()
         // 早期反射各次的延迟（采样数）和左右分配
         val baseDelay = early / 1000f * rate
-        val tapLeft = FloatArray(TAP_TIMES.size)
-        val tapRight = FloatArray(TAP_TIMES.size)
         for (t in TAP_TIMES.indices) {
             // 交替偏左偏右，再整体往墙近的一边偏
             val side = ((if (t % 2 == 0) -0.6f else 0.6f) + pan * 0.8f).coerceIn(-1f, 1f)
@@ -159,7 +168,7 @@ object EnvironmentAudio {
             tapRight[t] = TAP_GAINS[t] * (1f + side) * 0.5f
         }
         val lateDelay = (baseDelay * 1.5f).toInt()
-        val out = FloatArray(2)
+        val out = reverbOut
         var i = 0
         while (i + ch - 1 < length) {
             var mono = 0f
@@ -241,7 +250,7 @@ object EnvironmentAudio {
             earlyL += v * tapLeft[t]
             earlyR += v * tapRight[t]
         }
-        val lateInput = delay[Math.floorMod(delayPos - lateDelay.coerceIn(0, size - 1), size)] * lateLevel
+        val lateInput = delay[wrapIndex(delayPos - lateDelay.coerceIn(0, size - 1), size)] * lateLevel
         delayPos = if (delayPos + 1 == size) 0 else delayPos + 1
 
         for (side in 0..1) {
@@ -273,8 +282,8 @@ object EnvironmentAudio {
         val d = samplesAgo.coerceIn(0f, (size - 2).toFloat())
         val whole = d.toInt()
         val frac = d - whole
-        val a = delay[Math.floorMod(delayPos - whole, size)]
-        val b = delay[Math.floorMod(delayPos - whole - 1, size)]
+        val a = delay[wrapIndex(delayPos - whole, size)]
+        val b = delay[wrapIndex(delayPos - whole - 1, size)]
         return a + (b - a) * frac
     }
 

@@ -49,6 +49,7 @@ object CjkFont {
     private fun baseOf(style: Int) = if (style == DISPLAY) 96f else 48f
     private const val PAGE = 1024
     private const val PAD = 4
+    private const val MAX_PAGES = 16
 
     class Glyph(
         val page: Int,
@@ -79,6 +80,7 @@ object CjkFont {
     private var px = PAD
     private var py = PAD
     private var rowH = 0
+    private var uploadBuf: java.nio.ByteBuffer = BufferUtils.createByteBuffer(64 * 64 * 4)
 
     private val available: Set<String> by lazy(LazyThreadSafetyMode.PUBLICATION) {
         try {
@@ -284,7 +286,22 @@ object CjkFont {
         else EXTFramebufferObject.glGenerateMipmapEXT(GL11.GL_TEXTURE_2D)
     }
 
+    private fun clearAtlas() {
+        for (id in pages) {
+            GL11.glDeleteTextures(id)
+        }
+        pages.clear()
+        dirty.clear()
+        glyphs.clear()
+        px = PAD
+        py = PAD
+        rowH = 0
+    }
+
     private fun newPage() {
+        if (pages.size >= MAX_PAGES) {
+            clearAtlas()
+        }
         val prev = GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D)
         val id = GL11.glGenTextures()
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, id)
@@ -311,7 +328,12 @@ object CjkFont {
     }
 
     private fun upload(tex: Int, x: Int, y: Int, w: Int, h: Int, data: ByteArray) {
-        val buf = BufferUtils.createByteBuffer(w * h * 4)
+        val needed = w * h * 4
+        if (uploadBuf.capacity() < needed) {
+            uploadBuf = BufferUtils.createByteBuffer(needed)
+        }
+        val buf = uploadBuf
+        buf.clear()
         for (i in 0 until w * h) {
             buf.put(0xFF.toByte()).put(0xFF.toByte()).put(0xFF.toByte()).put(data[i])
         }
@@ -341,14 +363,20 @@ object CjkFont {
 
     /** 从 x 开始、以 baseline 为基线画一段文字 */
     fun draw(s: String, x: Float, baseline: Float, size: Float, style: Int) {
-        val list = s.map { glyph(it, style) }   // 先把字形都准备好（上传贴图不能放在 glBegin 里）
+        if (s.isEmpty()) return
+        // 先把字形都准备好（上传贴图不能放在 glBegin 里）；如果中途触发了图集重置，再补一轮确保本串都在图集里
+        val beforePages = pages.size
+        for (i in 0 until s.length) glyph(s[i], style)
+        if (pages.size < beforePages) {
+            for (i in 0 until s.length) glyph(s[i], style)
+        }
         var pen = x
         var bound = -1
         var begun = false
-        for (g in list) {
-            if (g == null) continue
+        for (i in 0 until s.length) {
+            val g = glyph(s[i], style) ?: continue
             val scale = size / g.base
-            if (g.page >= 0) {
+            if (g.page >= 0 && g.page < pages.size) {
                 if (g.page != bound) {
                     if (begun) GL11.glEnd()
                     bindPage(g.page)

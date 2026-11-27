@@ -20,9 +20,12 @@ import dangomusicce.module.values.ModuleValue
 
 import java.lang.reflect.Field
 import java.nio.charset.StandardCharsets
+import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import java.util.IdentityHashMap
+import java.util.concurrent.Executors
 
 /**
  * 把每个模块的开关状态和 @ModuleValue 设置存到 config/dangomusic/config.json，启动时自动读回。
@@ -37,19 +40,27 @@ class ConfigManager(
 ) : Listener {
 
     private val gson = GsonBuilder().setPrettyPrinting().create()
+    private val fieldCache = IdentityHashMap<Module, List<Field>>()
+    private val saveWorker = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "Dango-ConfigIO").apply { isDaemon = true }
+    }
+    private val writeLock = Any()
     private var pendingEnabled: Map<Module, Boolean>? = null
     private var ticks = 0
     private var ready = false
-    private var lastSaved: String? = null
+    @Volatile private var lastSaved: String? = null
     var importedPlayerKeys: Map<String, String> = emptyMap()
         private set
 
     private fun modules(): List<Module> = moduleManager.modules.values.flatten()
 
-    private fun valueFields(module: Module): List<Field> =
-        module.javaClass.declaredFields.filter {
-            it.getAnnotation(ModuleValue::class.java)?.persistent == true
-        }.onEach { it.isAccessible = true }
+    private fun valueFields(module: Module): List<Field> = synchronized(fieldCache) {
+        fieldCache.getOrPut(module) {
+            module.javaClass.declaredFields.filter {
+                it.getAnnotation(ModuleValue::class.java)?.persistent == true
+            }.onEach { it.isAccessible = true }
+        }
+    }
 
     // ---------------------------------------------------------------- 读取
 
@@ -100,7 +111,13 @@ class ConfigManager(
             }?.toMap().orEmpty()
             DangoLogger.info("Config loaded: {}", file.toString())
         } catch (e: Exception) {
-            DangoLogger.error("Config load failed, using defaults. {}", e)
+            DangoLogger.error("Config load failed, backing up and using defaults. {}", e)
+            runCatching {
+                val backup = file.resolveSibling(file.fileName.toString() + ".corrupt")
+                Files.copy(file, backup, StandardCopyOption.REPLACE_EXISTING)
+            }
+            pendingEnabled = null
+            fresh = true
         }
     }
 
@@ -146,20 +163,38 @@ class ConfigManager(
         return gson.toJson(root)
     }
 
-    @Synchronized
-    fun saveIfChanged() {
+    fun saveIfChanged(sync: Boolean = false) {
         if (!ready) return
+        val text = try {
+            gson.toJson(settingsSnapshot())
+        } catch (e: Exception) {
+            DangoLogger.error("Config snapshot failed. {}", e)
+            return
+        }
+        if (text == lastSaved) return
+        if (sync) {
+            writeConfig(text)
+        } else {
+            saveWorker.execute { writeConfig(text) }
+        }
+    }
+
+    private fun writeConfig(text: String) = synchronized(writeLock) {
+        if (text == lastSaved) return
+        val tmp = file.resolveSibling(file.fileName.toString() + ".tmp")
         try {
-            val text = gson.toJson(settingsSnapshot())
-            if (text == lastSaved) return
             Files.createDirectories(file.parent)
-            // 先写临时文件再替换，避免写到一半崩溃把配置弄坏
-            val tmp = file.resolveSibling(file.fileName.toString() + ".tmp")
             Files.write(tmp, text.toByteArray(StandardCharsets.UTF_8))
-            Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING)
+            try {
+                Files.move(tmp, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+            } catch (_: AtomicMoveNotSupportedException) {
+                Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING)
+            }
             lastSaved = text
         } catch (e: Exception) {
             DangoLogger.error("Config save failed. {}", e)
+        } finally {
+            runCatching { Files.deleteIfExists(tmp) }
         }
     }
 
@@ -196,6 +231,6 @@ class ConfigManager(
     }
 
     fun installShutdownHook() {
-        Runtime.getRuntime().addShutdownHook(Thread({ saveIfChanged() }, "Dango-ConfigSave"))
+        Runtime.getRuntime().addShutdownHook(Thread({ saveIfChanged(sync = true) }, "Dango-ConfigSave"))
     }
 }

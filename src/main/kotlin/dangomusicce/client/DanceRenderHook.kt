@@ -53,7 +53,10 @@ internal object DanceRenderHook {
         pushed.clear()
         baseDepth = -1
         if (target < 1) return
+        val prevMode = GL11.glGetInteger(GL11.GL_MATRIX_MODE)
+        if (prevMode != GL11.GL_MODELVIEW) GL11.glMatrixMode(GL11.GL_MODELVIEW)
         var guard = 64
         while (guard-- > 0 && GL11.glGetInteger(GL11.GL_MODELVIEW_STACK_DEPTH) > target) GL11.glPopMatrix()
+        if (prevMode != GL11.GL_MODELVIEW) GL11.glMatrixMode(prevMode)
     }
 }

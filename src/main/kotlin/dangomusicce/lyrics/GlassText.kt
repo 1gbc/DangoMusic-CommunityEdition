@@ -218,7 +218,9 @@ void main() {
         GL20.glDeleteShader(vs)
         GL20.glDeleteShader(fs)
         if (GL20.glGetProgrami(p, GL20.GL_LINK_STATUS) == GL11.GL_FALSE) {
-            error("Glass text shader link failed: " + GL20.glGetProgramInfoLog(p, 4096))
+            val log = GL20.glGetProgramInfoLog(p, 4096)
+            GL20.glDeleteProgram(p)
+            error("Glass text shader link failed: $log")
         }
         return p
     }

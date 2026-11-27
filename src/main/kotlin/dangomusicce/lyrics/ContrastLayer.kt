@@ -88,6 +88,10 @@ void main() {
         return id
     }
 
+    private var uMask = -1
+    private var uScene = -1
+    private var uScreen = -1
+
     private fun usable(): Boolean {
         if (failed) return false
         if (!GLContext.getCapabilities().OpenGL30) {
@@ -106,9 +110,14 @@ void main() {
             GL20.glDeleteShader(vs)
             GL20.glDeleteShader(fs)
             if (GL20.glGetProgrami(p, GL20.GL_LINK_STATUS) == GL11.GL_FALSE) {
-                error("Contrast shader link failed: " + GL20.glGetProgramInfoLog(p, 4096))
+                val log = GL20.glGetProgramInfoLog(p, 4096)
+                GL20.glDeleteProgram(p)
+                error("Contrast shader link failed: $log")
             }
             program = p
+            uMask = GL20.glGetUniformLocation(p, "mask")
+            uScene = GL20.glGetUniformLocation(p, "scene")
+            uScreen = GL20.glGetUniformLocation(p, "screen")
             true
         } catch (e: Throwable) {
             DangoLogger.warn("Auto contrast disabled: {}", e.toString())
@@ -178,9 +187,9 @@ void main() {
             GL11.glLoadIdentity()
             try {
                 GL20.glUseProgram(program)
-                GL20.glUniform1i(GL20.glGetUniformLocation(program, "mask"), 0)
-                GL20.glUniform1i(GL20.glGetUniformLocation(program, "scene"), 1)
-                GL20.glUniform2f(GL20.glGetUniformLocation(program, "screen"), mask.width.toFloat(), mask.height.toFloat())
+                GL20.glUniform1i(uMask, 0)
+                GL20.glUniform1i(uScene, 1)
+                GL20.glUniform2f(uScreen, mask.width.toFloat(), mask.height.toFloat())
                 GL13.glActiveTexture(GL13.GL_TEXTURE1)
                 GL11.glBindTexture(GL11.GL_TEXTURE_2D, backdrop.softTexture)
                 GL13.glActiveTexture(GL13.GL_TEXTURE0)
