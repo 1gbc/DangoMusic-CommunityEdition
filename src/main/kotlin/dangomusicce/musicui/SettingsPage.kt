@@ -427,7 +427,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             ),
             shows = mapOf(
                 // 拆分歌词改的是歌词数据本身（歌词页也受影响），不随样式收起
-                "translation" to anyLyrics, "autoContrast" to anyLyrics,
+                "translation" to anyLyrics, "autoContrast" to anyLyrics, "worldWhileHudHidden" to anyLyrics,
                 "sideColor" to { lm.sideColors.value == 1 },
                 // 音译 3D 和驾驶舱都有；翻译的动画只有 3D 歌词有
                 "romanization" to anyLyrics, "translationAnimation" to world, "translationWiggle" to world,
@@ -436,6 +436,8 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                 "rainbowSpeed" to { colors.value == 3 },
                 // 转圈速度跟着"转圈"走（deps），总开关关了也要收起
                 "danceSpinSpeed" to bool(lm, "dance")::get,
+                // 文闪自己排版，只用一句：开着文闪（非 KTV）时收起句数
+                "worldLyricLines" to bool(lm, "textFlash").let { flash -> { !flash.get() || lm.ktvMode.get() } },
                 "ktvSungColor" to { lm.ktvMode.get() && lm.ktvLyricColors.value == 0 },
                 "sideGlowStrength" to { lm.sideGlow.get() || lm.sideTextGlow.get() },
             ),
@@ -446,12 +448,11 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         ly.left.remove("styleBeforeOff") // 快捷键内部记的值
         val lyrics = mutableListOf<Group>()
         val worldF1 = ly.take(listOf("worldWhileHudHidden"))
-        val sideF1 = ly.take(listOf("sideWhileHudHidden"))
         val presetRow = Row("Quick presets", "One-click lyric styles", Unit, Ctl.PRESET, null, { "" }, key = "lyricPreset")
         lyrics += Group("Lyrics", "Style, translation & quick presets", lm, false,
             ly.take(listOf("lyricStyle", "translation", "romanization")) + listOf(presetRow), collapsible = false)
         lyrics += Group("3D lyrics · Basic", "Font, colors and visibility", lm, false,
-            ly.take(listOf("scale", "lyricFont", "lyricColors", "textColor", "translationColor", "rainbowSpeed", "distance", "stayOnScreen", "glow")),
+            ly.take(listOf("scale", "lyricFont", "lyricColors", "textColor", "translationColor", "rainbowSpeed", "distance", "worldLyricLines", "stayOnScreen", "glow")),
             show = world, collapsible = false)
         lyrics += Group("3D lyrics · Advanced", "Placement, glow, motion and KTV", lm, false, ly.take(listOf(
             "facePlayer", "keepAway", "aboveGround", "avoidBlocks", "spread",
@@ -506,8 +507,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         val islandF1 = island.take(listOf("islandWhileHudHidden"))
         val requestF1 = player.take(listOf("requestHudWhileHidden"))
         fun Row.withLabel(newLabel: String) = Row(newLabel, desc, value, ctl, dep, fmt, scale, key, show)
-        val f1Rows = worldF1.map { it.withLabel("3D world lyrics") } +
-            sideF1.map { it.withLabel("Cockpit lyrics") } +
+        val f1Rows = worldF1.map { it.withLabel("Lyrics") } +
             islandF1.map { it.withLabel("Dynamic Island") } +
             requestF1.map { it.withLabel("Bilibili song requests") }
         val advanced = player.take(listOf("audioOutput", "audioBuffer", "envRays")) + listOf(

@@ -10,27 +10,22 @@ import dangomusicce.module.values.ModuleValue;
 public final class F1LyricsVisibilityCheck {
     public static void main(String[] args) throws Exception {
         LyricsModule lyrics = new LyricsModule();
-        BooleanValue world = toggle(lyrics, "worldWhileHudHidden");
-        BooleanValue cockpit = toggle(lyrics, "sideWhileHudHidden");
+        // One switch covers 3D and cockpit lyrics; it keeps the old field name so saved values still load.
+        BooleanValue lyricsToggle = toggle(lyrics, "worldWhileHudHidden");
         Method allowsWorld = method(LyricsModule.class, "allowsWorldLyrics");
         Method allowsCockpit = method(LyricsModule.class, "allowsCockpitLyrics");
+        check(Arrays.stream(LyricsModule.class.getDeclaredFields()).noneMatch(f -> f.getName().equals("sideWhileHudHidden")),
+            "the separate cockpit F1 switch is gone");
 
-        check(world.get() && !cockpit.get(), "defaults preserve both modes' existing F1 behavior");
-        check(allows(allowsWorld, lyrics, true) && !allows(allowsCockpit, lyrics, true),
-            "F1 keeps world lyrics visible and hides cockpit lyrics by default");
-        world.set(false);
-        cockpit.set(true);
-        check(!allows(allowsWorld, lyrics, true) && allows(allowsCockpit, lyrics, true),
-            "each mode independently controls visibility with F1");
-        check(allows(allowsWorld, lyrics, false) && allows(allowsCockpit, lyrics, false),
-            "F1-only preferences don't affect rendering with the vanilla HUD visible");
-        cockpit.set(false);
-        check(!allows(allowsWorld, lyrics, true) && !allows(allowsCockpit, lyrics, true),
-            "both modes can be hidden together");
-        world.set(true);
-        cockpit.set(true);
+        check(lyricsToggle.get(), "lyrics stay visible with F1 by default");
         check(allows(allowsWorld, lyrics, true) && allows(allowsCockpit, lyrics, true),
-            "both modes can remain visible together");
+            "F1 keeps both 3D and cockpit lyrics visible by default");
+        lyricsToggle.set(false);
+        check(!allows(allowsWorld, lyrics, true) && !allows(allowsCockpit, lyrics, true),
+            "turning the switch off hides both lyric styles with F1");
+        check(allows(allowsWorld, lyrics, false) && allows(allowsCockpit, lyrics, false),
+            "the F1 preference doesn't affect rendering with the vanilla HUD visible");
+        lyricsToggle.set(true);
 
         DynamicIslandModule island = new DynamicIslandModule();
         NeteaseMusicModule player = new NeteaseMusicModule();
@@ -51,7 +46,7 @@ public final class F1LyricsVisibilityCheck {
         check(allows(allowsIsland, island, false) && allows(allowsRequests, player, false),
             "normal HUD rendering ignores both F1 options");
 
-        System.out.println("F1 visibility defaults, persistence fields and independent controls passed for all four overlays.");
+        System.out.println("F1 visibility defaults, persistence fields and controls passed for lyrics, the island and the request card.");
     }
 
     private static BooleanValue toggle(Object owner, String name) throws Exception {
