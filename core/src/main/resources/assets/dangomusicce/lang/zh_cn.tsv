@@ -943,3 +943,41 @@ Advanced / Debug	高级 / 调试
 Advanced lyric tuning	歌词进阶调节
 Copy command	复制指令
 Add to queue	加入队列
+General & Appearance	通用与外观
+Playback & Audio	播放与音效
+HUD & Overlay	灵动岛与点歌台
+Fun & Multiplayer	趣味与联机
+Preview	透视预览
+Reset all	恢复默认
+General	常规
+Language and behavior	语言与界面行为
+F1 hidden HUD visibility	F1 隐藏界面显示总览
+Choose what stays visible when pressing F1	集中管理按 F1 隐藏游戏界面时仍保留显示的元素
+Core audio behavior	核心播放与音频行为
+Output, buffering & cache	输出、缓冲与缓存
+Audio device and NetEase disk cache	音频输出设备、缓冲与网易云本地磁盘缓存
+Style, translation & quick presets	显示样式、翻译与一键预设
+Quick presets	快速预设
+One-click lyric styles	一键切换常用歌词风格组合
+Minimal	极简
+3D Glow	3D 霓虹
+Cockpit Glass	驾驶舱玻璃
+Preset applied	已应用歌词预设
+Group reset to defaults	本组设置已恢复默认
+3D lyrics · Basic	3D 歌词 · 基础
+Font, colors and visibility	字体、配色与基础显示
+3D lyrics · Advanced	3D 歌词 · 高级微调
+Placement, glow, motion and KTV	空间避让、光晕、动态效果与 KTV 模式
+Cockpit lyrics · Basic	驾驶舱歌词 · 基础
+Position, font and style	位置、字体与基础外观
+Cockpit lyrics · Advanced	驾驶舱歌词 · 高级微调
+Fine offsets, tilt, opacity and glass	坐标微调、透视倾角、透明度与玻璃折射
+Lyric processing	歌词处理
+Contrast and line splitting	自动反色对比度与自动拆句
+Top status and lyric capsule	顶部状态栏与歌词胶囊
+%d modified	%d 项已改
+%d items	%d 项
+Hold the HUD Mouse key (default Left Alt) to hover, scroll, and click any lyric line to seek	按住 HUD 鼠标键（默认左 Alt）可悬停、滚轮翻看并单击任意歌词跳转播放
+Unlock position and hold the HUD Mouse key (default Left Alt) to drag the Island	解锁位置后按住 HUD 鼠标键（默认左 Alt）即可自由拖动灵动岛
+Hold the HUD Mouse key (default Left Alt) to reorder queue, play early, or remove tracks	按住 HUD 鼠标键（默认左 Alt）可拖动点歌排序、提前播放或删歌
+Click any numeric slider value to type an exact number · Press Ctrl+F to search settings	单击任意滑条右侧数字可直接键盘输入精确数值 · 按 Ctrl+F 跨页搜索设置

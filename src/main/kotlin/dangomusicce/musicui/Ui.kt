@@ -310,14 +310,14 @@ internal class Ui {
      */
     fun toggleSwitch(
         b: LayoutBounds, on: Boolean, clip: LayoutBounds, key: Any? = null, enabled: Boolean = true,
-        action: () -> Unit,
+        accent: Color = RED, action: () -> Unit,
     ) {
         val target = if (on) 1f else 0f
         val anim = key?.let { switchAnim.getOrPut(it) { Spring(380f, 24f, target) } }
         val p = anim?.tick(target) ?: target
         val pc = p.coerceIn(0f, 1f)
         val off = Color(1f, 1f, 1f, if (enabled && hover(b)) 0.24f else 0.16f)
-        val fill = Color(off.r + (RED.r - off.r) * pc, off.g + (RED.g - off.g) * pc, off.b + (RED.b - off.b) * pc, off.a + (RED.a - off.a) * pc)
+        val fill = Color(off.r + (accent.r - off.r) * pc, off.g + (accent.g - off.g) * pc, off.b + (accent.b - off.b) * pc, off.a + (accent.a - off.a) * pc)
         val opacity = if (enabled) 1f else 0.54f
         ctx.drawShape(b, ShapeStyle(fill.copy(a = fill.a * opacity), b.height / 2f))
         val k = b.height - 4f

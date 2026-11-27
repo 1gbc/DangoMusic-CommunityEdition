@@ -489,9 +489,10 @@ class MusicScreen(
             CoverCache.upload()
             login.uploadQr()
 
+            val settingsPreview = !lyricsOpen && ScreenState.page == Page.SETTINGS && settings.previewMode
             ctx.pushScale(scale, scale, 1f)
             ctx.pushOpacity(alpha)
-            ctx.drawShape(LayoutBounds(0f, 0f, ui.lw, ui.lh), ShapeStyle(Color(0f, 0f, 0f, 0.22f)))
+            ctx.drawShape(LayoutBounds(0f, 0f, ui.lw, ui.lh), ShapeStyle(Color(0f, 0f, 0f, if (settingsPreview) 0.05f else 0.22f)))
             drawWindow(alpha)
             // 播放栏浮在内容上面：先把内容的文字画出来，再把画好的内容截成玻璃背景，
             // 这样列表滚到播放栏下面时会模糊地透出来，而不是被整个盖住
@@ -595,8 +596,11 @@ class MusicScreen(
             return
         }
         val side = LayoutBounds(win.x + pad, win.y + pad, sideW, win.height - pad * 2)
-        val sampleContent = usesAppleLayout && (ScreenState.page == Page.GROUP || ScreenState.page == Page.PLAYLIST)
-        if (usesAppleLayout) {
+        val settingsPreview = ScreenState.page == Page.SETTINGS && settings.previewMode
+        val sampleContent = !settingsPreview && usesAppleLayout && (ScreenState.page == Page.GROUP || ScreenState.page == Page.PLAYLIST)
+        if (settingsPreview) {
+            ui.ctx.drawShape(win, ShapeStyle(Color(0.04f, 0.045f, 0.06f, 0.42f), Theme.GLASS_WINDOW.radius, 1f, Color(1f, 1f, 1f, 0.14f)))
+        } else if (usesAppleLayout) {
             val song = PlaybackView.snapshot().track?.takeIf { it.source == MusicSources.selected }
             coverBackdrop.prepareMenuFrame(song)
             coverBackdrop.drawMenuPanel(win, Theme.GLASS_WINDOW.radius, Color(0.03f, 0.035f, 0.045f, 0.34f))
@@ -1012,6 +1016,7 @@ class MusicScreen(
         val step = (if (wheel > 0) -3 else 3) * (if (platform.ctrlDown) 10 else 1)
         if (ScreenState.page == Page.SETTINGS && settings.scrollSearch(wheel, lx, ly)) return
         when {
+            ScreenState.page == Page.SETTINGS && settings.dropdownOpen -> settings.scroll(wheel)
             settings.area.contains(lx, ly) -> settings.scroll(wheel)
             sidebar.listArea.contains(lx, ly) -> sidebar.scrollBy(step)
             discover.area.contains(lx, ly) -> discover.scroll(wheel)
