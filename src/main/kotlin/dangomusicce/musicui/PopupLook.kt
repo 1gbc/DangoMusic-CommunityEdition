@@ -17,12 +17,17 @@ import dangomusicce.utils.Color
  * 播放顺序 / 音量 / 音质、侧栏的音源菜单、设置页的字体列表都用这里的颜色，保证同一种风格下长得一样。
  */
 internal object PopupLook {
-    /** 连续圆角：播放栏的玻璃，圆角放大 */
-    val CONTINUOUS_GLASS = Theme.GLASS_SIDEBAR.copy(radius = 24f, shadow = ShadowStyle(Color(0f, 0f, 0f, 0.10f), 14f, Vec2(0f, -3f)))
+    /** 连续圆角：小圆角玻璃面板 */
+    val CONTINUOUS_GLASS = Theme.GLASS_SIDEBAR.copy(
+        radius = 8f,
+        bevel = 8f,
+        refraction = 6f,
+        shadow = ShadowStyle(Color(0f, 0f, 0f, 0.14f), 12f, Vec2(0f, -3f)),
+    )
 
     /** 经典：浅色磨砂玻璃（透出的背景更亮、更白），配窗口里的白字 */
     val CLASSIC_GLASS = GlassStyle(
-        radius = 12f,
+        radius = 8f,
         tint = Color(1f, 1f, 1f, 0.16f),
         maxLuma = 0.56f,
         saturation = 1.3f,
@@ -34,13 +39,13 @@ internal object PopupLook {
         shadow = ShadowStyle(Color(0f, 0f, 0f, 0.22f), 18f, Vec2(0f, -4f)),
     )
 
-    /** 菜单底：玻璃 + 细亮边；圆角跟着当前大小走（展开动画里不会变形） */
+    /** 菜单底：小圆角玻璃 + 细亮边；圆角跟着当前大小走（展开动画里不会变形） */
     fun panel(ctx: RenderContext, b: LayoutBounds) {
         if (UiStyle.continuous) {
             ctx.drawGlass(b, CONTINUOUS_GLASS.copy(radius = kotlin.math.min(CONTINUOUS_GLASS.radius, b.height / 2f)))
         } else {
             val r = kotlin.math.min(CLASSIC_GLASS.radius, b.height / 2f)
-            val edge = kotlin.math.min(12f, kotlin.math.min(b.width, b.height) / 3f)
+            val edge = kotlin.math.min(8f, kotlin.math.min(b.width, b.height) / 3f)
             ctx.drawGlass(b, CLASSIC_GLASS.copy(radius = r, bevel = edge, refraction = edge))
             ctx.drawShape(b, ShapeStyle(Color(0f, 0f, 0f, 0f), r, 1f, Color(1f, 1f, 1f, 0.28f)))
         }
@@ -55,6 +60,6 @@ internal object PopupLook {
     /** 分隔线 */
     val divider: Color get() = if (UiStyle.continuous) Color(1f, 1f, 1f, 0.08f) else Color(1f, 1f, 1f, 0.18f)
 
-    /** 一行的圆角：连续圆角是胶囊，经典是普通圆角 */
-    fun rowRadius(height: Float): Float = if (UiStyle.continuous) height / 2f else 7f
+    /** 一行的圆角：配合小圆角面板 */
+    fun rowRadius(height: Float): Float = 6f
 }

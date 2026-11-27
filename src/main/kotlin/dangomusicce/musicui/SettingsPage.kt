@@ -1049,7 +1049,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
     private val rowVis = HashMap<Row, Spring>()
 
     private fun place(groups: List<Group>, view: LayoutBounds): List<Placed> {
-        val width = minOf((view.width - 10f).coerceAtLeast(0f), 680f)
+        val width = (view.width - 10f).coerceAtLeast(0f)
         val inner = (width - 28f).coerceAtLeast(0f)
         var cursorY = 0f
         return groups.mapNotNull { g ->
@@ -1095,8 +1095,6 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         closePicker()
     }
 
-    private fun tabHasModified(tab: Tab): Boolean = tabs[tab.ordinal].any { groupModifiedCount(it) > 0 }
-
     private fun drawCategoryRail(rail: LayoutBounds, names: List<String>) {
         ui.card(rail, Theme.CARD.copy(a = Theme.CARD.a * 0.65f), 12f)
         val itemH = 34f
@@ -1113,14 +1111,10 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             } else if (hovered) {
                 ui.card(b, Theme.CARD_HOVER, 8f)
             }
-            val dotSpace = if (tabHasModified(Tab.values()[index])) 12f else 0f
-            val label = ui.trim(name, b.width - 22f - dotSpace, 11.5f, if (active) Theme.FONT_SEMIBOLD else Theme.FONT_MEDIUM)
+            val label = ui.trim(name, b.width - 22f, 11.5f, if (active) Theme.FONT_SEMIBOLD else Theme.FONT_MEDIUM)
             ui.text(label, b.x + 12f, b.y + (b.height - 10.5f) / 2f, 11.5f,
                 if (active) Theme.TEXT_PRIMARY else Theme.TEXT_SECONDARY,
                 if (active) Theme.FONT_SEMIBOLD else Theme.FONT_MEDIUM)
-            if (dotSpace > 0f) {
-                ui.ctx.drawShape(LayoutBounds(b.right - 12f, b.y + b.height / 2f - 2.5f, 5f, 5f), ShapeStyle(accent, 2.5f))
-            }
             ui.hits += b to { switchTab(index) }
             y += itemH + itemGap
         }
@@ -1357,18 +1351,13 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         val hasIslandPreview = r.key == "islandLayout" || r.key == "islandBackground"
         val forcedLyricPosition = (r.key == "facePlayer" || r.key == "keepAway") &&
             module.lyrics()?.staysOnScreen() == true
-        val modified = isModified(r)
-        val dotW = if (modified) 9f else 0f
         val textW = ((if (stacked) b.width else b.width - ctlW - 14f) -
-            (if (hasIslandPreview && (stacked && b.width >= 136f || !stacked && b.width - ctlW >= 144f)) 54f else 0f) - dotW)
+            (if (hasIslandPreview && (stacked && b.width >= 136f || !stacked && b.width - ctlW >= 144f)) 54f else 0f))
             .coerceAtLeast(0f)
-        if (modified) {
-            ui.ctx.drawShape(LayoutBounds(b.x, b.y + 14.5f, 4f, 4f), ShapeStyle(accent, 2f))
-        }
-        ui.text(ui.trim(I18n.text(r.label), textW, 12f, Theme.FONT_MEDIUM), b.x + dotW, b.y + 10f, 12f, Theme.TEXT_PRIMARY, Theme.FONT_MEDIUM)
+        ui.text(ui.trim(I18n.text(r.label), textW, 12f, Theme.FONT_MEDIUM), b.x, b.y + 10f, 12f, Theme.TEXT_PRIMARY, Theme.FONT_MEDIUM)
         val descSize = maxOf(9.5f, (9f / ui.scale).coerceAtMost(12f))
         val description = if (forcedLyricPosition) "Required while Stay on screen is enabled" else r.desc
-        if (description.isNotEmpty()) ui.text(ui.trim(I18n.text(description), textW + dotW, descSize),
+        if (description.isNotEmpty()) ui.text(ui.trim(I18n.text(description), textW, descSize),
             b.x, b.y + 27f, descSize, Theme.TEXT_TERTIARY)
         val cy = if (stacked) b.bottom - 15f else b.y + b.height / 2f
         val cx = b.right - ctlW
