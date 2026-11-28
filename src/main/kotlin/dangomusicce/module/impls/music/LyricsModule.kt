@@ -71,28 +71,24 @@ private const val TRANSLATION_SCALE = 0.72f
 /** 翻译按多宽换行（原文是 200；字小了，按画出来差不多宽算） */
 private const val TRANSLATION_WRAP = 270
 
-/** 多句：当前句、第 1~3 句预告的不透明度（越往后越淡，当前句始终最亮） */
-private val PREVIEW_ALPHAS = floatArrayOf(1f, 0.56f, 0.36f, 0.24f)
+/** 多句：当前句、第 1~3 句预告的不透明度（按演唱顺序阶梯递减：当前句最亮，越靠后越淡） */
+private val PREVIEW_ALPHAS = floatArrayOf(1f, 0.74f, 0.50f, 0.28f)
 /**
  * 多句：下一句预告的基准不透明度。正在唱的那句还没唱到的字也是这么淡：
  * 预告变成当前句时字不会先消失再逐字冒出来，而是从淡淡的一行按演唱进度逐字点亮
  */
-private const val PREVIEW_ALPHA = 0.56f
+private const val PREVIEW_ALPHA = 0.74f
 /** 多句：预告小一点、低一点（字的像素），往上晋升时慢慢浮到原位、放大到原大小 */
 private const val PREVIEW_SHRINK = 0.06f
 private const val PREVIEW_DROP = 3f
 /** 多句：第 1 句预告最早提前多久出现（毫秒）；后续槽位每多一槽顺延一段 */
-private const val PREVIEW_LEAD_BASE_MS = 4500L
-private const val PREVIEW_LEAD_STEP_MS = 4000L
+private const val PREVIEW_LEAD_BASE_MS = 8000L
+private const val PREVIEW_LEAD_STEP_MS = 6000L
 /** 多句：换句后等多久再出下一句预告，以及连续预告之间的错峰间隔 */
 private const val PREVIEW_DELAY_NANOS = 350_000_000L
 private const val PREVIEW_STAGGER_NANOS = 180_000_000L
 /** 多句：预告淡入用多久 */
 private const val PREVIEW_APPEAR_NANOS = 500_000_000L
-/** 多句：下一句预告离开视野这么久，就换到眼前空着的地方重新淡入 */
-private const val PREVIEW_REPLACE_NANOS = 300_000_000L
-/** 多句：玩家的视线比预告出现时转开超过这么多度，才算"转过头了" */
-private const val PREVIEW_TURN_DEGREES = 15.0
 /** 逐字歌词最后一句唱完后，多留这么一点余韵再立刻淡出，不等下一句开始（毫秒） */
 private const val WORD_END_GRACE_MS = 200L
 /** 多句：发光层里没唱到的字（预告、当前句后半）只发这么一点光，唱到的字才亮起来 */
@@ -117,9 +113,9 @@ private const val PLACEMENT_PITCH_MAX = 6f
 /** 多句：两句之间至少隔开多少度才算"不挤"，再远也不多加分 */
 private const val PLACEMENT_ROOM = 6.0
 /** 动态防重叠：安全边距（度）、俯仰弹簧刚度与方向迟滞 */
-private const val COLLISION_PAD_X = 1.5
-private const val COLLISION_PAD_Y = 1.8
-private const val AVOID_SPRING = 14.0
+private const val COLLISION_PAD_X = 1.8
+private const val COLLISION_PAD_Y = 2.4
+private const val AVOID_SPRING = 18.0
 private const val AVOID_HYSTERESIS = 3.5
 
 /**
@@ -384,7 +380,19 @@ class LyricsModule : Module() {
      * 唱完的句子立即淡出不再滞留，多句围绕镜头同球面漂浮并在视角转动时自动上下避让不重叠
      */
     @ModuleValue("Simultaneous lyric lines", "The current line plus upcoming lines ahead (1 = current only, 2-4 = current + 1-3 upcoming). Finished lines fade out immediately; lines avoid overlapping on screen")
-    private val worldLyricLines = IntValue(1, 4, 1)
+    internal val worldLyricLines = IntValue(1, 4, 1)
+
+    /** 多行排版模式：0 = 散落漂浮，1 = 诗节排版（多句成组堆叠，唱完本组后再在另一侧切出下一组） */
+    @ModuleValue("Multi-line layout", "Scattered floats each line on its own; Stanza blocks groups lines into a tilted block and moves to the other side for the next block")
+    internal val worldLyricLayout = IntValue(0, 1, 0)
+
+    /** 诗节排版中每行文字的最大随机倾斜角度（0° = 完全水平） */
+    @ModuleValue("Block tilt", "Maximum random tilt angle for lines in Stanza blocks (0° keeps lines level)")
+    internal val stanzaTilt = FloatValue(0f, 8f, 0f, 1)
+
+    /** 诗节排版中唱完的句子是否立即原地淡出；关闭时变暗保留直到整块唱完 */
+    @ModuleValue("Fade sung lines in block", "Fade out each line in a Stanza block as soon as it finishes instead of keeping it dimmed until the block ends")
+    internal val stanzaHideSung = BooleanValue(false)
 
     @ModuleValue("Split lines", "Split two lines written as one (NetEase often does this). The lyrics page uses it too, so it stays when lyrics are hidden")
     private val splitLines = BooleanValue(true)
@@ -504,9 +512,7 @@ class LyricsModule : Module() {
         var rankDelayNanos = 0L
         /** 多句：作为下一句预告出现的时刻（0 = 不是预告出来的），预告从这一刻起淡入 */
         var previewSinceNanos = 0L
-        /** 出现时玩家朝哪看：预告只在玩家转过头以后才换位置，原地看不见（比如低头时被"离地"抬到视野上面）不会反复重来 */
-        var placedYaw = Float.NaN
-        var placedPitch = Float.NaN
+
         /** 开始淡出那一刻的样子：淡出从这里接着变，不会先跳回当前句的样子 */
         var fadeAlpha = 1f
         var fadeScale = 1f
@@ -515,8 +521,6 @@ class LyricsModule : Module() {
         var fadeNanos = FADE_NANOS
         /** 开始淡出时的播放位置：多句里淡出的句子停在那一刻的样子，拖回进度时不会突然变回没唱到的样子 */
         var fadeSongMs = -1L
-        /** 预告脱离视野的时间戳（0 = 在视野内） */
-        var awaySinceNanos = 0L
         /** 是否已纳入多行同球面跟随 */
         var sphereSynced = false
         /** 动态碰撞避让带来的俯仰角偏移（度，负 = 向上躲，正 = 向下躲）与阻尼速度 */
@@ -560,8 +564,179 @@ class LyricsModule : Module() {
     private var trailNanos = 0L
     private var avoidCollisionNanos = 0L
 
+    /** 诗节排版中的一整块歌词：共享同一个 3D 锚点、屏幕拉回弹簧与方块避让射线 */
+    private class StanzaBlock(
+        val spec: StanzaBlockLayout.StanzaSpec,
+        val items: List<Floating>,
+        var geometry: StanzaBlockLayout.BlockGeometry,
+        val spawnedAtNanos: Long,
+        var x: Double,
+        var y: Double,
+        var z: Double,
+        var yaw: Float,
+        var pitch: Float,
+        var fitScale: Float,
+        var tiltDeg: Float,
+        var showTranslation: Boolean,
+        var showPhonetics: Boolean,
+    ) {
+        var vYaw = 0.0
+        var vPitch = 0.0
+        var reach = Double.NaN
+        var sphereSynced = false
+        var preview = false
+        var pushSide = 0
+        var activeSlot = 0
+        var completedCount = 0
+        val sungAtNanos = LongArray(items.size)
+        var fadeStartNanos = 0L
+        var fadeSongMs = -1L
+    }
+
+    private var activeBlock: StanzaBlock? = null
+    private var upcomingBlock: StanzaBlock? = null
+    private val fadingBlocks = mutableListOf<StanzaBlock>()
+    private var cachedStanzasKey: String? = null
+    private var cachedStanzasLines = 0
+    private var cachedStanzasSplit = false
+    private var cachedStanzas: List<StanzaBlockLayout.StanzaSpec> = emptyList()
+
     /** 同时漂着几句。文闪模式自己排版，只用一句 */
     private fun lyricLines(): Int = if (textFlash.get() && !ktvMode.get()) 1 else worldLyricLines.value
+
+    /** 是否启用诗节排版（仅多行 3D 歌词且非文闪模式下生效） */
+    internal fun stanzaMode(): Boolean = lyricLines() >= 2 && worldLyricLayout.value == 1
+
+    private fun clearStanzaBlocks(fadeActive: Boolean = false, now: Long = System.nanoTime()) {
+        if (fadeActive) {
+            activeBlock?.let { retireStanzaBlock(it, now) }
+            upcomingBlock?.let { retireStanzaBlock(it, now) }
+        } else {
+            fadingBlocks.clear()
+        }
+        activeBlock = null
+        upcomingBlock = null
+    }
+
+    private fun retireStanzaBlock(block: StanzaBlock, now: Long) {
+        block.fadeStartNanos = now
+        block.fadeSongMs = songPos.toLong()
+        fadingBlocks += block
+    }
+
+    private fun stanzasFor(lyrics: Lyrics): List<StanzaBlockLayout.StanzaSpec> {
+        val count = lyricLines().coerceIn(2, 4)
+        val split = LyricSplit.enabled
+        if (cachedStanzasKey != currentKey || cachedStanzasLines != count || cachedStanzasSplit != split) {
+            cachedStanzasKey = currentKey
+            cachedStanzasLines = count
+            cachedStanzasSplit = split
+            cachedStanzas = StanzaBlockLayout.partition(lyrics.lines, count)
+        }
+        return cachedStanzas
+    }
+
+    private fun blockAnchorBox(b: StanzaBlock, ex: Double, ey: Double, ez: Double): StanzaBlockLayout.BlockAnchorBox? {
+        val rx = b.x - ex
+        val ry = b.y - ey
+        val rz = b.z - ez
+        val len = sqrt(rx * rx + ry * ry + rz * rz)
+        if (len < 1e-4) return null
+        val effLen = if (keepsDistance()) max(len, distance.value * 0.6) else len
+        val s = 0.03 * scale.value * (distance.value / 6.5) * b.fitScale
+        val centerPitch = Math.toDegrees(asin((-ry / len).coerceIn(-1.0, 1.0)))
+        return StanzaBlockLayout.BlockAnchorBox(
+            Math.toDegrees(atan2(-rx, rz)),
+            Math.toDegrees(atan2(b.geometry.halfWidth * s, effLen)),
+            centerPitch + Math.toDegrees(atan2(b.geometry.top * s, effLen)),
+            centerPitch + Math.toDegrees(atan2(b.geometry.bottom * s, effLen)),
+        )
+    }
+
+    private fun createStanzaItem(line: LyricLine, nextMs: Long): Floating {
+        val startMs = line.timeMs
+        val animationEnd = if (nextMs == Long.MAX_VALUE) {
+            val boundary = playbackDurationMs().takeIf { it > startMs } ?: Long.MAX_VALUE
+            line.ktvEndMs(boundary).takeUnless { it == Long.MAX_VALUE } ?: (startMs + 3500L)
+        } else nextMs
+        val ct = charTimes(line, animationEnd)
+        val wrapped = wrap(line.text, 200)
+        val chars = wrapped.sumOf { it.length }
+        val lineDur = (animationEnd - startMs).coerceAtLeast(400L)
+        val reveal = min((chars * 55L).coerceAtLeast(250L), (lineDur * 0.6).toLong())
+        val phonetic = line.romanization?.takeIf { it.isNotBlank() }?.let { wrap(it, TRANSLATION_WRAP) }.orEmpty()
+        val tr = line.translation?.takeIf { it.isNotBlank() }?.let { wrap(it, TRANSLATION_WRAP) }.orEmpty()
+        return Floating(wrapped, startMs, reveal, 0.0, 0.0, 0.0, 0f, 0f, ct, line, nextMs).also {
+            it.translation = tr
+            it.phonetic = phonetic
+        }
+    }
+
+    private fun spawnStanzaBlock(
+        lyrics: Lyrics,
+        spec: StanzaBlockLayout.StanzaSpec,
+        preview: Boolean,
+        avoidBox: StanzaBlockLayout.BlockAnchorBox?,
+        now: Long,
+    ): StanzaBlock? {
+        val player = DangoClient.platform.player ?: return null
+        val items = spec.indices.map { idx ->
+            val nextMs = lyrics.lines.getOrNull(idx + 1)?.timeMs ?: Long.MAX_VALUE
+            createStanzaItem(lyrics.lines[idx], nextMs)
+        }
+        val metrics = items.map { f ->
+            StanzaBlockLayout.LineMetrics(rowWidth(f), halfMain(f), rowBottom(f))
+        }
+        val tilt = stanzaTilt.value
+        val geom = StanzaBlockLayout.layoutSlots(spec.startMs, spec.indices, metrics, tilt)
+        val platform = DangoClient.platform
+        val vHalf = platform.fov / 2.0
+        val aspect = platform.windowWidth.toDouble() / platform.windowHeight.coerceAtLeast(1)
+        val hHalf = Math.toDegrees(atan(tan(Math.toRadians(vHalf)) * aspect))
+        val d = distance.value.toDouble()
+        val worldScale = 0.03 * scale.value * (distance.value / 6.5)
+        val maxPitchDeg = if (aboveGround.get()) min(30.0, maxPitch(d).toDouble()) else 30.0
+        val placedDirect = StanzaBlockLayout.placeBlock(
+            geom, worldScale, d, player.yaw, player.pitch, hHalf, vHalf,
+            spread.value.toDouble(), maxPitchDeg, avoidBox, spec.startMs,
+        )
+        val placed = placedDirect ?: if (!preview && avoidBox != null) {
+            // 极端窄视野下无法与退场块并存：清掉重叠中的退场块，避免两块叠在同一位置
+            fadingBlocks.clear()
+            StanzaBlockLayout.placeBlock(
+                geom, worldScale, d, player.yaw, player.pitch, hHalf, vHalf,
+                spread.value.toDouble(), maxPitchDeg, null, spec.startMs,
+            )
+        } else null
+        if (placed == null) return null
+        val yr = Math.toRadians(placed.yaw.toDouble())
+        val pr = Math.toRadians(placed.pitch.toDouble())
+        val bx = player.eyeX - sin(yr) * cos(pr) * d
+        val by = player.eyeY - sin(pr) * d
+        val bz = player.eyeZ + cos(yr) * cos(pr) * d
+        return StanzaBlock(
+            spec, items, geom, now, bx, by, bz, placed.yaw, placed.pitch, placed.fitScale, tilt,
+            translation.get(), romanization.get(),
+        ).also {
+            it.preview = preview
+        }
+    }
+
+    private fun refreshStanzaGeometry(b: StanzaBlock) {
+        val targetTilt = stanzaTilt.value
+        val showTranslation = translation.get()
+        val showPhonetics = romanization.get()
+        if (abs(b.tiltDeg - targetTilt) < 1e-3f &&
+            b.showTranslation == showTranslation && b.showPhonetics == showPhonetics
+        ) return
+        val metrics = b.items.map { f ->
+            StanzaBlockLayout.LineMetrics(rowWidth(f), halfMain(f), rowBottom(f))
+        }
+        b.geometry = StanzaBlockLayout.layoutSlots(b.spec.startMs, b.spec.indices, metrics, targetTilt)
+        b.tiltDeg = targetTilt
+        b.showTranslation = showTranslation
+        b.showPhonetics = showPhonetics
+    }
 
     /** 多句：只向前预告后续句子（1 = 0 句预告，2–4 = 后续 1–3 句） */
     private fun previewCount(): Int = (lyricLines() - 1).coerceAtLeast(0)
@@ -677,7 +852,7 @@ class LyricsModule : Module() {
             f.avoidPitchVel = 0.0
             f.avoidDir = 0
         }
-        f.awaySinceNanos = 0L
+
         f.targetRank = 0
         f.rankDelayNanos = 0L
         active = f
@@ -788,48 +963,6 @@ class LyricsModule : Module() {
     }
 
     /**
-     * 某句预告不在视野里（转头了）超过一会儿：它还没开始唱，没必要守在原地，换到眼前空着的地方重新淡入。
-     */
-    private fun keepUpcomingInView(now: Long) {
-        val platform = DangoClient.platform
-        val player = platform.player
-        if (upcoming.isEmpty() || player == null) {
-            upcoming.forEach { it.awaySinceNanos = 0L }
-            return
-        }
-        val vHalf = platform.fov / 2.0
-        val aspect = platform.windowWidth.toDouble() / platform.windowHeight.coerceAtLeast(1)
-        val hHalf = Math.toDegrees(atan(tan(Math.toRadians(vHalf)) * aspect))
-        for (i in upcoming.indices) {
-            val f = upcoming[i]
-            val rx = f.x - player.eyeX
-            val ry = f.y - player.eyeY
-            val rz = f.z - player.eyeZ
-            val len = sqrt(rx * rx + ry * ry + rz * rz)
-            if (len < 1e-4) continue
-            val dYaw = abs(wrapDegrees(Math.toDegrees(atan2(-rx, rz)) - player.yaw))
-            val dPitch = abs(Math.toDegrees(asin((-ry / len).coerceIn(-1.0, 1.0))) - player.pitch)
-            val turned = f.placedYaw.isNaN() ||
-                abs(wrapDegrees((player.yaw - f.placedYaw).toDouble())) > PREVIEW_TURN_DEGREES ||
-                abs(player.pitch - f.placedPitch) > PREVIEW_TURN_DEGREES
-            if ((dYaw <= hHalf && dPitch <= vHalf) || !turned) {
-                f.awaySinceNanos = 0L
-                continue
-            }
-            if (f.awaySinceNanos == 0L) {
-                f.awaySinceNanos = now
-                continue
-            }
-            if (now - f.awaySinceNanos < PREVIEW_REPLACE_NANOS) continue
-            startFade(f)
-            upcoming[i] = spawn(f.lyric, f.nextMs, preview = true, previewSlot = i).apply {
-                targetRank = -(i + 1)
-                rank = targetRank.toFloat()
-            }
-        }
-    }
-
-    /**
      * 每帧一次：句数设置变小时裁掉多余的预告，每个句子的名次用临界阻尼弹簧平滑过渡
      */
     private fun updateLines(now: Long) {
@@ -867,6 +1000,8 @@ class LyricsModule : Module() {
         currentKey = null
         active = null
         upcoming.clear()
+        clearStanzaBlocks()
+        cachedStanzasKey = null
         sharedPose = null
         fading.clear()
         lastPreviewSpawnNanos = 0L
@@ -991,6 +1126,8 @@ class LyricsModule : Module() {
                 active?.let { startFade(it) }
                 active = null
                 dropUpcoming()
+                clearStanzaBlocks()
+                cachedStanzasKey = null
                 sharedPose = null
                 lastIndex = -1
                 lastLyricIndex = -1
@@ -1007,6 +1144,8 @@ class LyricsModule : Module() {
             active?.let { startFade(it) }
             active = null
             dropUpcoming()
+            clearStanzaBlocks()
+            cachedStanzasKey = null
             sharedPose = null
             lastIndex = -1
             lastLyricIndex = -1
@@ -1065,7 +1204,110 @@ class LyricsModule : Module() {
         val paused = s != null && !s.playing
         val frameNanos = System.nanoTime()
         var previewing = false
-        if (s != null && lyrics != null) {
+        val useStanza = stanzaMode()
+        if (!useStanza && (activeBlock != null || upcomingBlock != null || fadingBlocks.isNotEmpty())) {
+            clearStanzaBlocks()
+        }
+        if (s != null && lyrics != null && useStanza) {
+            // 切入诗节排版时清掉散落模式的残留状态
+            if (active != null) { active?.let { startFade(it) }; active = null }
+            if (upcoming.isNotEmpty()) dropUpcoming()
+            val pos = songPos.toLong()
+            val ktv = ktvMode.get()
+            val lyricIndex = worldIndexAt(lyrics, pos, ktv)
+            val jumped = lastLyricPos >= 0 && (pos < lastLyricPos - SEEK_BACK_MS || pos > lastLyricPos + SEEK_AHEAD_MS)
+            lastLyricPos = pos
+            if (paused) {
+                clearStanzaBlocks(fadeActive = true, now = frameNanos)
+                lastIndex = lyricIndex
+                wasPaused = true
+            } else {
+                if (jumped || wasPaused) {
+                    clearStanzaBlocks(fadeActive = !jumped, now = frameNanos)
+                    wasPaused = false
+                }
+                lastIndex = lyricIndex
+                if (jumped) lastLyricIndex = lyrics.indexAt(pos)
+                if (lyricIndex >= 0) lastLyricIndex = lyricIndex
+                val stanzas = stanzasFor(lyrics)
+                val stanzaIdx = StanzaBlockLayout.stanzaIndexFor(stanzas, lyricIndex)
+                val baseIdx = if (ktv) lyrics.ktvIndexAt(pos) else lyrics.indexAt(pos)
+                if (stanzaIdx >= 0) {
+                    val spec = stanzas[stanzaIdx]
+                    val cur = activeBlock
+                    if (cur == null || cur.spec.indices != spec.indices) {
+                        cur?.let { retireStanzaBlock(it, frameNanos) }
+                        val up = upcomingBlock
+                        if (up != null && up.spec.indices == spec.indices) {
+                            up.preview = false
+                            activeBlock = up
+                            upcomingBlock = null
+                        } else {
+                            upcomingBlock?.let { retireStanzaBlock(it, frameNanos) }
+                            upcomingBlock = null
+                            val player = DangoClient.platform.player
+                            val avoid = if (player != null) {
+                                (cur ?: fadingBlocks.lastOrNull())?.let { blockAnchorBox(it, player.eyeX, player.eyeY, player.eyeZ) }
+                            } else null
+                            activeBlock = spawnStanzaBlock(lyrics, spec, preview = false, avoidBox = avoid, now = frameNanos)
+                        }
+                    }
+                    activeBlock?.let { b ->
+                        val slot = spec.indices.indexOf(lyricIndex).coerceAtLeast(0)
+                        b.activeSlot = slot
+                        if (slot > b.completedCount) {
+                            for (k in b.completedCount until slot) {
+                                if (b.sungAtNanos[k] == 0L) b.sungAtNanos[k] = frameNanos
+                            }
+                            b.completedCount = slot
+                        }
+                    }
+                } else if (activeBlock != null) {
+                    val b = activeBlock!!
+                    val baseSlot = b.spec.indices.indexOf(baseIdx)
+                    // 块内前几句唱完后遇短间歇：保留本块等待块内下一句，把刚唱完这句标记为已唱
+                    if (baseSlot >= 0 && baseSlot < b.spec.indices.lastIndex) {
+                        b.activeSlot = -1
+                        val done = baseSlot + 1
+                        for (k in b.completedCount until done) {
+                            if (b.sungAtNanos[k] == 0L) b.sungAtNanos[k] = frameNanos
+                        }
+                        if (done > b.completedCount) b.completedCount = done
+                    } else {
+                        retireStanzaBlock(b, frameNanos)
+                        activeBlock = null
+                    }
+                }
+                activeBlock?.let(::refreshStanzaGeometry)
+                upcomingBlock?.let(::refreshStanzaGeometry)
+                fadingBlocks.forEach(::refreshStanzaGeometry)
+
+                // 仅当唱到当前块最后一句且临近下一块（或处于块间空档临近下一块）时，在屏幕另一侧预告下一块
+                val curBlock = activeBlock
+                val effectiveStanzaIdx = if (stanzaIdx >= 0) stanzaIdx
+                    else curBlock?.let { stanzas.indexOfFirst { s -> s.indices == it.spec.indices } } ?: -1
+                val nextIdx = StanzaBlockLayout.nextStanzaIndex(stanzas, effectiveStanzaIdx, lastLyricIndex)
+                val nextSpec = stanzas.getOrNull(nextIdx)
+                val handoverOpen = nextSpec != null && if (curBlock != null) {
+                    lyricIndex == curBlock.spec.indices.last() &&
+                        nextSpec.startMs - pos in 0L..StanzaBlockLayout.HANDOVER_LEAD_MS
+                } else {
+                    nextSpec.startMs - pos in 0L..StanzaBlockLayout.GAP_LEAD_MS
+                }
+                if (!handoverOpen) {
+                    upcomingBlock?.let { retireStanzaBlock(it, frameNanos) }
+                    upcomingBlock = null
+                } else if (upcomingBlock?.spec?.indices != nextSpec!!.indices) {
+                    upcomingBlock?.let { retireStanzaBlock(it, frameNanos) }
+                    upcomingBlock = null
+                    val player = DangoClient.platform.player
+                    val avoid = if (player != null) {
+                        (curBlock ?: fadingBlocks.lastOrNull())?.let { blockAnchorBox(it, player.eyeX, player.eyeY, player.eyeZ) }
+                    } else null
+                    upcomingBlock = spawnStanzaBlock(lyrics, nextSpec, preview = true, avoidBox = avoid, now = frameNanos)
+                }
+            }
+        } else if (s != null && lyrics != null) {
             val pos = songPos.toLong()
             val ktv = ktvMode.get()
             val lyricIndex = worldIndexAt(lyrics, pos, ktv)
@@ -1081,7 +1323,9 @@ class LyricsModule : Module() {
                 active = null
                 lastIndex = idx
                 wasPaused = true
-            } else if (idx != lastIndex || wasPaused || (sectionLabel != null && sectionLabel != active?.lyric?.text)) {
+            } else if (idx != lastIndex || wasPaused || (idx >= 0 && active == null) ||
+                (sectionLabel != null && sectionLabel != active?.lyric?.text)
+            ) {
                 val resumed = wasPaused && idx == lastIndex
                 // 顺着往下唱（或当前句最后一个字已唱完退场）：立即淡出旧句
                 val forward = !wasPaused && !jumped && (
@@ -1125,6 +1369,7 @@ class LyricsModule : Module() {
 
         // 单句：新的一句一出来，淡出中的旧句马上消失（只在没有当前句时画淡出）。多句：淡出的和当前句一起画到淡完
         fading.removeAll { f -> (active != null && lyricLines() <= 1) || frameNanos - f.fadeStartNanos >= f.fadeNanos }
+        fadingBlocks.removeAll { frameNanos - it.fadeStartNanos >= StanzaBlockLayout.RETIRE_FADE_NANOS }
         updateLines(frameNanos)
         if (!worldVisible() || !allowsWorldLyrics(platform.hudHidden)) return
 
@@ -1135,7 +1380,7 @@ class LyricsModule : Module() {
             val view = gfx.world.cameraAngles()
             val validView = view.yaw.isFinite() && view.pitch.isFinite()
             updateCameraAndScreen(view, validView)
-            keepUpcomingInView(frameNanos)
+
             if (validView) resolveOverlaps(view, floor)
             avoidBlocks()
         }
@@ -1328,7 +1573,9 @@ class LyricsModule : Module() {
         hud.end()
     }
 
-    private fun anyFloating(): Boolean = active != null || upcoming.isNotEmpty() || fading.isNotEmpty()
+    private fun anyFloating(): Boolean =
+        active != null || upcoming.isNotEmpty() || fading.isNotEmpty() ||
+            activeBlock != null || upcomingBlock != null || fadingBlocks.isNotEmpty()
 
     /**
      * 开始淡出：[slow] = 多句里唱完退场的句子（挤出去的最老一句、间奏太久清掉的），慢慢淡出、边淡边往上浮；
@@ -1427,8 +1674,8 @@ class LyricsModule : Module() {
             f.previewSinceNanos = System.nanoTime()
         }
         val player = DangoClient.platform.player ?: return f
-        f.placedYaw = player.yaw
-        f.placedPitch = player.pitch
+
+
         val d = distance.value.toDouble()
         val ex = player.eyeX
         val ey = player.eyeY
@@ -1463,7 +1710,12 @@ class LyricsModule : Module() {
     /** 一句歌词在镜头里占的角度范围（度）：中心的偏角、左右半宽、上下边（向下为正） */
     private class LyricBox(val yaw: Double, val halfWidth: Double, val top: Double, val bottom: Double)
 
-    /** [o] 在镜头视角里占据的包围盒（含原文/音译/翻译、Keep away 距离、可选离地抬升与动态避让） */
+    /** 散落多行模式下单行的倾斜角度（0° = 水平），直接复用 [stanzaTilt] 设置。 */
+    private fun scatteredTiltDeg(f: Floating): Float =
+        if (lyricLines() <= 1 || f.instrumental) 0f
+        else StanzaBlockLayout.lineTiltDeg(f.startMs, f.lyric.text.hashCode() and 0x7FFF, stanzaTilt.value)
+
+    /** [o] 在镜头视角里占据的包围盒（含原文/音译/翻译、文字倾角、Keep away 距离、可选离地抬升与动态避让） */
     private fun boxOf(
         o: Floating, ex: Double, ey: Double, ez: Double,
         includeAvoid: Boolean = true, floor: Double? = null,
@@ -1486,9 +1738,14 @@ class LyricsModule : Module() {
         val rankVal = o.rank
         val s = 0.03 * scale.value * (distance.value / 6.5) * rankScale(rankVal)
         val lift = rankLift(rankVal)
+        val hwPx = rowWidth(o) / 2.0
+        val tiltRad = Math.toRadians(abs(scatteredTiltDeg(o)).toDouble())
+        val extraTiltPx = hwPx * sin(tiltRad)
+        val topPx = halfMain(o) * cos(tiltRad) + extraTiltPx
+        val bottomPx = rowBottom(o) * cos(tiltRad) + extraTiltPx
         var effectiveRy = ry
         if (floor != null) {
-            val extraFloor = max(0.0, floor - (ey + ry) + (rowBottom(o) + lift.coerceAtLeast(0f) + 6f) * s)
+            val extraFloor = max(0.0, floor - (ey + ry) + (bottomPx + lift.coerceAtLeast(0f) + 6f) * s)
             effectiveRy += extraFloor
         }
         val effectiveLen = sqrt(rx * rx + effectiveRy * effectiveRy + rz * rz)
@@ -1496,9 +1753,9 @@ class LyricsModule : Module() {
         val centerPitch = Math.toDegrees(asin((-effectiveRy / effectiveLen).coerceIn(-1.0, 1.0)))
         return LyricBox(
             Math.toDegrees(atan2(-rx, rz)),
-            Math.toDegrees(atan2(rowWidth(o) * s / 2.0, effectiveLen)),
-            centerPitch + Math.toDegrees(atan2((-halfMain(o) + lift) * s, effectiveLen)),
-            centerPitch + Math.toDegrees(atan2((rowBottom(o) + lift) * s, effectiveLen)),
+            Math.toDegrees(atan2(hwPx * s, effectiveLen)),
+            centerPitch + Math.toDegrees(atan2((-topPx + lift) * s, effectiveLen)),
+            centerPitch + Math.toDegrees(atan2((bottomPx + lift) * s, effectiveLen)),
         )
     }
 
@@ -1520,9 +1777,12 @@ class LyricsModule : Module() {
     ): Pair<Float, Float> {
         val boxes = others.mapNotNull { boxOf(it, ex, ey, ez) }
         val s = 0.03 * scale.value * (distance.value / 6.5)
-        val halfWidth = Math.toDegrees(atan2(rowWidth(f) * s / 2.0, d))
-        val up = Math.toDegrees(atan2(-halfMain(f) * s, d))
-        val down = Math.toDegrees(atan2(rowBottom(f) * s, d))
+        val hwPx = rowWidth(f) / 2.0
+        val tiltRad = Math.toRadians(abs(scatteredTiltDeg(f)).toDouble())
+        val extraTiltPx = hwPx * sin(tiltRad)
+        val halfWidth = Math.toDegrees(atan2(hwPx * s, d))
+        val up = Math.toDegrees(atan2(-(halfMain(f) * cos(tiltRad) + extraTiltPx) * s, d))
+        val down = Math.toDegrees(atan2((rowBottom(f) * cos(tiltRad) + extraTiltPx) * s, d))
         val lastSide = boxes.firstOrNull()?.let { Math.signum(wrapDegrees(it.yaw - viewYaw)) } ?: 0.0
         val roleOffset = when (previewSlot) {
             -1 -> -8f
@@ -2036,6 +2296,24 @@ class LyricsModule : Module() {
         active?.let(::sync)
         upcoming.forEach(::sync)
         fading.forEach(::sync)
+        fun syncBlock(b: StanzaBlock) {
+            val refX = if (b.sphereSynced && hasPrev) lastCamX else camX
+            val refY = if (b.sphereSynced && hasPrev) lastCamY else camY
+            val refZ = if (b.sphereSynced && hasPrev) lastCamZ else camZ
+            b.sphereSynced = true
+            val rx = b.x - refX
+            val ry = b.y - refY
+            val rz = b.z - refZ
+            val len = sqrt(rx * rx + ry * ry + rz * rz)
+            if (len < 1e-4) return
+            val k = d / len
+            b.x = camX + rx * k
+            b.y = camY + ry * k
+            b.z = camZ + rz * k
+        }
+        activeBlock?.let(::syncBlock)
+        upcomingBlock?.let(::syncBlock)
+        fadingBlocks.forEach(::syncBlock)
     }
 
     /**
@@ -2152,6 +2430,55 @@ class LyricsModule : Module() {
         val single = lyricLines() <= 1
         active?.let { follow(it, true) }
         if (single) fading.forEach { follow(it, true) }
+        upcoming.forEach { follow(it, true) }
+
+        fun followBlock(b: StanzaBlock) {
+            var rx = b.x - camX
+            var ry = b.y - camY
+            var rz = b.z - camZ
+            val len = sqrt(rx * rx + ry * ry + rz * rz)
+            if (len >= 1e-4) {
+                val drawnLen = max(len, minD)
+                val bs = s * b.fitScale
+                val halfW = Math.toDegrees(atan2(b.geometry.halfWidth * bs, drawnLen))
+                val halfH = Math.toDegrees(atan2(max(-b.geometry.top, b.geometry.bottom) * bs, drawnLen))
+                val hLim = max(hHalf * 0.2, hHalf - halfW - 2.0)
+                val vLim = max(vHalf * 0.2, vHalf - halfH - 2.0)
+                val curYaw = Math.toDegrees(atan2(-rx, rz))
+                val curPitch = Math.toDegrees(asin((-ry / len).coerceIn(-1.0, 1.0)))
+                val dYaw = wrapDegrees(curYaw - view.yaw)
+                val dPitch = curPitch - view.pitch
+                val eYaw = dYaw - dYaw.coerceIn(-hLim, hLim)
+                val ePitch = dPitch - dPitch.coerceIn(-vLim, vLim)
+                if (eYaw == 0.0 && ePitch == 0.0 && abs(b.vYaw) < 0.05 && abs(b.vPitch) < 0.05) {
+                    b.vYaw = 0.0
+                    b.vPitch = 0.0
+                } else {
+                    var moveYaw = 0.0
+                    var movePitch = 0.0
+                    var left = dt
+                    while (left > 1e-6) {
+                        val h = min(left, 1.0 / 240.0)
+                        left -= h
+                        b.vYaw += (-SPRING * SPRING * (eYaw - moveYaw) - 2.0 * SPRING * b.vYaw) * h
+                        b.vPitch += (-SPRING * SPRING * (ePitch - movePitch) - 2.0 * SPRING * b.vPitch) * h
+                        moveYaw += b.vYaw * h
+                        movePitch += b.vPitch * h
+                    }
+                    val newYaw = curYaw + moveYaw
+                    val newPitch = (curPitch + movePitch).coerceIn(-89.0, 89.0)
+                    val yr = Math.toRadians(newYaw)
+                    val pr = Math.toRadians(newPitch)
+                    b.x = camX - sin(yr) * cos(pr) * len
+                    b.y = camY - sin(pr) * len
+                    b.z = camZ + cos(yr) * cos(pr) * len
+                    b.yaw = (b.yaw + wrapDegrees(newYaw - curYaw)).toFloat()
+                    b.pitch = (b.pitch + (newPitch - curPitch)).toFloat().coerceIn(-90f, 90f)
+                }
+            }
+        }
+        activeBlock?.let(::followBlock)
+        upcomingBlock?.let(::followBlock)
     }
 
     /** 计算使 [[baseTop], [baseBottom]] 避开所有重叠阻塞区间的最小俯仰偏移（带视口上限与方向迟滞防抖） */
@@ -2258,6 +2585,29 @@ class LyricsModule : Module() {
         val cx = world.cameraX
         val cy = world.cameraY
         val cz = world.cameraZ
+        if (stanzaMode()) {
+            val current = activeBlock ?: return
+            val next = upcomingBlock ?: return
+            val currentBox = blockAnchorBox(current, cx, cy, cz) ?: return
+            val nextBox = blockAnchorBox(next, cx, cy, cz) ?: return
+            val gap = StanzaBlockLayout.separation(currentBox, nextBox)
+            if (next.pushSide == 0 || gap >= COLLISION_PAD_X) {
+                next.pushSide = if (wrapDegrees(nextBox.yaw - currentBox.yaw) >= 0.0) 1 else -1
+            }
+            val push = StanzaBlockLayout.pushYaw(currentBox, nextBox, next.pushSide, COLLISION_PAD_X)
+            if (abs(push) > 1e-4) {
+                // Move the existing block along the viewing sphere so its entrance and playback state stay intact.
+                val move = push * (1.0 - exp(-26.0 * dt))
+                val angle = Math.toRadians(move)
+                val x = next.x - cx
+                val z = next.z - cz
+                next.x = cx + x * cos(angle) - z * sin(angle)
+                next.z = cz + x * sin(angle) + z * cos(angle)
+                next.yaw = (next.yaw + move).toFloat()
+                if (next.vYaw * move < 0.0) next.vYaw = 0.0
+            }
+            return
+        }
         val vHalf = platform.fov / 2.0
         val d = distance.value.toDouble()
         val minPitch = max(-75.0, view.pitch - vHalf + 2.0)
@@ -2321,8 +2671,14 @@ class LyricsModule : Module() {
             addAll(upcoming)
             addAll(fading)
         }
+        val blockTargets = buildList {
+            activeBlock?.let(::add)
+            upcomingBlock?.let(::add)
+            addAll(fadingBlocks)
+        }
         if (!avoidBlocks.get()) {
             targets.forEach { it.reach = 1.0 }
+            blockTargets.forEach { it.reach = 1.0 }
             return
         }
         if (DangoClient.platform.player == null) return
@@ -2370,6 +2726,44 @@ class LyricsModule : Module() {
             probe(px * halfW, bottom, pz * halfW)
             probe(-px * halfW, bottom, -pz * halfW)
             easeBlockReach(f, t, dt)
+        }
+        for (b in blockTargets) {
+            var rx = b.x - cx
+            var ry = b.y - cy
+            var rz = b.z - cz
+            val len = sqrt(rx * rx + ry * ry + rz * rz)
+            if (len < 1e-4) continue
+            if (keepsDistance() && len < minD) {
+                val k = minD / len
+                rx *= k; ry *= k; rz *= k
+            }
+            val bs = s * b.fitScale
+            val halfW = b.geometry.halfWidth * bs
+            val top = -b.geometry.top * bs
+            val bottom = -b.geometry.bottom * bs
+            val mid = (top + bottom) / 2.0
+            val h = sqrt(rx * rx + rz * rz)
+            val px = if (h > 1e-4) -rz / h else 1.0
+            val pz = if (h > 1e-4) rx / h else 0.0
+            var t = 1.0
+            fun probeB(ox: Double, oy: Double, oz: Double) {
+                val tx = rx + ox
+                val ty = ry + oy
+                val tz = rz + oz
+                val pl = sqrt(tx * tx + ty * ty + tz * tz)
+                if (pl < 1e-4) return
+                val hit = platform.clearFraction(cx, cy, cz, cx + tx, cy + ty, cz + tz)
+                if (hit < 1.0) t = min(t, (hit * pl - BLOCK_MARGIN) / pl)
+            }
+            probeB(0.0, mid, 0.0)
+            probeB(px * halfW, top, pz * halfW)
+            probeB(-px * halfW, top, -pz * halfW)
+            probeB(px * halfW, bottom, pz * halfW)
+            probeB(-px * halfW, bottom, -pz * halfW)
+            val target = t.coerceIn(MIN_REACH, 1.0)
+            val cur = b.reach
+            val rate = if (target < cur) 18.0 else 3.0
+            b.reach = if (cur.isNaN()) target else cur + (target - cur) * (1.0 - exp(-rate * dt))
         }
     }
 
@@ -2426,7 +2820,20 @@ class LyricsModule : Module() {
             drawFloating(f, songNow, frameNanos, floor, if (current != null) appearOf(f) else f.fadeAlpha * (1f - fade), -fade * 4f, 1f, current != null)
             return
         }
-        // 多句：先画淡出的，再从最远的后续预告往最近的画，正在唱的最后画，叠在最上面
+        // 诗节排版模式：先画退场块，再画对侧预告块，最后画当前活动块
+        if (stanzaMode()) {
+            if (activeBlock == null && upcomingBlock == null && fadingBlocks.isEmpty()) return
+            world.begin()
+            for (b in fadingBlocks) {
+                val e = smoothstep(((frameNanos - b.fadeStartNanos).coerceAtLeast(0L).toFloat() / StanzaBlockLayout.RETIRE_FADE_NANOS).coerceIn(0f, 1f))
+                val frozen = if (b.fadeSongMs >= 0L) b.fadeSongMs else songNow
+                drawStanzaBlock(b, frozen, frameNanos, floor, 1f - e, -e * 5f, live = false)
+            }
+            upcomingBlock?.let { drawStanzaBlock(it, songNow, frameNanos, floor, 1f, 0f, live = true) }
+            activeBlock?.let { drawStanzaBlock(it, songNow, frameNanos, floor, 1f, 0f, live = true) }
+            return
+        }
+        // 多句散落：先画淡出的，再从最远的后续预告往最近的画，正在唱的最后画，叠在最上面
         if (!anyFloating()) return
         world.begin()
         for (f in fading) {
@@ -2438,6 +2845,107 @@ class LyricsModule : Module() {
         }
         for (i in upcoming.indices.reversed()) drawRanked(upcoming[i], songNow, frameNanos, floor)
         current?.let { drawRanked(it, songNow, frameNanos, floor) }
+    }
+
+    private fun drawStanzaBlock(
+        b: StanzaBlock, songNow: Long, frameNanos: Long, floor: Double?,
+        blockAlpha: Float, slideY: Float, live: Boolean,
+    ) {
+        if (blockAlpha <= 0.01f && b !== activeBlock) return
+        val world = DangoClient.gfx.world
+        var rx = b.x - world.cameraX
+        var ry = b.y - world.cameraY
+        var rz = b.z - world.cameraZ
+        val len = sqrt(rx * rx + ry * ry + rz * rz)
+        val minD = distance.value * 0.6
+        if (keepsDistance() && len in 1e-4..minD) {
+            val k = minD / len
+            rx *= k; ry *= k; rz *= k
+        }
+        val reach = b.reach.takeUnless { it.isNaN() } ?: 1.0
+        rx *= reach; ry *= reach; rz *= reach
+        val s = 0.03f * scale.value * (distance.value / 6.5f) * reach.toFloat() * b.fitScale
+        val lift = if (floor == null) 0.0 else
+            max(0.0, floor - (world.cameraY + ry) + (b.geometry.bottom + slideY.coerceAtLeast(0f) + 6f) * s)
+        val horizontal = sqrt(rx * rx + rz * rz)
+        val yaw = if (facesPlayer() && horizontal > 1e-4) Math.toDegrees(atan2(-rx, rz)).toFloat() else b.yaw
+        val pitch = if (facesPlayer() && len > 1e-4) Math.toDegrees(atan2(-(ry + lift), horizontal)).toFloat() else b.pitch
+        if (b === activeBlock) {
+            val activeItem = b.items.getOrNull(b.activeSlot)
+            sharedPose = LyricsAnchor(
+                world.cameraX + rx / reach, world.cameraY + (ry + lift) / reach, world.cameraZ + rz / reach,
+                yaw, pitch, (s / reach).toFloat(), activeItem?.lastWiggleFrame ?: -1L,
+            )
+        }
+        val pen = DangoClient.gfx.text
+        world.push(rx, ry + lift, rz, yaw, pitch, s)
+        try {
+            pen.push()
+            try {
+                pen.translate(0f, slideY)
+                b.items.forEachIndexed { idx, item ->
+                    val slot = b.geometry.slots.getOrNull(idx) ?: return@forEachIndexed
+                    val enter = smoothstep(((frameNanos - (b.spawnedAtNanos + slot.delayNanos)).coerceAtLeast(0L).toFloat() / StanzaBlockLayout.FADE_IN_NANOS))
+                    val isSung = !b.preview && idx < b.completedCount
+                    val isCurrent = !b.preview && idx == b.activeSlot
+                    val isUpcoming = b.preview || (!isSung && !isCurrent)
+                    var extraLift = 0f
+                    val roleAlpha: Float
+                    val ghostAlpha: Float
+                    if (b.preview) {
+                        roleAlpha = rankAlpha(-(idx + 1).toFloat())
+                        ghostAlpha = roleAlpha
+                    } else if (isCurrent) {
+                        roleAlpha = 1f
+                        ghostAlpha = PREVIEW_ALPHA
+                    } else if (isSung) {
+                        if (stanzaHideSung.get()) {
+                            val sungAt = b.sungAtNanos[idx].takeIf { it > 0L } ?: frameNanos
+                            val p = smoothstep(((frameNanos - sungAt).coerceAtLeast(0L).toFloat() / 320_000_000f))
+                            roleAlpha = 1f - p
+                            extraLift = -3f * p
+                        } else {
+                            roleAlpha = 0.38f
+                        }
+                        ghostAlpha = 0f
+                    } else {
+                        val nextSlot = if (b.activeSlot >= 0) b.activeSlot + 1 else b.completedCount
+                        val ahead = (idx - nextSlot + 1).coerceAtLeast(1)
+                        roleAlpha = rankAlpha(-ahead.toFloat())
+                        ghostAlpha = roleAlpha
+                    }
+                    val finalAlpha = roleAlpha * enter * blockAlpha
+                    val finalGhost = ghostAlpha * enter * blockAlpha
+                    if (finalAlpha <= 0.01f && finalGhost <= 0.01f) return@forEachIndexed
+                    val dim = if (glowPass && !isCurrent) GHOST_GLOW else 1f
+                    val shownAlpha = finalAlpha * dim
+                    val shownGhost = if (glowPass) finalGhost * GHOST_GLOW else finalGhost
+                    if (live) item.lastWiggleFrame = frameNanos / 1_000_000L * wiggleFps.value / 1000L
+                    val wiggleFrame = item.lastWiggleFrame
+                    pen.push()
+                    try {
+                        pen.translate(slot.offsetX, slot.centerY + extraLift)
+                        if (abs(slot.angleDeg) > 0.01f) pen.rotate(slot.angleDeg)
+                        if (ktvMode.get()) {
+                            drawKtv(item, songNow, shownAlpha, preview = isUpcoming, wiggleFrame = wiggleFrame)
+                        } else {
+                            val elapsed = if (isUpcoming) -1000L else songNow - item.startMs
+                            drawAnimated(item.lines, elapsed, item.revealMs, shownAlpha,
+                                if (wordPop.get()) item.charTimes else null, wiggleFrame, shownGhost)
+                            drawTranslation(phoneticRows(item) + translationRows(item), elapsed, item.revealMs,
+                                shownAlpha, halfMain(item) + ANNOTATION_GAP, TRANSLATION_SCALE,
+                                settled = isUpcoming || isSung, wiggleFrame = wiggleFrame)
+                        }
+                    } finally {
+                        pen.pop()
+                    }
+                }
+            } finally {
+                pen.pop()
+            }
+        } finally {
+            world.pop()
+        }
     }
 
     /** 多句：按这句现在的名次画（预告、当前、唱过的都用这一个，名次在中间过渡时样子也是连续的） */
@@ -2469,6 +2977,8 @@ class LyricsModule : Module() {
             pen.push()
             try {
                 pen.translate(0f, slide)
+                val tilt = scatteredTiltDeg(f)
+                if (abs(tilt) > 0.01f) pen.rotate(tilt)
                 if (f.instrumental) {
                     drawKtvLines(f.lines, 0f, shownAlpha, -halfMain(f), wiggleFrame = wiggleFrame)
                 } else if (ktvMode.get()) {

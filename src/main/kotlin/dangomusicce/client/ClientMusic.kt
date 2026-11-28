@@ -17,7 +17,6 @@ import dangomusicce.platform.Platform
 import dangomusicce.platform.ListenerEnvironment
 import dangomusicce.platform.PlayerAction
 import dangomusicce.platform.PlayerKeyBinding
-import dangomusicce.platform.PlayerPose
 import net.minecraft.client.Minecraft
 import net.minecraft.block.Block
 import net.minecraft.block.BlockLeaves
@@ -115,9 +114,7 @@ private class ClientPlatform(override val configDir: Path) : Platform {
     override val pingMs get() =
         client.netHandler?.playerInfoList?.firstOrNull { it.name == playerName }?.responseTime ?: 0
     override val skyDarken get() = client.theWorld?.skylightSubtracted
-    override val player get() = client.thePlayer?.let { player ->
-        PlayerPose(player.posX, player.posY + player.eyeHeight, player.posZ, player.rotationYaw, player.rotationPitch)
-    }
+    override val player get() = RenderCameraPose.pose(client)
     override val dimension get() = client.thePlayer?.dimension ?: 0
 
     private val absorption = IdentityHashMap<Block, Float>()

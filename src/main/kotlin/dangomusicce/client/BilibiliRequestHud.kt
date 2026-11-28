@@ -265,7 +265,8 @@ internal object BilibiliRequestHud {
         scrollRows = scrollRows.coerceIn(0f, (count - layout.visibleRows).coerceAtLeast(0f))
     }
 
-    fun isVisible(hudHidden: Boolean): Boolean = BilibiliRequests.enabled && module.allowsRequestHud(hudHidden)
+    fun isVisible(hudHidden: Boolean): Boolean =
+        (BilibiliRequests.enabled && module.allowsRequestHud(hudHidden)) || DebugHudSession.forceShowRequests
 
     fun blocksPointer(x: Int, y: Int): Boolean = panelHit?.contains(x, y) == true
 
@@ -276,8 +277,8 @@ internal object BilibiliRequestHud {
             mc.displayWidth <= 0 || mc.displayHeight <= 0
         ) return
         val screen = mc.currentScreen
-        if (screen != null && !HudPointerInput.owns(screen)) return
-        val interactive = HudPointerInput.interacting(screen)
+        if (screen != null && !HudPointerInput.owns(screen) && !DebugHudSession.forceShowRequests) return
+        val interactive = HudPointerInput.interacting(screen) || DebugHudSession.allowDirectHudDrag
         val snapshot = SongRequests.snapshot()
         val entries = snapshot.entries
         val now = System.nanoTime()
@@ -708,7 +709,7 @@ internal object BilibiliRequestHud {
                 gesture.down(queueHit.control, x, y, queueHit.row.x, queueHit.row.y)
                 null
             }
-            !module.requestHudLocked.get() && layout.panel.containsPoint(x, y) ->
+            (!module.requestHudLocked.get() || DebugHudSession.allowDirectHudDrag) && layout.panel.containsPoint(x, y) ->
                 PanelPress.Move(x, y, Vec2(x - layout.panel.x, y - layout.panel.y))
             else -> null
         }

@@ -9,7 +9,10 @@ import dangomusicce.module.impls.music.NeteaseMusicModule
 import dangomusicce.musicui.AppleLyricsLayout
 import dangomusicce.musicui.AppleLyricsMenu
 import dangomusicce.musicui.AppleQueuePanel
+import dangomusicce.client.DebugHudSession
 import dangomusicce.musicui.ArtistPage
+import dangomusicce.musicui.DebugDrawer
+import net.minecraft.client.Minecraft
 import dangomusicce.musicui.ArtistRef
 import dangomusicce.musicui.GridPage
 import dangomusicce.musicui.AppleDiscoverPage
@@ -68,6 +71,13 @@ class MusicScreen(
     private val artistPage = ArtistPage(this)
     private val groupPage = GroupPage(this)
     private val settings = SettingsPage(this, module)
+    private val debugDrawer = DebugDrawer(ui)
+    internal var onEnterFreecam: (() -> Unit)? = null
+    internal var canEnterFreecam: () -> Boolean = { false }
+    internal val isDebugMode: Boolean
+        get() = !lyricsOpen && ScreenState.page == Page.SETTINGS && settings.debugMode && platform.player != null
+    internal val isDebugHudTab: Boolean
+        get() = isDebugMode && debugDrawer.tab == DebugDrawer.DebugTab.HUD
     internal val songComments = SongComments(ui)
     internal val coverBackdrop = FlowingCoverBackdrop { ui.ctx }
     private val lyricsPage = LyricsPage(ui, module, songComments, coverBackdrop)
@@ -489,10 +499,44 @@ class MusicScreen(
             CoverCache.upload()
             login.uploadQr()
 
-            val settingsPreview = !lyricsOpen && ScreenState.page == Page.SETTINGS && settings.previewMode
+            if (settings.debugMode && platform.player == null) settings.exitDebugMode()
+            val debugActive = isDebugMode
+            DebugHudSession.update(debugActive, isDebugHudTab)
+            if (debugActive) {
+                barRect = LayoutBounds()
+                appleQueueArea = LayoutBounds()
+                grid.area = LayoutBounds()
+                tracks.area = LayoutBounds()
+                artistPage.area = LayoutBounds()
+                groupPage.area = LayoutBounds()
+                ctx.pushScale(scale, scale, 1f)
+                ctx.pushOpacity(alpha)
+                debugDrawer.draw(
+                    usesAppleLayout = usesAppleLayout,
+                    freecamEnabled = canEnterFreecam(),
+                    onFreecam = {
+                        debugDrawer.cancelInteractions()
+                        DebugHudSession.cancelDrag()
+                        onEnterFreecam?.invoke()
+                    },
+                    onExit = {
+                        debugDrawer.cancelInteractions()
+                        DebugHudSession.reset()
+                        settings.exitDebugMode()
+                    },
+                ) { body, tab ->
+                    settings.drawDebugContent(body, tab == DebugDrawer.DebugTab.HUD)
+                }
+                ctx.popOpacity()
+                ctx.popTransform()
+                ctx.noScissor()
+                ui.mt.flush(scale)
+                return
+            }
+
             ctx.pushScale(scale, scale, 1f)
             ctx.pushOpacity(alpha)
-            ctx.drawShape(LayoutBounds(0f, 0f, ui.lw, ui.lh), ShapeStyle(Color(0f, 0f, 0f, if (settingsPreview) 0.05f else 0.22f)))
+            ctx.drawShape(LayoutBounds(0f, 0f, ui.lw, ui.lh), ShapeStyle(Color(0f, 0f, 0f, 0.22f)))
             drawWindow(alpha)
             // 播放栏浮在内容上面：先把内容的文字画出来，再把画好的内容截成玻璃背景，
             // 这样列表滚到播放栏下面时会模糊地透出来，而不是被整个盖住
@@ -596,11 +640,8 @@ class MusicScreen(
             return
         }
         val side = LayoutBounds(win.x + pad, win.y + pad, sideW, win.height - pad * 2)
-        val settingsPreview = ScreenState.page == Page.SETTINGS && settings.previewMode
-        val sampleContent = !settingsPreview && usesAppleLayout && (ScreenState.page == Page.GROUP || ScreenState.page == Page.PLAYLIST)
-        if (settingsPreview) {
-            ui.ctx.drawShape(win, ShapeStyle(Color(0.04f, 0.045f, 0.06f, 0.42f), Theme.GLASS_WINDOW.radius, 1f, Color(1f, 1f, 1f, 0.14f)))
-        } else if (usesAppleLayout) {
+        val sampleContent = usesAppleLayout && (ScreenState.page == Page.GROUP || ScreenState.page == Page.PLAYLIST)
+        if (usesAppleLayout) {
             val song = PlaybackView.snapshot().track?.takeIf { it.source == MusicSources.selected }
             coverBackdrop.prepareMenuFrame(song)
             coverBackdrop.drawMenuPanel(win, Theme.GLASS_WINDOW.radius, Color(0.03f, 0.035f, 0.045f, 0.34f))
@@ -881,6 +922,24 @@ class MusicScreen(
             login.mouseClicked(mx, my, mouseButton)
             return
         }
+        if (isDebugMode) {
+            if (mouseButton != 0 && module.handleHotkey(Keys.mouse(mouseButton))) return
+            if (mouseButton == 0 && debugDrawer.mouseDown(mx.toFloat(), my.toFloat(), mouseButton)) return
+            val insideDrawer = debugDrawer.contains(mx.toFloat(), my.toFloat()) || settings.dropdownOpen
+            if (insideDrawer) {
+                if (mouseButton == 0) {
+                    val hit = ui.hits.firstOrNull { it.first.contains(mx, my) }
+                    settings.onClickElsewhere(hit)
+                    hit?.second?.invoke()
+                }
+                return
+            }
+            if (mouseButton == 0) {
+                settings.onClickElsewhere(null)
+                DebugHudSession.onMouseDown(Minecraft.getMinecraft(), platform.mouseX, platform.mouseY)
+            }
+            return
+        }
         val barX = barCoordinate(mx)
         val barY = barCoordinate(my)
         if (mouseButton == 0) bar.commitVolumeOutside(barX, barY)
@@ -948,6 +1007,17 @@ class MusicScreen(
     /** 按住鼠标拖动时调用 */
     fun mouseDragged(mouseButton: Int) {
         if (closingAt != 0L || closed) return
+        if (isDebugMode) {
+            if (mouseButton == 0 && (debugDrawer.isDraggingWindow || debugDrawer.isSeeking)) {
+                debugDrawer.mouseDragged(platform.mouseX / ui.scale, platform.mouseY / ui.scale)
+                return
+            }
+            if (mouseButton == 0 && DebugHudSession.isDragging) {
+                DebugHudSession.onMouseMove(Minecraft.getMinecraft(), platform.mouseX, platform.mouseY)
+                return
+            }
+            return
+        }
         if (mouseButton == 0 && lyricsOpen && lyricsPage.dragFontSlider((platform.mouseY / ui.scale).toInt())) return
         if (mouseButton == 0 && libraryPull != null) {
             updateLibraryPull()
@@ -974,6 +1044,12 @@ class MusicScreen(
 
     fun mouseReleased(mouseButton: Int) {
         if (module.openKey.value < 0) openKeyHeld = false
+        if (mouseButton == 0 && (debugDrawer.isDraggingWindow || debugDrawer.isSeeking)) {
+            debugDrawer.mouseReleased(platform.mouseX / ui.scale)
+        }
+        if (mouseButton == 0 && DebugHudSession.isDragging) {
+            DebugHudSession.onMouseUp(Minecraft.getMinecraft(), platform.mouseX, platform.mouseY)
+        }
         if (mouseButton == 0) {
             val x = (platform.mouseX / ui.scale).toInt()
             val y = (platform.mouseY / ui.scale).toInt()
@@ -1005,6 +1081,12 @@ class MusicScreen(
         if (wheel == 0 || login.visible) return
         val lx = (x / ui.scale).toInt()
         val ly = (y / ui.scale).toInt()
+        if (isDebugMode) {
+            if (settings.dropdownOpen || debugDrawer.contains(lx.toFloat(), ly.toFloat())) {
+                settings.scroll(wheel)
+            }
+            return
+        }
         if (appleBarMenu.scrollPlaylists(wheel)) return
         if (bar.menuContains(barCoordinate(lx), barCoordinate(ly)) || appleBarMenu.capturesInput || appleQueue.scroll(wheel, lx, ly)) return
         if (lyricsOpen) {
@@ -1040,6 +1122,19 @@ class MusicScreen(
             return
         }
         val textChar = if (committedSettingsText && keyCode != Keys.NONE) '\u0000' else typedChar
+        if (isDebugMode) {
+            if (settings.keyTyped(textChar, keyCode)) return
+            when {
+                keyCode == Keys.ESCAPE -> {
+                    debugDrawer.cancelInteractions()
+                    DebugHudSession.reset()
+                    settings.exitDebugMode()
+                }
+                module.handleHotkey(keyCode) -> {}
+                keyCode == Keys.SPACE -> PlaybackView.togglePause()
+            }
+            return
+        }
         if (!lyricsOpen && bar.volumeKeyTyped(textChar, keyCode)) return
         if (keyCode == Keys.ESCAPE && (appleQueue.queueDrag.pressed || tracks.queueDrag.pressed)) {
             appleQueue.queueDrag.cancel()

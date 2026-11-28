@@ -9,6 +9,7 @@ import dangomusicce.events.GameMouseEvent
 import dangomusicce.events.HudRenderEvent
 import dangomusicce.events.TickEvent
 import dangomusicce.events.WorldRenderEndEvent
+import dangomusicce.legacy.FreecamScreen
 import dangomusicce.legacy.LegacyGl
 import dangomusicce.module.impls.music.DynamicIslandModule
 import dangomusicce.module.impls.music.LyricsModule
@@ -46,6 +47,7 @@ internal object ClientRenderBridge {
         }
         DangoMusic.callEvent(TickEvent)
         NearbyClient.tick()
+        FreecamScreen.guardTick(Minecraft.getMinecraft())
         if (graphicsReady) HudPointerInput.startTick(Minecraft.getMinecraft())
     }
 
@@ -83,8 +85,30 @@ internal object ClientRenderBridge {
 
     @SubscribeEvent
     fun crosshair(event: RenderGameOverlayEvent.Pre) {
+        val screen = Minecraft.getMinecraft().currentScreen
+        if (DebugHudSession.active || FreecamScreen.isActive(screen)) {
+            when (event.type) {
+                RenderGameOverlayEvent.ElementType.HOTBAR,
+                RenderGameOverlayEvent.ElementType.HEALTH,
+                RenderGameOverlayEvent.ElementType.ARMOR,
+                RenderGameOverlayEvent.ElementType.FOOD,
+                RenderGameOverlayEvent.ElementType.EXPERIENCE,
+                RenderGameOverlayEvent.ElementType.AIR,
+                RenderGameOverlayEvent.ElementType.HEALTHMOUNT,
+                RenderGameOverlayEvent.ElementType.JUMPBAR,
+                RenderGameOverlayEvent.ElementType.CROSSHAIRS,
+                RenderGameOverlayEvent.ElementType.BOSSHEALTH,
+                RenderGameOverlayEvent.ElementType.PORTAL,
+                RenderGameOverlayEvent.ElementType.HELMET,
+                RenderGameOverlayEvent.ElementType.CHAT -> {
+                    event.isCanceled = true
+                    return
+                }
+                else -> Unit
+            }
+        }
         if (event.type == RenderGameOverlayEvent.ElementType.CROSSHAIRS &&
-            HudPointerInput.owns(Minecraft.getMinecraft().currentScreen)
+            HudPointerInput.owns(screen)
         ) event.isCanceled = true
     }
 
@@ -101,9 +125,8 @@ internal object ClientRenderBridge {
     @SubscribeEvent
     fun world(event: RenderWorldLastEvent) {
         if (!graphicsReady) return
-        val eyeY = Minecraft.getMinecraft().thePlayer?.let { player ->
-            player.lastTickPosY + (player.posY - player.lastTickPosY) * event.partialTicks + player.eyeHeight
-        }
+        val mc = Minecraft.getMinecraft()
+        val eyeY = RenderCameraPose.activeViewEntity(mc)?.let { RenderCameraPose.eyeY(it, event.partialTicks) }
         DangoMusic.callEvent(WorldRenderEndEvent(event.partialTicks, eyeY))
     }
 }

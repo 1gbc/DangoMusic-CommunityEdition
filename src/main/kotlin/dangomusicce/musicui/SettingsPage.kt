@@ -31,6 +31,7 @@ import dangomusicce.ui.ShapeStyle
 import dangomusicce.ui.Theme
 import dangomusicce.ui.UiStyle
 import dangomusicce.ui.Vec2
+import dangomusicce.ui.VectorIcon
 import dangomusicce.utils.Color
 
 import kotlin.math.max
@@ -56,9 +57,46 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
     private var clearCacheUntil = 0L
     @Volatile private var clearingCache = false
     private val accent: Color get() = if (screen.usesAppleLayout) APPLE_CONTROL_BLUE else RED
-    var previewMode = false
+    private val rowResetIcon = VectorIcon.path(strokeWidth = 1.9f) {
+        move(6.0, 9.0); line(3.5, 6.5); line(6.5, 4.0)
+        move(4.2, 6.8)
+        curve(7.5, 4.0, 13.5, 3.6, 17.4, 6.6)
+        curve(21.0, 9.6, 21.0, 15.2, 17.2, 18.2)
+        curve(13.8, 20.8, 8.6, 20.4, 5.8, 17.4)
+    }
+    var debugMode = false
         private set
+    private var debugLastHudTab: Boolean? = null
+    private var lastAppliedPreset: LyricPreset? = null
     private var presetAppliedNotice = TimedNotice("")
+
+    fun canEnterDebugMode(): Boolean = DangoClient.platform.player != null
+
+    fun enterDebugMode() {
+        if (!canEnterDebugMode()) return
+        commitEdit()
+        stopDrag()
+        bindingKey = null
+        blurSearch(clear = true)
+        closeFontListNow()
+        closeChoiceMenuNow()
+        closePicker()
+        debugMode = true
+        debugLastHudTab = null
+        resetScroll()
+    }
+
+    fun exitDebugMode() {
+        if (!debugMode) return
+        commitEdit()
+        stopDrag()
+        closeFontListNow()
+        closeChoiceMenuNow()
+        closePicker()
+        debugMode = false
+        debugLastHudTab = null
+        resetScroll()
+    }
 
     /**
      * 一行设置。两种“暂时用不上”：
@@ -103,6 +141,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         "islandBackground" to HudBackground.entries.map { it.label },
         "neteaseInterfaceStyle" to listOf("NetEase classic style", "NetEase Apple style"),
         "lyricStyle" to listOf("3D world lyrics", "Cockpit lyrics", "Both", "Hidden"),
+        "worldLyricLayout" to listOf("Scattered", "Stanza blocks"),
         "sidePosition" to listOf("Left middle", "Left bottom", "Right middle"),
         "sideColors" to listOf("Cover color", "Custom color", "Cover gradient", "Rainbow", "Aurora"),
         "shareQuality" to listOf("Standard (128k)", "Higher (192k)", "High (320k)"),
@@ -237,7 +276,8 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         commitEdit()
         stopDrag()
         bindingKey = null
-        previewMode = false
+        debugMode = false
+        debugLastHudTab = null
         blurSearch(clear = true)
         closeFontListNow()
         closeChoiceMenuNow()
@@ -250,7 +290,8 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         clearCacheUntil = 0L
         resetArmedUntil = 0L
         resetNoticeAt = null
-        previewMode = false
+        debugMode = false
+        debugLastHudTab = null
         closeFontListNow()
         closeChoiceMenuNow()
         closePicker()
@@ -423,6 +464,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                 "danceOffset" to { v: Any -> "${(v as IntValue).value} ms" },
                 "danceSpinSpeed" to { v: Any -> "%.2f×".format((v as FloatValue).value) },
                 "sideTilt" to degrees, "sidePitch" to degrees, "sideItalic" to degrees,
+                "stanzaTilt" to { v: Any -> "%.1f°".format((v as FloatValue).value) },
                 "sideOffsetX" to signed, "sideOffsetY" to signed,
             ),
             shows = mapOf(
@@ -436,8 +478,17 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                 "rainbowSpeed" to { colors.value == 3 },
                 // 转圈速度跟着"转圈"走（deps），总开关关了也要收起
                 "danceSpinSpeed" to bool(lm, "dance")::get,
-                // 文闪自己排版，只用一句：开着文闪（非 KTV）时收起句数
+                // 文闪自己排版，只用一句：开着文闪（非 KTV）时收起句数与多行排版
                 "worldLyricLines" to bool(lm, "textFlash").let { flash -> { !flash.get() || lm.ktvMode.get() } },
+                "worldLyricLayout" to bool(lm, "textFlash").let { flash ->
+                    { lm.worldLyricLines.value >= 2 && (!flash.get() || lm.ktvMode.get()) }
+                },
+                "stanzaTilt" to bool(lm, "textFlash").let { flash ->
+                    { lm.worldLyricLines.value >= 2 && (!flash.get() || lm.ktvMode.get()) }
+                },
+                "stanzaHideSung" to bool(lm, "textFlash").let { flash ->
+                    { lm.worldLyricLines.value >= 2 && lm.worldLyricLayout.value == 1 && (!flash.get() || lm.ktvMode.get()) }
+                },
                 "ktvSungColor" to { lm.ktvMode.get() && lm.ktvLyricColors.value == 0 },
                 "sideGlowStrength" to { lm.sideGlow.get() || lm.sideTextGlow.get() },
             ),
@@ -452,7 +503,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         lyrics += Group("Lyrics", "Style, translation & quick presets", lm, false,
             ly.take(listOf("lyricStyle", "translation", "romanization")) + listOf(presetRow), collapsible = false)
         lyrics += Group("3D lyrics · Basic", "Font, colors and visibility", lm, false,
-            ly.take(listOf("scale", "lyricFont", "lyricColors", "textColor", "translationColor", "rainbowSpeed", "distance", "worldLyricLines", "stayOnScreen", "glow")),
+            ly.take(listOf("scale", "lyricFont", "lyricColors", "textColor", "translationColor", "rainbowSpeed", "distance", "worldLyricLines", "worldLyricLayout", "stanzaTilt", "stanzaHideSung", "stayOnScreen", "glow")),
             show = world, collapsible = false)
         lyrics += Group("3D lyrics · Advanced", "Placement, glow, motion and KTV", lm, false, ly.take(listOf(
             "facePlayer", "keepAway", "aboveGround", "avoidBlocks", "spread",
@@ -592,13 +643,13 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
 
     fun draw(page: LayoutBounds) {
         val names = Tab.values().map { I18n.text(it.label) }
-        val previewLabel = I18n.text("Preview")
-        val previewWidth = ui.width(previewLabel, 11f, Theme.FONT_SEMIBOLD) + 22f
+        val debugLabel = I18n.text("Debug mode")
+        val debugWidth = ui.width(debugLabel, 11f, Theme.FONT_SEMIBOLD) + 22f
         val resetLabel = I18n.text(if (System.currentTimeMillis() < resetArmedUntil) "Click again to confirm" else "Reset all")
         val resetWidth = (ui.width(resetLabel, 11f, Theme.FONT_SEMIBOLD) + 22f).coerceAtMost(page.width * 0.40f)
         val exportLabel = I18n.text("Export settings")
         val exportWidth = (ui.width(exportLabel, 11f, Theme.FONT_SEMIBOLD) + 22f).coerceAtMost(page.width * 0.32f)
-        val actionsWidth = previewWidth + exportWidth + resetWidth + 12f
+        val actionsWidth = debugWidth + exportWidth + resetWidth + 12f
         val available = page.width - actionsWidth - 10f
         val stackedHeader = available < 136f
         val headerBottom = page.y + if (stackedHeader) 60f else 30f
@@ -618,8 +669,8 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             val btnY = page.y + if (stackedHeader) 30f else 2f
             val reset = LayoutBounds(page.right - resetWidth, btnY, resetWidth, 24f)
             val export = LayoutBounds(reset.x - exportWidth - 6f, btnY, exportWidth, 24f)
-            val preview = LayoutBounds(export.x - previewWidth - 6f, btnY, previewWidth, 24f)
-            drawPreviewButton(preview, previewLabel)
+            val debugBtn = LayoutBounds(export.x - debugWidth - 6f, btnY, debugWidth, 24f)
+            drawDebugButton(debugBtn, debugLabel)
             drawHeaderButton(export, exportLabel, enabled = !exporting, action = ::exportSettings)
             drawResetButton(reset, resetLabel)
             if (twoPane) {
@@ -948,12 +999,12 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
     private fun drawPicker(view: LayoutBounds) {
         val v = picker ?: return
         val ctx = ui.ctx
-        val w = 224f
+        val w = minOf(224f, view.width)
         val h = 178f
         var px = pickerAnchor.right - w
         var py = pickerAnchor.bottom + 2f
         if (py + h > view.bottom) py = pickerAnchor.y - h - 2f
-        px = px.coerceIn(view.x, view.right - w - 8f)
+        px = px.coerceIn(view.x, max(view.x, view.right - w - 8f))
         py = py.coerceIn(view.y, max(view.y, view.bottom - h))
         val panel = LayoutBounds(px, py, w, h)
         ui.registerPopup(panel)
@@ -1163,6 +1214,22 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         section.rows.count { it.show?.invoke() != false }
     }
 
+    private fun supportsRowReset(g: Group, r: Row): Boolean = when (r.key) {
+        "posX", "posY", "requestHudWidth", "requestHudHeight", "requestPosX", "requestPosY" -> true
+        "scale" -> g.title == "Dynamic Island"
+        else -> false
+    }
+
+    private fun resetSingleRow(r: Row) {
+        commitEdit()
+        when (val v = r.value) {
+            is BooleanValue -> v.reset()
+            is IntValue -> v.reset()
+            is FloatValue -> v.reset()
+            is ColorValue -> v.reset()
+        }
+    }
+
     private fun resetGroup(g: Group) {
         commitEdit()
         closePicker()
@@ -1317,7 +1384,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                         ui.card(bounds, accent.copy(a = 0.18f), 8f)
                     }
                     ctx.drawShape(bounds.copy(height = 1f), ShapeStyle(Theme.SEPARATOR))
-                    drawRow(bounds, r, clip)
+                    drawRow(bounds, r, clip, allowRowReset = supportsRowReset(g, r))
                 } finally {
                     if (faded) ctx.popOpacity()
                 }
@@ -1342,26 +1409,47 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             }
             Ctl.CACHE -> if (r.value == CacheAction.USAGE) 210f else 144f
             Ctl.BILIBILI -> (width * 0.48f).coerceIn(118f, 250f)
-            Ctl.PRESET -> (width * 0.52f).coerceIn(190f, 280f)
+            Ctl.PRESET -> 156f
     }
 
     private fun rowHeight(r: Row, width: Float): Float =
         if (width >= preferredControlWidth(r, width) + 76f) rowH else if (r.desc.isEmpty()) 54f else 68f
 
-    private fun drawRow(b: LayoutBounds, r: Row, clip: LayoutBounds) {
+    private fun drawRow(b: LayoutBounds, r: Row, clip: LayoutBounds, allowRowReset: Boolean = false) {
         val ctlW = preferredControlWidth(r, b.width).coerceAtMost(b.width.coerceAtLeast(0f))
         val stacked = b.height > rowH
         val hasIslandPreview = r.key == "islandLayout" || r.key == "islandBackground"
         val forcedLyricPosition = (r.key == "facePlayer" || r.key == "keepAway") &&
             module.lyrics()?.staysOnScreen() == true
-        val textW = ((if (stacked) b.width else b.width - ctlW - 14f) -
+        val resetLead = if (allowRowReset) 22f else 0f
+        if (allowRowReset) {
+            val modified = isModified(r)
+            val rb = LayoutBounds(b.x, b.y + 8f, 18f, 18f)
+            val hovered = modified && ui.hover(rb)
+            ui.ctx.drawShape(rb, ShapeStyle(
+                when {
+                    hovered -> Theme.CARD_HOVER
+                    modified -> Theme.CARD
+                    else -> Color(1f, 1f, 1f, 0.03f)
+                }, 5f,
+            ))
+            val iconColor = when {
+                hovered -> accent
+                modified -> Theme.TEXT_PRIMARY
+                else -> Theme.TEXT_TERTIARY.copy(a = 0.35f)
+            }
+            PlayerIcons.draw(ui.ctx, rowResetIcon, rb.x + rb.width / 2f, rb.y + rb.height / 2f, 10.5f, iconColor)
+            if (modified) ui.hits += rb.intersect(clip) to { resetSingleRow(r) }
+        }
+        val textX = b.x + resetLead
+        val textW = ((if (stacked) b.width else b.width - ctlW - 14f) - resetLead -
             (if (hasIslandPreview && (stacked && b.width >= 136f || !stacked && b.width - ctlW >= 144f)) 54f else 0f))
             .coerceAtLeast(0f)
-        ui.text(ui.trim(I18n.text(r.label), textW, 12f, Theme.FONT_MEDIUM), b.x, b.y + 10f, 12f, Theme.TEXT_PRIMARY, Theme.FONT_MEDIUM)
+        ui.text(ui.trim(I18n.text(r.label), textW, 12f, Theme.FONT_MEDIUM), textX, b.y + 10f, 12f, Theme.TEXT_PRIMARY, Theme.FONT_MEDIUM)
         val descSize = maxOf(9.5f, (9f / ui.scale).coerceAtMost(12f))
         val description = if (forcedLyricPosition) "Required while Stay on screen is enabled" else r.desc
         if (description.isNotEmpty()) ui.text(ui.trim(I18n.text(description), textW, descSize),
-            b.x, b.y + 27f, descSize, Theme.TEXT_TERTIARY)
+            textX, b.y + 27f, descSize, Theme.TEXT_TERTIARY)
         val cy = if (stacked) b.bottom - 15f else b.y + b.height / 2f
         val cx = b.right - ctlW
         when (r.ctl) {
@@ -1373,7 +1461,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             Ctl.SLIDER -> drawSlider(b, r, clip, cx, cy)
             Ctl.CACHE -> drawCacheButton(r.value as CacheAction, LayoutBounds(cx, cy - 12f, ctlW, 24f), clip)
             Ctl.BILIBILI -> drawBilibiliButton(r.value as BilibiliAction, LayoutBounds(cx, cy - 12f, ctlW, 24f), clip)
-            Ctl.PRESET -> drawPresets(LayoutBounds(cx, cy - 12f, ctlW, 24f), clip)
+            Ctl.PRESET -> drawPresets(r, LayoutBounds(cx, cy - 12f, ctlW, 24f), clip)
             Ctl.KEY -> drawKeyButton(r.value as IntValue, clip, cx, cy, ctlW - 58f)
             Ctl.COLOR -> {
                 // 颜色块 + 十六进制值，点一下弹出取色器
@@ -1463,17 +1551,43 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         }
     }
 
-    private fun drawPresets(b: LayoutBounds, clip: LayoutBounds) {
-        val presets = LyricPreset.values()
-        val gap = 4f
-        val itemW = (b.width - gap * (presets.size - 1)) / presets.size
-        presets.forEachIndexed { index, preset ->
-            val box = LayoutBounds(b.x + index * (itemW + gap), b.y, itemW, b.height)
-            ui.card(box, if (ui.hover(box)) Theme.CARD_HOVER else Theme.CARD, 7f)
-            val text = ui.trim(I18n.text(preset.label), box.width - 8f, 10f, Theme.FONT_MEDIUM)
-            ui.text(text, box.x + (box.width - ui.width(text, 10f, Theme.FONT_MEDIUM)) / 2f,
-                box.y + box.height / 2f - 10f * 0.39f - 0.5f, 10f, Theme.TEXT_PRIMARY, Theme.FONT_MEDIUM)
-            ui.hits += box.intersect(clip) to { applyLyricPreset(preset) }
+    private fun drawPresets(r: Row, b: LayoutBounds, clip: LayoutBounds) {
+        val open = choiceRow === r && choiceOpen
+        ui.card(b, if (open || ui.hover(b)) Theme.CARD_HOVER else Theme.CARD, 7f)
+        val current = I18n.text(lastAppliedPreset?.label ?: "Select preset")
+        val shown = ui.trim(current, b.width - 28f, 11f, Theme.FONT_MEDIUM)
+        val cy = b.y + b.height / 2f
+        ui.text(shown, b.x + 9f, cy - 11f * 0.39f - 0.5f, 11f,
+            if (lastAppliedPreset != null) Theme.TEXT_PRIMARY else Theme.TEXT_SECONDARY, Theme.FONT_MEDIUM)
+        PlayerIcons.draw(ui.ctx, if (open) PlayerIcons.chevronUp else PlayerIcons.chevronDown, b.right - 12f, cy, 12f, Theme.TEXT_SECONDARY)
+        if (choiceRow === r && cy in clip.y..clip.bottom) {
+            choiceAnchor = b
+            choiceAnchorSeen = true
+        }
+        val hit = b.intersect(clip)
+        choiceHits += hit
+        ui.hits += hit to {
+            if (choiceRow === r && choiceOpen) {
+                choiceOpen = false
+            } else {
+                commitEdit()
+                closePicker()
+                closeFontListNow()
+                bindingKey = null
+                if (choiceRow !== r) {
+                    choiceMotion.snap(false)
+                    choiceLastNanos = 0L
+                }
+                val presets = LyricPreset.values()
+                choiceRow = r
+                choiceValue = null
+                choiceOptions = presets.map { it.label }
+                choiceSelectedIndex = { lastAppliedPreset?.ordinal ?: -1 }
+                choiceOnSelect = { idx -> applyLyricPreset(presets[idx]) }
+                choiceOpen = true
+                choiceAnchor = b
+                choiceScroll = 0f
+            }
         }
     }
 
@@ -1504,14 +1618,17 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                 lm.lyricStyle.setValue(3)
             }
         }
+        lastAppliedPreset = preset
         presetAppliedNotice = TimedNotice(I18n.text("Preset applied"))
     }
 
-    // ---------------------------------------------------------------- 多选下拉菜单（4 项及以上）
+    // ---------------------------------------------------------------- 多选下拉菜单（4 项及以上 / 预设）
 
     private var choiceRow: Row? = null
     private var choiceValue: IntValue? = null
     private var choiceOptions: List<String> = emptyList()
+    private var choiceSelectedIndex: (() -> Int)? = null
+    private var choiceOnSelect: ((Int) -> Unit)? = null
     private var choiceAnchor = LayoutBounds()
     private var choicePanel = LayoutBounds()
     private var choiceScroll = 0f
@@ -1528,6 +1645,8 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         choiceRow = null
         choiceValue = null
         choiceOptions = emptyList()
+        choiceSelectedIndex = null
+        choiceOnSelect = null
         choiceOpen = false
         choiceMotion.snap(false)
         choiceLastNanos = 0L
@@ -1562,6 +1681,8 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                 choiceRow = r
                 choiceValue = v
                 choiceOptions = labels
+                choiceSelectedIndex = { v.value - v.minRange }
+                choiceOnSelect = { idx -> v.setValue(v.minRange + idx) }
                 choiceOpen = true
                 choiceAnchor = box
                 choiceScroll = 0f
@@ -1570,8 +1691,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
     }
 
     private fun drawChoiceMenu(view: LayoutBounds) {
-        val row = choiceRow ?: return
-        val v = choiceValue ?: return
+        if (choiceRow == null || choiceOptions.isEmpty()) return
         if (!choiceAnchorSeen) {
             closeChoiceMenuNow()
             return
@@ -1617,6 +1737,8 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         val content = choiceMotion.contentOpacity
         val lift = 8f * (1f - p)
         val interactive = choiceOpen && p > 0.6f
+        val selectedIdx = choiceSelectedIndex?.invoke() ?: -1
+        val onSelect = choiceOnSelect
         val hits = ArrayList<Hit>()
         ui.beginClip(menu)
         ctx.pushOpacity(content)
@@ -1624,7 +1746,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
             var y = full.y + 4f - choiceScroll + lift
             choiceOptions.forEachIndexed { index, raw ->
                 val itemBounds = LayoutBounds(full.x + 6f, y + 1f, full.width - 12f, itemH - 2f)
-                val selected = v.value == v.minRange + index
+                val selected = selectedIdx == index
                 val hover = interactive && ui.hover(itemBounds) && menu.contains(ui.mx, ui.my)
                 if (selected) ui.card(itemBounds, PopupLook.selected, PopupLook.rowRadius(itemBounds.height))
                 else if (hover) ui.card(itemBounds, PopupLook.hover, PopupLook.rowRadius(itemBounds.height))
@@ -1633,7 +1755,7 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
                     Theme.TEXT_PRIMARY, if (selected) Theme.FONT_SEMIBOLD else Theme.FONT_MEDIUM)
                 if (selected) PlayerIcons.draw(ctx, PlayerIcons.check, itemBounds.right - 16f, itemBounds.y + itemBounds.height / 2f, 14f, accent)
                 if (interactive) hits += itemBounds.intersect(menu) to {
-                    v.setValue(v.minRange + index)
+                    onSelect?.invoke(index)
                     choiceOpen = false
                 }
                 y += itemH
@@ -1969,13 +2091,74 @@ internal class SettingsPage(private val screen: MusicScreen, private val module:
         }
     }
 
-    private fun drawPreviewButton(b: LayoutBounds, label: String) {
+    private fun debugLyricsGroups(): List<Group> = tabs[Tab.LYRICS.ordinal].map { g ->
+        if (g.tip == null) g else Group(g.title, g.sub, g.owner, g.toggle, emptyList(),
+            g.show, g.dim, g.note, g.collapsible, g.fullWidth, g.sections, tip = null)
+    }
+
+    private fun debugHudGroups(): List<Group> = tabs[Tab.HUD.ordinal].map { group ->
+        if (group.title != "Bilibili song requests") {
+            if (group.tip == null) group else Group(group.title, group.sub, group.owner, group.toggle, emptyList(),
+                group.show, group.dim, group.note, group.collapsible, group.fullWidth, group.sections, tip = null)
+        } else {
+            val appearance = group.sections.filter { it.title == "Appearance and position" }
+            Group(group.title, group.sub, group.owner, group.toggle, emptyList(),
+                group.show, group.dim, group.note, collapsible = false,
+                sections = appearance.ifEmpty { group.sections }, tip = null)
+        }
+    }
+
+    /** 左侧调试抽屉内复用现有设置控件（仅歌词或灵动岛/点歌台外观），直接读写同一份配置 */
+    fun drawDebugContent(view: LayoutBounds, hudTab: Boolean) {
+        if (debugLastHudTab != hudTab) {
+            debugLastHudTab = hudTab
+            commitEdit()
+            stopDrag()
+            closeFontListNow()
+            closeChoiceMenuNow()
+            closePicker()
+            resetScroll()
+        }
+        val groups = if (hudTab) debugHudGroups() else debugLyricsGroups()
+        area = view
+        val placed = place(groups, view)
+        val contentH = placed.maxOfOrNull { it.y + it.h } ?: 0f
+        maxScroll = max(0f, contentH + 8f - view.height)
+        target = target.coerceIn(0f, maxScroll)
+        pos = pos.coerceIn(0f, maxScroll)
+
+        ui.beginClip(view)
+        placed.forEachIndexed { index, p ->
+            val bounds = LayoutBounds(view.x + p.x, view.y + p.y - pos, p.width, p.h)
+            if (p.vis >= 0.02f && bounds.bottom > view.y && bounds.y < view.bottom) {
+                ui.itemAnim(index) { drawGroup(bounds, p, view) }
+            }
+        }
+        ui.endClip()
+
+        if (maxScroll > 0f && contentH > 0f) {
+            val trackHeight = view.height.coerceAtLeast(0f)
+            val th = max(28f, trackHeight * trackHeight / contentH).coerceAtMost(trackHeight)
+            val ty = view.y + (trackHeight - th) * (pos / maxScroll)
+            ui.ctx.drawShape(LayoutBounds(view.right - 3f, ty, 3f, th), ShapeStyle(Color(1f, 1f, 1f, 0.28f), 1.5f))
+        }
+        drawResetNotice(view, view.y)
+        drawPresetNotice(view, view.y)
+        if (picker != null || fontChoice != null || choiceRow != null) ui.mt.flush(ui.scale)
+        drawPicker(view)
+        drawFontList(view)
+        drawChoiceMenu(view)
+    }
+
+    private fun drawDebugButton(b: LayoutBounds, label: String) {
+        val enabled = canEnterDebugMode()
         val shown = ui.trim(label, b.width - 12f, 11f, Theme.FONT_SEMIBOLD)
-        val fill = if (previewMode) accent else if (ui.hover(b)) Theme.CARD_HOVER else Theme.CARD
+        val fill = if (enabled && ui.hover(b)) Theme.CARD_HOVER else Theme.CARD
         ui.card(b, fill, 8f)
         ui.text(shown, b.x + (b.width - ui.width(shown, 11f, Theme.FONT_SEMIBOLD)) / 2f,
-            b.y + 12f - 11f * 0.39f - 0.5f, 11f, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
-        ui.hits += b to { previewMode = !previewMode }
+            b.y + 12f - 11f * 0.39f - 0.5f, 11f,
+            if (enabled) Theme.TEXT_PRIMARY else Theme.TEXT_TERTIARY, Theme.FONT_SEMIBOLD)
+        if (enabled) ui.hits += b to { enterDebugMode() }
     }
 
     private fun drawPresetNotice(page: LayoutBounds, contentTop: Float) {

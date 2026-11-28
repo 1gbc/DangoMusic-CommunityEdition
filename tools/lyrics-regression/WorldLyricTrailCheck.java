@@ -18,7 +18,7 @@ public final class WorldLyricTrailCheck {
     private static final long FADE = 400_000_000L;
     private static final long RETIRE_FADE = 380_000_000L;
     private static final long STAGGER = 70_000_000L;
-    private static final float PREVIEW_ALPHA = 0.56f;
+    private static final float PREVIEW_ALPHA = 0.74f;
 
     private static Class<?> floating;
     private static Constructor<?> floatingCtor;
@@ -217,7 +217,69 @@ public final class WorldLyricTrailCheck {
         check(((Double) pairFirst.invoke(groundBounded)) < -5.9 && ((Integer) pairSecond.invoke(groundBounded)) == -1,
             "clamped bottom bound forces dodging upward cleanly");
 
-        System.out.println("World lyric multi-preview queue, immediate timed fadeout, same-sphere collision solver & regression passed.");
+        // 9. StanzaBlockLayout: partition, slow-song continuity vs interlude break, 0-deg vs tilted layout, opposite-side handover.
+        List<LyricLine> stanzaLines = Arrays.asList(
+            new LyricLine(0L, "L1"),
+            new LyricLine(2000L, ""),
+            new LyricLine(6000L, "L2"),
+            new LyricLine(20000L, "L3"),
+            new LyricLine(25500L, "L4"),
+            new LyricLine(31000L, "L5")
+        );
+        Class<?> stanzaCls = Class.forName("dangomusicce.module.impls.music.StanzaBlockLayout");
+        Object stanzaInst = stanzaCls.getField("INSTANCE").get(null);
+        Method partition = stanzaCls.getMethod("partition", List.class, int.class);
+        List<?> stanzas = (List<?>) partition.invoke(stanzaInst, stanzaLines, 3);
+        check(stanzas.size() == 2, "6s slow-song lines stay grouped while 14s interlude splits [L1,L2] from [L3,L4,L5]");
+
+        Method organic = stanzaCls.getMethod("organicTransform", long.class, int.class, int.class, float.class);
+        Object flatTf = organic.invoke(stanzaInst, 0L, 0, 0, 0f);
+        check(Math.abs((Float) pairSecond.invoke(flatTf)) < 1e-6f, "0 degree tilt keeps lines completely level");
+        Object tiltedTf = organic.invoke(stanzaInst, 0L, 0, 0, 4f);
+        check(Math.abs((Float) pairSecond.invoke(tiltedTf)) >= 2.0f, "non-zero tilt produces deterministic angle");
+
+        Class<?> metricsCls = Class.forName("dangomusicce.module.impls.music.StanzaBlockLayout$LineMetrics");
+        Constructor<?> metricsCtor = metricsCls.getConstructor(float.class, float.class, float.class);
+        Method layoutSlots = stanzaCls.getMethod("layoutSlots", long.class, List.class, List.class, float.class);
+        Object geom = layoutSlots.invoke(stanzaInst, 0L, Arrays.asList(0, 2, 3), Arrays.asList(
+            metricsCtor.newInstance(120f, 6f, 12f),
+            metricsCtor.newInstance(140f, 6f, 12f),
+            metricsCtor.newInstance(110f, 6f, 12f)
+        ), 0f);
+        Object tiltedGeom = layoutSlots.invoke(stanzaInst, 0L, Arrays.asList(0, 2, 3), Arrays.asList(
+            metricsCtor.newInstance(200f, 6f, 14f),
+            metricsCtor.newInstance(200f, 6f, 14f),
+            metricsCtor.newInstance(200f, 6f, 14f)
+        ), 8f);
+        List<?> tiltedSlots = (List<?>) tiltedGeom.getClass().getMethod("getSlots").invoke(tiltedGeom);
+        float cy0 = (Float) tiltedSlots.get(0).getClass().getMethod("getCenterY").invoke(tiltedSlots.get(0));
+        float cy1 = (Float) tiltedSlots.get(1).getClass().getMethod("getCenterY").invoke(tiltedSlots.get(1));
+        check(cy1 - cy0 > 38f, "8-degree tilted wide lines expand vertical spacing to prevent intra-block overlap");
+        Class<?> anchorCls = Class.forName("dangomusicce.module.impls.music.StanzaBlockLayout$BlockAnchorBox");
+        Constructor<?> anchorCtor = anchorCls.getConstructor(double.class, double.class, double.class, double.class);
+        Method placeBlock = stanzaCls.getMethod("placeBlock", geom.getClass(), double.class, double.class,
+            float.class, float.class, double.class, double.class, double.class, double.class, anchorCls, long.class);
+        Object leftBox = anchorCtor.newInstance(-18.0, 12.0, -14.0, 2.0);
+        Object placedRight = placeBlock.invoke(stanzaInst, geom, 0.045, 10.0, 0f, 0f, 52.0, 35.0, 35.0, 30.0, leftBox, 9000L);
+        check(placedRight != null && (Float) placedRight.getClass().getMethod("getYaw").invoke(placedRight) > 0f,
+            "next stanza block spawns on the opposite horizontal side");
+
+        Method pushYaw = stanzaCls.getMethod("pushYaw", anchorCls, anchorCls, int.class, double.class);
+        Object currentBox = anchorCtor.newInstance(178.0, 9.0, -8.0, 8.0);
+        Object aheadBox = anchorCtor.newInstance(-175.0, 9.0, -8.0, 8.0);
+        double push = (Double) pushYaw.invoke(stanzaInst, currentBox, aheadBox, 1, 2.0);
+        check(Math.abs(push - 13.0) < 1e-6, "overlapping blocks push apart across the yaw wrap");
+        Object clearBox = anchorCtor.newInstance(-162.0, 9.0, -8.0, 8.0);
+        check((Double) pushYaw.invoke(stanzaInst, currentBox, clearBox, 1, 2.0) == 0.0,
+            "the push stops once the preview has enough room");
+        Object crossedBox = anchorCtor.newInstance(175.0, 9.0, -8.0, 8.0);
+        check((Double) pushYaw.invoke(stanzaInst, currentBox, crossedBox, 1, 2.0) > push,
+            "contact keeps pushing toward the original side when a fast turn crosses the center");
+        Object aboveBox = anchorCtor.newInstance(-175.0, 9.0, -28.0, -12.0);
+        check((Double) pushYaw.invoke(stanzaInst, currentBox, aboveBox, 1, 2.0) == 0.0,
+            "blocks that clear one another vertically need no sideways push");
+
+        System.out.println("World lyric multi-preview queue, immediate timed fadeout, same-sphere collision solver & stanza blocks passed.");
     }
 
     private static Object line(String text) throws Exception {

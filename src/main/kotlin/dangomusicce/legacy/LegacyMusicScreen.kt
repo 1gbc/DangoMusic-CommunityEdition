@@ -1,6 +1,7 @@
 package dangomusicce.legacy
 
 import dangomusicce.DangoClient
+import dangomusicce.client.DebugHudSession
 
 import net.minecraft.client.gui.GuiScreen
 import net.minecraft.client.gui.GuiMainMenu
@@ -15,6 +16,7 @@ class LegacyMusicScreen(
 
     private val screen = DangoClient.newMusicScreen { mc.displayGuiScreen(parent) }
     private val inputMethod = TextInputFocus()
+    private var returningFromFreecam = false
 
     // 复用已初始化的主菜单，仅调用它的全景绘制，不画按钮、标题或 Realms。
     private val panoramaMethod by lazy {
@@ -23,17 +25,33 @@ class LegacyMusicScreen(
         }.apply { isAccessible = true }
     }
 
+    private fun enterFreecam() {
+        if (!FreecamScreen.canEnter(mc)) return
+        DebugHudSession.reset()
+        returningFromFreecam = true
+        mc.displayGuiScreen(FreecamScreen(this))
+    }
+
     override fun initGui() {
         Keyboard.enableRepeatEvents(true)
+        screen.canEnterFreecam = { FreecamScreen.canEnter(mc) }
+        screen.onEnterFreecam = ::enterFreecam
         if (parent is GuiMainMenu) {
             parent.width = width
             parent.height = height
         }
-        screen.opened()
+        if (returningFromFreecam) {
+            returningFromFreecam = false
+        } else {
+            screen.opened()
+        }
     }
 
     override fun onGuiClosed() {
-        screen.closeSettingsPage()
+        if (!returningFromFreecam) {
+            DebugHudSession.reset()
+            screen.closeSettingsPage()
+        }
         inputMethod.setActive(false)
         screen.login.close()
         Keyboard.enableRepeatEvents(false)
@@ -78,6 +96,9 @@ class LegacyMusicScreen(
 
     override fun handleMouseInput() {
         super.handleMouseInput()
+        if (screen.isDebugHudTab && Mouse.isCreated()) {
+            DebugHudSession.onMouseMove(mc, Mouse.getEventX(), mc.displayHeight - Mouse.getEventY() - 1)
+        }
         val wheel = Mouse.getEventDWheel()
         if (wheel != 0) screen.scroll(wheel, Mouse.getEventX(), mc.displayHeight - Mouse.getEventY() - 1)
     }

@@ -2,6 +2,7 @@ package dangomusicce.module.impls.music
 
 import dangomusicce.DangoClient
 import dangomusicce.DangoMusic
+import dangomusicce.client.DebugHudSession
 import dangomusicce.client.HudPointerInput
 import dangomusicce.musicui.drawIslandLock
 import net.minecraft.client.Minecraft
@@ -66,7 +67,7 @@ class DynamicIslandModule : Module() {
     @ModuleValue("Show when HUD is hidden", "Keep the Dynamic Island visible when F1 hides the game HUD")
     private val islandWhileHudHidden = BooleanValue(false)
 
-    internal fun allowsIslandHud(hudHidden: Boolean): Boolean = !hudHidden || islandWhileHudHidden.get()
+    internal fun allowsIslandHud(hudHidden: Boolean): Boolean = !hudHidden || islandWhileHudHidden.get() || DebugHudSession.forceShowIsland
 
     @ModuleValue("Island animations", "Show the playback waveform and volume hotkey feedback")
     private val islandAnimations = BooleanValue(false)
@@ -80,7 +81,7 @@ class DynamicIslandModule : Module() {
     @ModuleValue("Lock Dynamic Island", "Prevent moving the Dynamic Island with the mouse")
     private val islandLocked = BooleanValue(true)
 
-    internal val canMoveWithPointer get() = enabled && !islandLocked.get()
+    internal val canMoveWithPointer get() = DebugHudSession.allowDirectHudDrag || (enabled && !islandLocked.get())
 
     @ModuleValue("Scale", "Island size")
     private val scale = FloatValue(0.6f, 1.6f, 1f, 2)
@@ -232,7 +233,7 @@ class DynamicIslandModule : Module() {
         val py = y / frame.scale
         val bounds = frame.bounds
         if (px < bounds.left || px >= bounds.right || py < bounds.top || py >= bounds.bottom) return false
-        if (shown == Kind.PLAYER_CARD && !playerCard.canStartDrag(x, y)) return false
+        if (shown == Kind.PLAYER_CARD && !DebugHudSession.allowDirectHudDrag && !playerCard.canStartDrag(x, y)) return false
         drag = Drag(Vec2(px - bounds.x, py - bounds.y), fromChat)
         return true
     }
@@ -312,7 +313,7 @@ class DynamicIslandModule : Module() {
 
     @EventHandler
     fun render(e: HudRenderEvent) {
-        if (!enabled) return
+        if (!enabled && !DebugHudSession.forceShowIsland) return
         if (!allowsIslandHud(DangoClient.platform.hudHidden)) {
             placement = null
             playerCard.hide()
@@ -325,7 +326,7 @@ class DynamicIslandModule : Module() {
     internal fun renderIsland(e: HudRenderEvent? = null) {
         placement = null
         if (!canMoveWithPointer) finishDrag()
-        if (!enabled) return
+        if (!enabled && !DebugHudSession.forceShowIsland) return
         val snap = PlaybackView.snapshot()
         val now = System.nanoTime()
         val trackKey = snap.track?.key
@@ -347,7 +348,7 @@ class DynamicIslandModule : Module() {
             volumeReveal = 0f
             waveActivity = 0f
         }
-        if (e == null && snap.track == null && now >= volumeUntil && volumeReveal < 0.01f) {
+        if (e == null && !DebugHudSession.forceShowIsland && snap.track == null && now >= volumeUntil && volumeReveal < 0.01f) {
             playerCard.hide()
             return
         }

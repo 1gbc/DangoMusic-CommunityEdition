@@ -949,6 +949,12 @@ Playback & Audio	播放与音效
 HUD & Overlay	灵动岛与点歌台
 Fun & Multiplayer	趣味与联机
 Preview	透视预览
+Debug mode	调试模式
+Back to settings	返回设置
+Freecam	自由视角
+Island & Requests	灵动岛与点歌台
+Play a song first to preview live lyrics	请先播放音乐以预览实时歌词
+Freecam · WASD/Space/Shift to move · Mouse to look · Tab/Esc to return	自由视角 · WASD/空格/Shift 移动 · 鼠标转视角 · Tab/Esc 返回调试
 Reset all	恢复默认
 General	常规
 Language and behavior	语言与界面行为
@@ -959,6 +965,15 @@ Output, buffering & cache	输出、缓冲与缓存
 Audio device and NetEase disk cache	音频输出设备、缓冲与网易云本地磁盘缓存
 Style, translation & quick presets	显示样式、翻译与一键预设
 Quick presets	快速预设
+Select preset	选择预设
+Multi-line layout	多行排版
+Scattered floats each line on its own; Stanza blocks groups lines into a tilted block and moves to the other side for the next block	散落漂浮各自独立出现；诗节排版将多句成组微倾堆叠，唱完本组后再在另一侧切出下一组
+Scattered	散落漂浮
+Stanza blocks	诗节排版
+Block tilt	文字倾角
+Maximum random tilt angle for lines in Stanza blocks (0° keeps lines level)	多行歌词每行的最大随机倾斜角度，设为 0° 则保持水平
+Fade sung lines in block	歌词唱完即消失
+Fade out each line in a Stanza block as soon as it finishes instead of keeping it dimmed until the block ends	开启后，诗节块内每行唱完立即原地淡出；关闭则变暗留到整块唱完再一起淡出
 One-click lyric styles	一键切换常用歌词风格组合
 Minimal	极简
 3D Glow	3D 霓虹
