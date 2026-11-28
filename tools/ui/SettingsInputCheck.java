@@ -35,10 +35,13 @@ public final class SettingsInputCheck {
         constructor.setAccessible(true);
         field(DangoMusic.class, "instance").set(null, constructor.newInstance(platform));
         screen = new MusicScreen(new NeteaseMusicModule(), () -> Unit.INSTANCE);
+        Class<?> screenState = Class.forName("dangomusicce.musicui.ScreenState");
+        Class<?> page = Class.forName("dangomusicce.musicui.Page");
+        screenState.getMethod("setPage", page).invoke(screenState.getField("INSTANCE").get(null), page.getField("SETTINGS").get(null));
         settings = field(MusicScreen.class, "settings").get(screen);
         Map<?, ?> choices = (Map<?, ?>) field(settings.getClass(), "choiceLabels").get(settings);
-        if (!List.of("Style C", "Style A", "Style B").equals(choices.get("islandLayout"))) {
-            throw new AssertionError("Island style names must match the persisted C/A/B IDs");
+        if (!List.of("Full card", "Mini capsule", "Slim bar", "Lyric capsule").equals(choices.get("islandLayout"))) {
+            throw new AssertionError("Island style names must match the four persisted layout IDs");
         }
     }
 

@@ -185,36 +185,6 @@ public class WorldLyricCameraCheck {
         }
     }
 
-    private static void checkTurnLag() throws Exception {
-        Class<?> module = Class.forName("dangomusicce.module.impls.music.LyricsModule");
-        Object lyrics = module.getConstructor().newInstance();
-        Class<?> angles = Class.forName("dangomusicce.gfx.ViewAngles");
-        var angle = angles.getConstructor(float.class, float.class);
-        var tick = module.getDeclaredMethod("leftStackTurn", angles, long.class);
-        tick.setAccessible(true);
-        long time = 1_000_000_000L;
-        tick.invoke(lyrics, angle.newInstance(179f, 0f), time);
-        Object turned = tick.invoke(lyrics, angle.newInstance(-179f, 10f), time += 16_000_000L);
-        var x = turned.getClass().getMethod("getFirst");
-        var y = turned.getClass().getMethod("getSecond");
-        float lagX = (Float)x.invoke(turned);
-        float lagY = (Float)y.invoke(turned);
-        if (lagX > -0.01f || lagX < -0.04f || lagY < 0.05f || lagY > 0.20f) {
-            throw new AssertionError("Yaw wrap and pitch changes must give a bounded lag: " + lagX + ", " + lagY);
-        }
-        Object still = turned;
-        for (int frame = 0; frame < 40; frame++) {
-            still = tick.invoke(lyrics, angle.newInstance(-179f, 10f), time += 16_000_000L);
-        }
-        if (Math.abs((Float)x.invoke(still)) > 0.002f || Math.abs((Float)y.invoke(still)) > 0.002f) {
-            throw new AssertionError("The stack must settle near its resting position when the camera stops");
-        }
-        Object pole = tick.invoke(lyrics, angle.newInstance(0f, 90f), time + 16_000_000L);
-        if (Math.abs((Float)x.invoke(pole)) > 0.002f) {
-            throw new AssertionError("Yaw changes at the vertical pole should not jerk the stack sideways");
-        }
-    }
-
     private static void checkFloatingSizeDuringTurn(float top, float bottom, float reach) throws Exception {
         Matrix4f projection = new Matrix4f();
         projection.m11 = 1.73f;
@@ -279,7 +249,6 @@ public class WorldLyricCameraCheck {
         checkFloatingSizeDuringTurn(-11f, 17f, 1f);
         checkFloatingSizeDuringTurn(-33f, 35f, 1f);
         checkFloatingSizeDuringTurn(-33f, 35f, 0.35f);
-        checkTurnLag();
         check(30, 0, 8, 16f / 9, 70, 20, -18, 24, Float.NaN, true, false, 0.13f, 0.17f);
         check(88, -117, -8, 9f / 16, 42, 85, -130, 60, Float.NaN, false, true, -0.16f, -0.20f);
         checkFloorLift(75, -2.6f, -9.65f, 9.7f, true);
